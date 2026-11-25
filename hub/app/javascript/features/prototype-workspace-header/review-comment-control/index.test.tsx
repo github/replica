@@ -7,8 +7,7 @@ import { ReviewCommentControl } from "."
 
 const actions = {
   onCancelSelection: vi.fn(),
-  onStartAreaSelection: vi.fn(),
-  onStartElementSelection: vi.fn(),
+  onStartSelection: vi.fn(),
 }
 
 beforeEach(() => {
@@ -24,6 +23,40 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("ReviewCommentControl()", () => {
+  it("offers one comment action and the visibility toggle", () => {
+    const onStartSelection = vi.fn()
+    const onToggle = vi.fn()
+    const onCancelSelection = vi.fn()
+    const props = {
+      bridgeReady: true,
+      copy: reviewCommentsCopy,
+      selectionBlocked: false,
+      onStartSelection,
+      onCancelSelection,
+      visibilityAction: { label: "Hide comments", onToggle },
+    }
+    const { rerender } = render(<ReviewCommentControl {...props} selecting={false} />)
+
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2)
+    const comment = screen.getByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel })
+    expect(comment).toHaveAttribute("aria-keyshortcuts", "C")
+    fireEvent.click(comment)
+    expect(onStartSelection).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    const visibility = screen.getByRole("menuitem", { name: "Hide comments" })
+    expect(visibility).not.toHaveAttribute("aria-keyshortcuts")
+    fireEvent.click(visibility)
+    expect(onToggle).toHaveBeenCalledOnce()
+
+    rerender(<ReviewCommentControl {...props} selecting />)
+    const cancel = screen.getByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+    expect(cancel).toHaveAttribute("aria-keyshortcuts", "C")
+    fireEvent.click(cancel)
+    expect(onCancelSelection).toHaveBeenCalledOnce()
+  })
+
   it("aligns the comment icon as a Brand leading visual and describes the menu trigger", () => {
     render(
       <ReviewCommentControl
@@ -45,14 +78,10 @@ describe("ReviewCommentControl()", () => {
         .closest<HTMLElement>('[data-testid="ActionMenu"]')
         ?.style.getPropertyValue("--review-comment-control-menu-height"),
     ).not.toBe("")
-    expect(
-      screen.getByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
-    ).toHaveAttribute("aria-keyshortcuts", "C")
-    fireEvent.keyDown(
-      screen.getByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
-      { key: "Enter" },
-    )
-    expect(actions.onStartElementSelection).toHaveBeenCalledOnce()
+    const comment = screen.getByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel })
+    expect(comment).toHaveAttribute("aria-keyshortcuts", "C")
+    fireEvent.keyDown(comment, { key: "Enter" })
+    expect(actions.onStartSelection).toHaveBeenCalledOnce()
   })
 
   it("preserves the unavailable reason and describes the cancel-selection action", () => {

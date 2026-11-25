@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
 
-import type { AnnotationShortcutModule } from "@/test/as-trusted-keyboard-event"
+import type * as AnnotationShortcut from "@utils/is-annotation-shortcut"
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import { installBridge } from "./index"
 
 vi.mock("@utils/is-annotation-shortcut", async (importOriginal) => {
-  const actual = await importOriginal<AnnotationShortcutModule>()
+  const actual = await importOriginal<typeof AnnotationShortcut>()
   const { asTrustedKeyboardEvent } = await import("@/test/as-trusted-keyboard-event")
   return {
     ...actual,
-    isAnnotationShortcut(event: KeyboardEvent) {
-      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event))
+    isAnnotationShortcut(event: KeyboardEvent, shortcut?: "s" | "c" | "o", shiftKey = false) {
+      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event), shortcut, shiftKey)
     },
   }
 })
@@ -46,7 +46,7 @@ function isSelectionMessage(message: unknown): message is Record<string, unknown
   )
 }
 
-function setup() {
+function setup(mode: "improvement" | "comment" = "improvement") {
   document.body.innerHTML = '<button id="save" aria-label="Save changes">Save changes</button>'
   const target = document.querySelector("button")!
   vi.spyOn(target, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 30, 120, 40))
@@ -63,7 +63,7 @@ function setup() {
     new MessageEvent("message", {
       origin,
       source: window,
-      data: { type: "replica:canvas:select", nonce: "improvement", mode: "improvement" },
+      data: { type: "replica:canvas:select", nonce: mode, mode },
     }),
   )
   const surface = Array.from(
@@ -78,7 +78,7 @@ function setup() {
   function anchor() {
     const selected = post.mock.calls.map(([message]): unknown => message).find(isSelectionMessage)
     if (!selected) throw new Error("Expected a selection message")
-    expect(selected.nonce).toBe("improvement")
+    expect(selected.nonce).toBe(mode)
     expect(selected).not.toHaveProperty("capturePending")
     expect(selected).not.toHaveProperty("capture")
     return REVIEW_ANCHOR_SCHEMA.parse(selected.anchor)
@@ -86,10 +86,13 @@ function setup() {
   return { surface, target, pointer, anchor, post }
 }
 
-function withSelection(run: (selection: ReturnType<typeof setup>) => void) {
+function withSelection(
+  run: (selection: ReturnType<typeof setup>) => void,
+  mode: "improvement" | "comment" = "improvement",
+) {
   installBridge(origin)
   try {
-    run(setup())
+    run(setup(mode))
   } finally {
     const bridgeWindow = window as Window & { [installed]?: () => void }
     bridgeWindow[installed]?.()
@@ -169,6 +172,8 @@ describe("installBridge() improvement selection", () => {
       type: "replica:canvas:request-ready",
       nonce: "shortcut",
       selectionShortcut: true,
+      commentShortcut: true,
+      optionsShortcut: true,
     })
     installBridge(origin)
     post.mockClear()
@@ -179,6 +184,12 @@ describe("installBridge() improvement selection", () => {
       cancelable: true,
     })
     target.dispatchEvent(shortcut)
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "c", bubbles: true, cancelable: true }),
+    )
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "o", bubbles: true, cancelable: true }),
+    )
     expect(shortcut.defaultPrevented).toBe(false)
     expect(post).not.toHaveBeenCalledWith(
       expect.objectContaining({
@@ -190,6 +201,14 @@ describe("installBridge() improvement selection", () => {
       expect.objectContaining({
         type: "replica:canvas:selection-toggle-requested",
       }),
+      origin,
+    )
+    expect(post).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "replica:canvas:comment-cycle-requested" }),
+      origin,
+    )
+    expect(post).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "replica:canvas:options-shortcut" }),
       origin,
     )
 
@@ -238,7 +257,7 @@ describe("installBridge() improvement selection", () => {
     }
   })
 
-  it("respects a shortcut handled by the prototype", () => {
+  it.each(["s", "c", "o"])("respects %s handled by the prototype", (key) => {
     const post = vi.spyOn(window, "postMessage")
     const bridgeWindow = window as Window & { [installed]?: () => void }
     const target = document.createElement("button")
@@ -252,6 +271,8 @@ describe("installBridge() improvement selection", () => {
           type: "replica:canvas:request-ready",
           nonce: "shortcut",
           selectionShortcut: true,
+          commentShortcut: true,
+          optionsShortcut: true,
         },
       }),
     )
@@ -262,14 +283,22 @@ describe("installBridge() improvement selection", () => {
     post.mockClear()
     try {
       const shortcut = new KeyboardEvent("keydown", {
-        key: "s",
+        key,
         bubbles: true,
         cancelable: true,
       })
+
       target.dispatchEvent(shortcut)
       expect(shortcut.defaultPrevented).toBe(true)
       expect(post).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: "replica:canvas:selection-toggle-requested" }),
+        expect.objectContaining({
+          type:
+            key === "s"
+              ? "replica:canvas:selection-toggle-requested"
+              : key === "c"
+                ? "replica:canvas:comment-cycle-requested"
+                : "replica:canvas:options-shortcut",
+        }),
         expect.anything(),
       )
     } finally {
@@ -278,69 +307,280 @@ describe("installBridge() improvement selection", () => {
     }
   })
 
-  it("picks an element without activating its underlying control", () => {
-    withSelection(({ target, pointer, anchor }) => {
-      const activated = vi.fn()
-      target.addEventListener("click", activated)
-      pointer("pointerdown", 40, 40)
-      pointer("pointerup", 42, 42)
-      expect(anchor()).toMatchObject({
-        kind: "element",
-        selector: "#save",
-        accessibleName: "Save changes",
-        rect: { x: 20, y: 30, width: 120, height: 40 },
-        route: { pathname: "/", search: "", hash: "" },
+  it("forwards C only for its own authorized opt-in without replacing the S nonce", () => {
+    const post = vi.spyOn(window, "postMessage")
+    const bridgeWindow = window as Window & { [installed]?: () => void }
+    installBridge(origin)
+    function press(key = "c") {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+      document.dispatchEvent(event)
+      return event
+    }
+    const optIn = {
+      type: "replica:canvas:request-ready",
+      nonce: "comment-shortcut",
+      commentShortcut: true,
+    }
+    try {
+      request({
+        type: "replica:canvas:request-ready",
+        nonce: "selection-shortcut",
+        selectionShortcut: true,
       })
-      expect(activated).not.toHaveBeenCalled()
-    })
+
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(false)
+      request(optIn, "https://untrusted.example")
+      request(optIn, origin, null)
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(false)
+      expect(post).not.toHaveBeenCalled()
+
+      request(optIn)
+      request({ type: "replica:canvas:request-ready", nonce: "poll" })
+      post.mockClear()
+      expect(press("C").defaultPrevented).toBe(true)
+      expect(post).toHaveBeenCalledExactlyOnceWith(
+        { type: "replica:canvas:comment-cycle-requested", nonce: "comment-shortcut" },
+        origin,
+      )
+      post.mockClear()
+      expect(press("s").defaultPrevented).toBe(true)
+      expect(post).toHaveBeenCalledExactlyOnceWith(
+        { type: "replica:canvas:selection-toggle-requested", nonce: "selection-shortcut" },
+        origin,
+      )
+
+      request({ ...optIn, nonce: "current-comment" })
+      request({ ...optIn, commentShortcut: false })
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(true)
+      expect(post).toHaveBeenCalledExactlyOnceWith(
+        { type: "replica:canvas:comment-cycle-requested", nonce: "current-comment" },
+        origin,
+      )
+      request({ ...optIn, nonce: "current-comment", commentShortcut: false })
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(false)
+      expect(post).not.toHaveBeenCalled()
+    } finally {
+      bridgeWindow[installed]?.()
+    }
   })
 
-  it("selects a reverse rectangle and preserves the real route and nearby element context", () => {
-    withSelection(({ pointer, anchor }) => {
-      pointer("pointerdown", 400, 300)
-      pointer("pointermove", 100, 100)
-      pointer("pointerup", 100, 100)
-      expect(anchor()).toMatchObject({
-        kind: "area",
-        rect: { x: 100, y: 100, width: 300, height: 200 },
-        elements: [{ selector: "#save", accessibleName: "Save changes" }],
+  it("forwards Shift+C only for an authorized pins opt-in and keeps shortcut nonces separate", () => {
+    const post = vi.spyOn(window, "postMessage")
+    const bridgeWindow = window as Window & { [installed]?: () => void }
+    const input = document.createElement("input")
+    document.body.append(input)
+    installBridge(origin)
+    function press(target: EventTarget = document, options: KeyboardEventInit = {}) {
+      const event = new KeyboardEvent("keydown", {
+        key: "C",
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+        ...options,
       })
-    })
+      target.dispatchEvent(event)
+      return event
+    }
+    const optIn = {
+      type: "replica:canvas:request-ready",
+      nonce: "pins-first",
+      pinsShortcut: true,
+    }
+    try {
+      request({ type: "replica:canvas:request-ready", nonce: "comment", commentShortcut: true })
+      request({ type: "replica:canvas:request-ready", nonce: "selection", selectionShortcut: true })
+      request(optIn, "https://untrusted.example")
+      request(optIn, origin, null)
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(false)
+      expect(post).not.toHaveBeenCalled()
+
+      request(optIn)
+      request({ type: "replica:canvas:request-ready", nonce: "poll" })
+      post.mockClear()
+      expect(press(input).defaultPrevented).toBe(false)
+      expect(press(document, { ctrlKey: true }).defaultPrevented).toBe(false)
+      expect(post).not.toHaveBeenCalled()
+      expect(press().defaultPrevented).toBe(true)
+      expect(post).toHaveBeenLastCalledWith(
+        { type: "replica:canvas:comment-visibility-toggle-requested", nonce: "pins-first" },
+        origin,
+      )
+
+      request({ ...optIn, nonce: "pins-current" })
+      request({ ...optIn, pinsShortcut: false })
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(true)
+      expect(post).toHaveBeenLastCalledWith(
+        { type: "replica:canvas:comment-visibility-toggle-requested", nonce: "pins-current" },
+        origin,
+      )
+      request({ ...optIn, nonce: "pins-current", pinsShortcut: false })
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(false)
+      expect(post).not.toHaveBeenCalled()
+      expect(press(document, { key: "c", shiftKey: false }).defaultPrevented).toBe(true)
+      expect(post).toHaveBeenLastCalledWith(
+        { type: "replica:canvas:comment-cycle-requested", nonce: "comment" },
+        origin,
+      )
+      expect(press(document, { key: "s", shiftKey: false }).defaultPrevented).toBe(true)
+      expect(post).toHaveBeenLastCalledWith(
+        { type: "replica:canvas:selection-toggle-requested", nonce: "selection" },
+        origin,
+      )
+    } finally {
+      bridgeWindow[installed]?.()
+      input.remove()
+    }
   })
+
+  it("forwards O only for its own authorized opt-in and keeps the current nonce until disabled", () => {
+    const post = vi.spyOn(window, "postMessage")
+    const bridgeWindow = window as Window & { [installed]?: () => void }
+    installBridge(origin)
+    function press(key = "o", target: EventTarget = document) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+      target.dispatchEvent(event)
+      return event
+    }
+    const optIn = {
+      type: "replica:canvas:request-ready",
+      nonce: "options-first",
+      optionsShortcut: true,
+    }
+    const input = document.createElement("input")
+    document.body.append(input)
+    try {
+      request({ type: "replica:canvas:request-ready", nonce: "selection", selectionShortcut: true })
+      request({ type: "replica:canvas:request-ready", nonce: "comment", commentShortcut: true })
+      request(optIn, "https://untrusted.example")
+      request(optIn, origin, null)
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(false)
+      expect(post).not.toHaveBeenCalled()
+
+      request(optIn)
+      request({ type: "replica:canvas:request-ready", nonce: "poll" })
+      post.mockClear()
+      expect(press("o", input).defaultPrevented).toBe(false)
+      expect(post).not.toHaveBeenCalled()
+      expect(press("O").defaultPrevented).toBe(true)
+      expect(post).toHaveBeenCalledExactlyOnceWith(
+        { type: "replica:canvas:options-shortcut", nonce: "options-first" },
+        origin,
+      )
+
+      request({ ...optIn, nonce: "options-current" })
+      request({ ...optIn, optionsShortcut: false })
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(true)
+      expect(post).toHaveBeenCalledExactlyOnceWith(
+        { type: "replica:canvas:options-shortcut", nonce: "options-current" },
+        origin,
+      )
+      request({ ...optIn, nonce: "options-current", optionsShortcut: false })
+      post.mockClear()
+      expect(press().defaultPrevented).toBe(false)
+      expect(post).not.toHaveBeenCalled()
+      expect(press("c").defaultPrevented).toBe(true)
+      expect(post).toHaveBeenLastCalledWith(
+        { type: "replica:canvas:comment-cycle-requested", nonce: "comment" },
+        origin,
+      )
+      expect(press("s").defaultPrevented).toBe(true)
+      expect(post).toHaveBeenLastCalledWith(
+        { type: "replica:canvas:selection-toggle-requested", nonce: "selection" },
+        origin,
+      )
+    } finally {
+      bridgeWindow[installed]?.()
+      input.remove()
+    }
+  })
+
+  it.each(["improvement", "comment"] as const)(
+    "picks an element in %s mode without activating its underlying control",
+    (mode) => {
+      withSelection(({ target, pointer, anchor }) => {
+        const activated = vi.fn()
+        target.addEventListener("click", activated)
+        pointer("pointerdown", 40, 40)
+        pointer("pointerup", 47, 40)
+        expect(anchor()).toMatchObject({
+          kind: "element",
+          selector: "#save",
+          accessibleName: "Save changes",
+          rect: { x: 20, y: 30, width: 120, height: 40 },
+          route: { pathname: "/", search: "", hash: "" },
+        })
+        expect(activated).not.toHaveBeenCalled()
+      }, mode)
+    },
+  )
+
+  it.each(["improvement", "comment"] as const)(
+    "selects a reverse rectangle in %s mode and preserves nearby element context",
+    (mode) => {
+      withSelection(({ pointer, anchor }) => {
+        pointer("pointerdown", 400, 300)
+        pointer("pointermove", 100, 100)
+        pointer("pointerup", 100, 100)
+        expect(anchor()).toMatchObject({
+          kind: "area",
+          rect: { x: 100, y: 100, width: 300, height: 200 },
+          elements: [{ selector: "#save", accessibleName: "Save changes" }],
+        })
+      }, mode)
+    },
+  )
 
   it.each([
-    [7, 8, false],
-    [8, 7, false],
-    [8, 8, true],
-  ])("requires eight pixels in both rectangle dimensions (%s by %s)", (width, height, accepted) => {
-    withSelection(({ pointer, post, anchor }) => {
-      pointer("pointerdown", 100, 100)
-      pointer("pointerup", 100 + width, 100 + height)
-      if (accepted) expect(anchor().kind).toBe("area")
-      else
-        expect(post).toHaveBeenLastCalledWith(
-          {
-            type: "replica:canvas:selection-failed",
-            nonce: "improvement",
-            reason: "area-too-small",
-          },
-          origin,
-        )
-    })
-  })
+    ["improvement", 7, 8, false],
+    ["improvement", 8, 7, false],
+    ["improvement", 8, 8, true],
+    ["comment", 7, 8, false],
+    ["comment", 8, 7, false],
+    ["comment", 8, 8, true],
+    ["comment", 6, 6, false],
+  ] as const)(
+    "requires eight pixels in both %s rectangle dimensions (%s by %s)",
+    (mode, width, height, accepted) => {
+      withSelection(({ pointer, post, anchor }) => {
+        pointer("pointerdown", 100, 100)
+        pointer("pointerup", 100 + width, 100 + height)
+        if (accepted) expect(anchor().kind).toBe("area")
+        else
+          expect(post).toHaveBeenLastCalledWith(
+            {
+              type: "replica:canvas:selection-failed",
+              nonce: mode,
+              reason: "area-too-small",
+            },
+            origin,
+          )
+      }, mode)
+    },
+  )
 
-  it.each(["pointercancel", "lostpointercapture"])(
+  it.each(["pointercancel", "lostpointercapture", "cancel-selection"])(
     "cleans up an interrupted %s gesture",
     (event) => {
       withSelection(({ surface, pointer, post }) => {
         pointer("pointerdown", 100, 100)
-        surface.dispatchEvent(new Event(event))
+        if (event === "cancel-selection")
+          request({ type: "replica:canvas:cancel-selection", nonce: "comment" })
+        else surface.dispatchEvent(new Event(event))
         pointer("pointerup", 300, 300)
         expect(post.mock.calls.some(([message]) => isSelectionMessage(message))).toBe(false)
         expect(
           document.querySelector('[data-replica-canvas-bridge][style*="crosshair"]'),
         ).toBeNull()
-      })
+      }, "comment")
     },
   )
 

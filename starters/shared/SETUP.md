@@ -25,10 +25,10 @@ The proxy has a different origin and does not copy original-server localStorage.
 
 **Fix with Copilot** requests scoped diagnosis. Repairs and repository commands need separate approval. **Dismiss** leaves the preview usable. Neither action commits, pushes or publishes. Hub authorization and a matching imported Build remain required for review actions.
 
-### Controls
+### Options
 
-Put versioned definitions in `public/controls.replica.json` or the build tool's equivalent static-assets directory. Each control binds an existing native field/button, CSS property, app-owned query/hash setting or optional exposed app API. See [Prototype controls](REPLICA.md#prototype-controls) and the [authoring reference](.agents/skills/prototype-controls/references/authoring.md).
+Put versioned definitions in `public/controls.replica.json` or the build tool's equivalent static-assets directory. Each option binds an existing native field/button, CSS property, app-owned query/hash setting or optional exposed app API. See [Prototype options](REPLICA.md#prototype-controls) and the [authoring reference](.agents/skills/prototype-controls/references/authoring.md). The AI accepts both "options" and "controls".
 
-Reload the preview page after editing definitions. Missing definitions mean no Controls; invalid definitions show a local error without breaking the app and reject publication when present in the retained Build. Missing or stale targets disable only the affected control. The ordinary app remains usable without Replica.
+Reload the preview page after editing definitions. Missing definitions mean no options; invalid definitions show a local error without breaking the app and reject publication when present in the retained Build. Missing or stale targets disable only the affected option. The ordinary app remains usable without Replica.
 
 Canvas and Hub save ordinary overrides in the prototype URL as `rc.<scope>.<controlId>`, never in private capability URLs or value files. Reset restores defaults and removes overrides, including inactive sets. Existing private files stay untouched and are not restored.

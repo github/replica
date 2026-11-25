@@ -312,8 +312,8 @@ function field(parent, label) {
   return parent.document.getElementById(found.htmlFor)
 }
 async function open(parent) {
-  await settled(() => parent.document.querySelector('[aria-label="Controls"]'))
-  button(parent, "Controls").click()
+  await settled(() => parent.document.querySelector('[aria-label="Options"]'))
+  button(parent, "Options").click()
   await settled(() => parent.document.querySelector(".canvas-controls-panel"))
 }
 async function change(parent, label, value) {
@@ -391,14 +391,14 @@ it("uses the real Build iframe handshake and renders all eleven controls without
         .querySelector('[aria-label="Expand Variant B"]')
         ?.getAttribute("aria-expanded") === "false",
   )
-  button(parent, "Collapse controls").click()
-  button(parent, "Controls").click()
+  button(parent, "Collapse options").click()
+  button(parent, "Options").click()
   await settled(() => !parent.document.querySelector(".canvas-controls-panel"))
-  button(parent, "Controls").click()
+  button(parent, "Options").click()
   await settled(() => parent.document.querySelector(".canvas-controls-panel"))
   assert.equal(parent.document.querySelector("iframe"), frame)
   assert.equal(parent.document.querySelector(".canvas-controls-panel").dataset.collapsed, "true")
-  button(parent, "Expand controls").click()
+  button(parent, "Expand options").click()
   await settled(
     () =>
       parent.document
@@ -428,7 +428,7 @@ it("restores compatible values before showing fields in either script order and 
     )
     child.fixture.mainPage()
     await settled(() => parent.document.querySelector('input[value="Restored"]'))
-    button(parent, "Reset all controls").click()
+    button(parent, "Reset all options").click()
     await settled(
       () => child.fixture.other.getSnapshot().values.otherTitle === "Other" && saved() === null,
     )
@@ -448,7 +448,7 @@ it("clears saved overrides when an app refuses a default and keeps other control
   count.addEventListener("input", () => {
     if (count.value === "2") count.value = "5"
   })
-  button(parent, "Reset all controls").click()
+  button(parent, "Reset all options").click()
   await settled(() => saved() === null && child.document.body.dataset.title === "Preview")
   await settled(() => parent.document.body.textContent.includes("rejected or adjusted"))
   assert.equal(child.fixture.controller.getSnapshot().values.count, 5)
@@ -504,8 +504,8 @@ it("ignores legacy browser-saved values and never applies foreign frame or stale
   )
   await settled(() => /stale command/.test(parent.fixtureMessages.at(-1).error ?? ""))
   assert.equal(controller.getSnapshot().values.title, "In memory")
-  await settled(() => !button(parent, "Reset all controls").disabled)
-  button(parent, "Reset all controls").click()
+  await settled(() => !button(parent, "Reset all options").disabled)
+  button(parent, "Reset all options").click()
   await settled(() => controller.getSnapshot().values.title === "Preview")
   assert.equal(parent.localStorage.getItem("replica:build-controls:v1:fixture"), "false")
   assert.equal(controller.getSnapshot().values.title, "Preview")
@@ -514,11 +514,11 @@ it("ignores legacy browser-saved values and never applies foreign frame or stale
 it("reports missing definitions without claiming a controls connection", async (t) => {
   const { parent } = setup(t, { runtime: false })
   await open(parent)
-  await settled(() => parent.document.body.textContent.includes("No active controls"))
+  await settled(() => parent.document.body.textContent.includes("No active options"))
   assert.equal(parent.document.querySelector("input"), null)
   assert.equal(
     [...parent.document.querySelectorAll("button")].some(
-      (entry) => entry.textContent === "Reset all controls",
+      (entry) => entry.textContent === "Reset all options",
     ),
     false,
   )
@@ -679,7 +679,7 @@ it("renders ordinary app state without a Replica dependency when delivery is una
   assert.equal(child.document.body.dataset.title, "Ordinary app")
   assert.equal(child[child.Symbol.for("replica.controls.injected.runtime")], undefined)
   await open(parent)
-  await settled(() => parent.document.body.textContent.includes("Build Controls did not connect"))
+  await settled(() => parent.document.body.textContent.includes("Build Options did not connect"))
   assert.equal(parent.document.querySelector("input"), null)
   assert.equal(child.document.body.dataset.title, "Ordinary app")
 })

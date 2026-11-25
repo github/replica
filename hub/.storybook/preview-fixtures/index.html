@@ -27,5 +27,39 @@
       <p>Review this design with Octocat and Mona.</p>
       <button id="save">Save</button>
     </main>
+    <script>
+      const route = { pathname: "/", search: "", hash: "" }
+      window.addEventListener("message", ({ data, origin, source }) => {
+        if (source !== parent || !data || typeof data.nonce !== "string") return
+        const send = (message) => parent.postMessage({ nonce: data.nonce, ...message }, origin)
+        if (data.type === "replica:canvas:request-ready")
+          send({
+            type: "replica:canvas:ready",
+            protocolVersion: 1,
+            improvementSelection: true,
+            route,
+          })
+        if (data.type === "replica:canvas:resolve" && Array.isArray(data.anchors)) {
+          const bounds = document.getElementById("save").getBoundingClientRect()
+          const rect = {
+            x: bounds.x + window.scrollX,
+            y: bounds.y + window.scrollY,
+            width: bounds.width,
+            height: bounds.height,
+          }
+          send({
+            type: "replica:canvas:resolved",
+            protocolVersion: 1,
+            route,
+            results: data.anchors.map(({ id }) => ({
+              id,
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+              rect,
+            })),
+          })
+        }
+      })
+    </script>
   </body>
 </html>

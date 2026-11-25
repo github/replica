@@ -23,8 +23,8 @@ describe("PageControlsExample()", () => {
         <PageControlsExample />
       </ThemeProvider>,
     )
-    const panel = screen.getByRole("complementary", { name: "Controls" })
-    fireEvent.click(screen.getByRole("button", { name: "Reset all controls" }))
+    const panel = screen.getByRole("complementary", { name: "Options" })
+    fireEvent.click(screen.getByRole("button", { name: "Reset all options" }))
     expect(within(panel).queryByRole("heading")).not.toBeInTheDocument()
     expect(within(panel).queryByText("Shared")).not.toBeInTheDocument()
     expect(within(panel).queryByText("Dashboard")).not.toBeInTheDocument()
@@ -42,7 +42,7 @@ describe("PageControlsExample()", () => {
     expect(within(content).getByRole("button", { name: "Collapse Content" })).toHaveClass(
       "controls-ghost-button",
     )
-    expect(within(panel).getByRole("button", { name: "Collapse controls" })).toHaveClass(
+    expect(within(panel).getByRole("button", { name: "Collapse options" })).toHaveClass(
       "controls-ghost-button",
     )
     expect(content.querySelector(".controls-group-body")?.childElementCount).toBe(2)
@@ -115,7 +115,7 @@ describe("PageControlsExample()", () => {
         "Saved details",
       ),
     )
-    fireEvent.click(screen.getByRole("button", { name: "Reset all controls" }))
+    fireEvent.click(screen.getByRole("button", { name: "Reset all options" }))
     fireEvent.click(screen.getByRole("button", { name: "Dashboard page" }))
     await waitFor(() =>
       expect(within(panel).getByRole("textbox", { name: "Dashboard title" })).toHaveValue(

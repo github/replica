@@ -1919,14 +1919,18 @@ exit 1
       const asset = await fetch(new URL("/assets/renderer.js", server.url))
       assert.equal(asset.status, 200)
       assert.match(await asset.text(), /renderer-vendor\.js/)
-      for (const name of [
-        "renderer-vendor.js",
-        "renderer-rolldown-runtime.js",
-        "renderer-improvement-notes-prototype.js",
-        "renderer-improvement-notes-vendor.js",
-        "renderer-prototype-canvas-thread-sample.js",
-        "renderer-prototype-canvas-improvement-threads.js",
-      ]) {
+      const pendingChunks = ["renderer.js"]
+      const rendererChunks = new Set()
+      while (pendingChunks.length > 0) {
+        const name = pendingChunks.pop()
+        if (rendererChunks.has(name)) continue
+        rendererChunks.add(name)
+        const source = await readFile(new URL(`../assets/${name}`, import.meta.url), "utf8")
+        for (const [, imported] of source.matchAll(/(?:from\s*|import\s*\(\s*)"\.\/([^"]+\.js)"/g))
+          pendingChunks.push(imported)
+      }
+      assert.ok(rendererChunks.size > 1)
+      for (const name of rendererChunks) {
         const chunk = await fetch(new URL(`/assets/${name}`, server.url))
         assert.equal(chunk.status, 200)
         assert.equal(chunk.headers.get("content-type"), "text/javascript; charset=utf-8")

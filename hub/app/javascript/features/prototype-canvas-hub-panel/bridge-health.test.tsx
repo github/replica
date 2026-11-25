@@ -141,7 +141,7 @@ it.each([
     respond(ready)
     fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+      await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
     )
     expect(
       await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
@@ -174,7 +174,7 @@ it.each([
     if (message.type !== "replica:canvas:selected") {
       fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
       fireEvent.click(
-        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
       )
       await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
       respond({ type: "replica:canvas:selected", anchor: octocatRootComment.anchor })
@@ -265,10 +265,7 @@ it.each(["area", "element"] as const)(
             elements: [{ ...validAnchor.elements[0], textExcerpt: `${"a".repeat(499)}\u00b7` }],
           }
         : { ...validAnchor, selectedText: `${"a".repeat(1999)}\u00b7` }
-    const selectionLabel =
-      kind === "area"
-        ? reviewCommentsCopy.highlightRegionLabel
-        : reviewCommentsCopy.commentOnElementLabel
+    const selectionLabel = reviewCommentsCopy.commentMenuLabel
     await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
     const post = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
     respond({

@@ -209,8 +209,8 @@ panel rather than adding settings to the product UI.
 
 After Copilot adds the definitions:
 
-1. Reload the preview page and open **Controls**, the sliders icon in the canvas toolbar.
-2. Change each setting and check that the prototype responds. Use **Reset all controls** to restore the defaults.
+1. Reload the preview page and open **Options**, the sliders icon in the canvas toolbar, or press **O**.
+2. Change each setting and check that the prototype responds. Use **Reset all options** to restore the defaults.
 3. Publish the changes to make them available in Hub previews too.
 4. To share a particular scenario, select **Include current control settings** on the canvas sharing page before copying the internal or public link.
 

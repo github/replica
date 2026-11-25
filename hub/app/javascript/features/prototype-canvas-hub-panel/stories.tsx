@@ -10,44 +10,6 @@ import { CanvasReviewFeedback } from "@components/canvas-review-feedback"
 
 import { PrototypeCanvasHubPanel } from "."
 
-const canvasPreview = `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><style>
-body { margin: 0; font: 16px system-ui; background: #fff; color: #1f2328; }
-main { padding: 80px clamp(24px, 8vw, 120px); }
-button { padding: 12px 24px; border: 1px solid #d1d9e0; border-radius: 6px; background: #f6f8fa; color: #1f2328; }
-</style></head>
-<body><main><h1>Welcome prototype</h1><p>A place to try the new experience.</p><button id="save">Save</button></main>
-<script>
-let selection = null;
-const parentOrigin = parent.location.origin;
-const route = { pathname: "/", search: "", hash: "" };
-window.addEventListener("message", ({ data }) => {
-  if (!data || !data.nonce) return;
-  const send = (message) => parent.postMessage({ nonce: data.nonce, ...message }, parentOrigin);
-  if (data.type === "replica:canvas:request-ready")
-    send({ type: "replica:canvas:ready", protocolVersion: 1, route });
-  if (data.type === "replica:canvas:resolve") {
-    const bounds = document.getElementById("save").getBoundingClientRect();
-    const rect = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
-    send({ type: "replica:canvas:resolved", protocolVersion: 1, route,
-      results: data.anchors.map(({ id }) => ({ id, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, rect })) });
-  }
-  if (data.type === "replica:canvas:select") selection = data.nonce;
-  if (data.type === "replica:canvas:cancel-selection") selection = null;
-});
-document.getElementById("save").addEventListener("click", () => {
-  if (!selection) return;
-  const bounds = document.getElementById("save").getBoundingClientRect();
-  parent.postMessage({ type: "replica:canvas:selected", nonce: selection, anchor: {
-    schemaVersion: 1, kind: "element", route, selector: "#save", accessibleName: "Save", tagName: "button", selectedText: "",
-    rect: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
-    viewport: { width: innerWidth, height: innerHeight, scrollX: 0, scrollY: 0 }, elementOffset: { x: .5, y: .5 }
-  } }, parentOrigin);
-  selection = null;
-});
-</script></body></html>`
-
 function ConnectedDemo({
   preview = false,
   rateLimited = false,
@@ -185,7 +147,7 @@ function ConnectedDemo({
         <iframe
           ref={frameRef}
           title="Welcome prototype"
-          srcDoc={canvasPreview}
+          src={new URL("/prototype-preview/review-comments.html", window.location.href).href}
           style={{ width: "100%", height: "calc(100% - 2.75rem)", border: 0 }}
         />
       ) : null}
@@ -617,7 +579,7 @@ export const PinWithCommentsClosed: Story = {
     docs: {
       description: {
         story:
-          "Click the avatar pin beside Save to open its conversation while the comments pane stays closed. To post a comment, choose Add a comment, then Comment on element, and click Save.",
+          "Click the avatar pin beside Save to open its conversation while the comments pane stays closed. To post a comment, choose Add a comment and click Save.",
       },
     },
   },
@@ -627,6 +589,28 @@ export const PinWithCommentsClosed: Story = {
       canvas.getByRole("button", { name: /^Comments, 1/ }).getAttribute("aria-expanded") !== "false"
     )
       throw new Error("The pin playground must start with the comments pane closed.")
+  },
+}
+
+export const PinDuringCommentSelection: Story = {
+  ...PinWithCommentsClosed,
+  parameters: {
+    ...PinWithCommentsClosed.parameters,
+    docs: {
+      description: {
+        story:
+          "Comment selection is active. Click the pin to cancel selection and open the conversation.",
+      },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await canvas.findByRole("button", { name: "Unread thread started by @octocat" })
+    await userEvent.click(canvas.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    await userEvent.click(
+      await canvas.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
+    )
+    await canvas.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+    await canvas.findByRole("button", { name: "Unread thread started by @octocat" })
   },
 }
 
@@ -698,7 +682,9 @@ export const PostedCommentWithCommentsClosed: Story = {
   play: async ({ canvas, canvasElement, userEvent }) => {
     await canvas.findByRole("button", { name: "Unread thread started by @octocat" })
     await userEvent.click(canvas.getByRole("button", { name: "Add a comment" }))
-    await userEvent.click(await canvas.findByRole("menuitem", { name: "Comment on element" }))
+    await userEvent.click(
+      await canvas.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
+    )
     const target = canvasElement.querySelector("iframe")?.contentDocument?.getElementById("save")
     if (!target) throw new Error("The preview target is unavailable.")
     await userEvent.click(target)

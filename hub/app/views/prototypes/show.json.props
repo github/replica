@@ -156,8 +156,6 @@ json.reviewComments do
     json.heading t("prototypes.show.review_comments.heading")
     json.closeLabel t("prototypes.show.review_comments.close")
     json.commentMenuLabel t("prototypes.show.review_comments.comment_menu")
-    json.commentOnElementLabel t("prototypes.show.review_comments.comment_on_element")
-    json.highlightRegionLabel t("prototypes.show.review_comments.highlight_region")
     json.cancelSelectionLabel t("prototypes.show.review_comments.cancel_selection")
     json.bridgeUnavailableLabel t("prototypes.show.review_comments.bridge_unavailable")
     json.selectionBlockedLabel t("prototypes.show.review_comments.selection_blocked")

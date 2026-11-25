@@ -26,6 +26,7 @@ export function ReviewCommentsSidebar({
   selectedThreadId,
   selectionBlocked,
   closeBlocked,
+  closeShortcut = "Shift+C",
   showPins,
   loading,
   loadFailed,
@@ -108,7 +109,7 @@ export function ReviewCommentsSidebar({
         title={copy.heading}
         closeLabel={copy.closeLabel}
         closeDisabled={closeBlocked}
-        closeShortcut="Shift+C"
+        closeShortcut={closeShortcut ?? undefined}
         onClose={onClose}
         headerAccessory={<HubCounter>{totalCount}</HubCounter>}
       >
@@ -128,7 +129,7 @@ export function ReviewCommentsSidebar({
         <HubIconButton
           icon={XIcon}
           aria-label={copy.closeLabel}
-          aria-keyshortcuts="Shift+C"
+          aria-keyshortcuts={closeShortcut ?? undefined}
           description={copy.closeLabel}
           size="small"
           variant="invisible"

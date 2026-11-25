@@ -64,7 +64,7 @@ function Example({
   return (
     <ThemeProvider colorMode="auto">
       <button type="button" onClick={() => setOpen(!open)}>
-        Controls
+        Options
       </button>
       <button type="button" onClick={() => setClicks(clicks + 1)}>
         Prototype clicks: {clicks}
@@ -141,7 +141,7 @@ beforeEach(() => {
 })
 
 describe("ControlsPanel()", () => {
-  it("links to the shared Controls guide only in the genuine empty state", () => {
+  it("links to the shared Options guide only in the genuine empty state", () => {
     const empty: PanelState = { ...ready, scopes: [], status: "no-controls" }
     const view = render(<Example state={empty} />)
     const link = screen.getByRole("link", { name: "Learn more" })
@@ -152,7 +152,7 @@ describe("ControlsPanel()", () => {
     expect(link).toHaveAttribute("target", "_blank")
     expect(link).toHaveAttribute("rel", "noopener noreferrer")
     expect(link).toHaveAccessibleName("Learn more")
-    expect(screen.getByText(/^No active controls\./)).toBeVisible()
+    expect(screen.getByText(/^No active options\./)).toBeVisible()
     for (const state of [
       ready,
       { ...empty, loading: true },
@@ -182,7 +182,7 @@ describe("ControlsPanel()", () => {
     const failed = { ...ready, scopes: [scopeProjection(controller)] }
     const onDiagnose = vi.fn(() => Promise.resolve())
     const view = render(<Example state={{ ...failed, loading: true }} onDiagnose={onDiagnose} />)
-    expect(screen.getByText("Connecting controls...")).toBeVisible()
+    expect(screen.getByText("Connecting options...")).toBeVisible()
     expect(screen.queryByText(technical)).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Fix with Copilot" })).not.toBeInTheDocument()
     expect(onDiagnose).not.toHaveBeenCalled()
@@ -220,31 +220,31 @@ describe("ControlsPanel()", () => {
     expect(screen.getByLabelText("Show search")).toBeEnabled()
     expect(screen.queryByText("Show search is unavailable")).not.toBeInTheDocument()
     expect(screen.queryByText("Technical details")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Move controls" })).toHaveFocus()
+    expect(screen.getByRole("button", { name: "Move options" })).toHaveFocus()
     expect(screen.queryByRole("button", { name: "Requested in chat" })).not.toBeInTheDocument()
     expect(onDiagnose).toHaveBeenCalledOnce()
   })
 
   it("keeps a single header reset icon while collapsed and resets immediately", () => {
     const { container } = render(<Example />)
-    const reset = screen.getByRole("button", { name: "Reset all controls" })
+    const reset = screen.getByRole("button", { name: "Reset all options" })
     expect(container.querySelector(".canvas-controls-header")).toContainElement(reset)
     expect(reset.querySelector(".octicon-sync")).toBeInTheDocument()
     expect(container.querySelector(".canvas-controls-footer")).not.toBeInTheDocument()
     fireEvent.click(reset)
     expect(connection.resetAll).toHaveBeenCalledOnce()
-    fireEvent.click(screen.getByRole("button", { name: "Collapse controls" }))
-    expect(screen.getByRole("button", { name: "Reset all controls" })).toBe(reset)
+    fireEvent.click(screen.getByRole("button", { name: "Collapse options" }))
+    expect(screen.getByRole("button", { name: "Reset all options" })).toBe(reset)
     fireEvent.click(reset)
     expect(connection.resetAll).toHaveBeenCalledTimes(2)
-    fireEvent.click(screen.getByRole("button", { name: "Expand controls" }))
-    expect(screen.getAllByRole("button", { name: "Reset all controls" })).toHaveLength(1)
+    fireEvent.click(screen.getByRole("button", { name: "Expand options" }))
+    expect(screen.getAllByRole("button", { name: "Reset all options" })).toHaveLength(1)
   })
 
   it("disables Reset at defaults and enables it for active, inactive or saved changes", () => {
     const defaults = { ...ready, hasResettableValues: false }
     const view = render(<Example state={defaults} />)
-    const reset = screen.getByRole("button", { name: "Reset all controls" })
+    const reset = screen.getByRole("button", { name: "Reset all options" })
     expect(reset).toBeDisabled()
     fireEvent.click(reset)
     expect(connection.resetAll).not.toHaveBeenCalled()
@@ -265,7 +265,7 @@ describe("ControlsPanel()", () => {
     expect(reset).toBeEnabled()
     view.rerender(<Example state={ready} />)
     expect(reset).toBeEnabled()
-    fireEvent.click(screen.getByRole("button", { name: "Collapse controls" }))
+    fireEvent.click(screen.getByRole("button", { name: "Collapse options" }))
     view.rerender(<Example state={defaults} />)
     expect(reset).toBeDisabled()
   })
@@ -304,7 +304,7 @@ describe("ControlsPanel()", () => {
         onDiagnose={() => Promise.resolve()}
       />,
     )
-    expect(screen.getByText("Local controls couldn't connect.")).toBeVisible()
+    expect(screen.getByText("Local options couldn't connect.")).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: "Retry connection" }))
     expect(connection.retry).toHaveBeenCalledTimes(1)
   })
@@ -359,7 +359,7 @@ describe("ControlsPanel()", () => {
     const { rerender } = render(<Example onDiagnose={() => Promise.resolve()} />)
     expect(screen.queryByRole("button", { name: "Diagnose with Copilot" })).not.toBeInTheDocument()
     rerender(<Example state={{ ...ready, status: "missing-runtime", runtimeAvailable: false }} />)
-    expect(screen.getByText("No supported controls runtime found.")).toBeVisible()
+    expect(screen.getByText("No supported options runtime found.")).toBeVisible()
     expect(screen.queryByRole("button", { name: "Diagnose with Copilot" })).not.toBeInTheDocument()
   })
 
@@ -442,10 +442,10 @@ describe("ControlsPanel()", () => {
 
   it("spaces the full-width title and trailing chevron apart with 8px insets despite later Brand styles", () => {
     render(<Example />)
-    const title = screen.getByRole("button", { name: "Collapse controls" })
+    const title = screen.getByRole("button", { name: "Collapse options" })
     expect(title).toHaveAttribute("type", "button")
     expect(title.className).toContain("Button--block")
-    expect(title).toHaveTextContent("Controls")
+    expect(title).toHaveTextContent("Options")
     expect(within(title).getByTestId("Button-trailing-visual")).toContainElement(
       title.querySelector(".octicon-chevron-up"),
     )
@@ -462,21 +462,21 @@ describe("ControlsPanel()", () => {
 
   it("keeps the same disclosure, body association, focus and fields through panel folding", () => {
     render(<Example />)
-    const title = screen.getByRole("button", { name: "Collapse controls" })
+    const title = screen.getByRole("button", { name: "Collapse options" })
     const body = document.getElementById(title.getAttribute("aria-controls") ?? "")
     const field = screen.getByRole("textbox", { name: "Title" })
     act(() => title.focus())
     expect(title).toHaveAttribute("aria-expanded", "true")
     expect(body).toBeVisible()
     fireEvent.click(title)
-    expect(title).toHaveAccessibleName("Expand controls")
+    expect(title).toHaveAccessibleName("Expand options")
     expect(title).toHaveAttribute("aria-expanded", "false")
     expect(title).toHaveFocus()
     expect(body).not.toBeVisible()
     expect(field).toHaveValue("Preview")
     expect(title.querySelector(".octicon-chevron-down")).toHaveAttribute("aria-hidden", "true")
     fireEvent.click(title)
-    expect(title).toHaveAccessibleName("Collapse controls")
+    expect(title).toHaveAccessibleName("Collapse options")
     expect(title).toHaveAttribute("aria-expanded", "true")
     expect(title).toHaveFocus()
     expect(body).toBeVisible()
@@ -487,7 +487,7 @@ describe("ControlsPanel()", () => {
 
   it("keeps accessible movement instructions without an instructional or native tooltip", () => {
     render(<Example />)
-    const handle = screen.getByRole("button", { name: "Move controls" })
+    const handle = screen.getByRole("button", { name: "Move options" })
     expect(handle).toHaveFocus()
     expect(handle).toHaveAttribute("title", "")
     expect(handle).toHaveAccessibleDescription(
@@ -508,11 +508,11 @@ describe("ControlsPanel()", () => {
       />,
     )
     expect(screen.getByRole("alert")).toHaveTextContent(
-      'Controls scope "brokenPage" did not connect.',
+      'Options scope "brokenPage" did not connect.',
     )
     expect(screen.getByRole("textbox", { name: "Title" })).toBeEnabled()
-    expect(screen.getByRole("button", { name: "Reset all controls" })).toBeEnabled()
-    fireEvent.click(screen.getByRole("button", { name: "Reset all controls" }))
+    expect(screen.getByRole("button", { name: "Reset all options" })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: "Reset all options" }))
     expect(connection.resetAll).toHaveBeenCalledOnce()
     expect(screen.getByRole("alert")).toHaveTextContent("Invalid declaration.")
     view.rerender(<Example state={ready} />)
@@ -525,46 +525,46 @@ describe("ControlsPanel()", () => {
         state={{
           ...ready,
           reconnectRequired: true,
-          error: "Reconnect controls before sending more commands.",
+          error: "Reconnect options before sending more commands.",
         }}
       />,
     )
     expect(screen.getByRole("textbox", { name: "Title" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Reset all controls" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Reset all options" })).toBeDisabled()
     fireEvent.click(screen.getByRole("button", { name: "Retry connection" }))
     expect(connection.retry).toHaveBeenCalledOnce()
   })
 
   it("is nonmodal, keeps the prototype interactive, and omits close and routine retry buttons", () => {
     render(<Example />)
-    expect(screen.getByRole("complementary", { name: "Controls" })).toBeInTheDocument()
+    expect(screen.getByRole("complementary", { name: "Options" })).toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Close controls" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Close options" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Retry connection" })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Prototype clicks: 0" }))
     expect(screen.getByRole("button", { name: "Prototype clicks: 1" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Reset all controls" })).toBeEnabled()
-    expect(screen.getByRole("button", { name: "Move controls" })).toHaveFocus()
+    expect(screen.getByRole("button", { name: "Reset all options" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Move options" })).toHaveFocus()
   })
 
   it("remembers position, panel collapse, and group collapse across toolbar dismissal", () => {
     render(<Example />)
-    const handle = screen.getByRole("button", { name: "Move controls" })
+    const handle = screen.getByRole("button", { name: "Move options" })
     fireEvent.keyDown(handle, { key: "ArrowRight" })
-    expect(screen.getByRole("complementary", { name: "Controls" })).toHaveStyle({ left: "26px" })
+    expect(screen.getByRole("complementary", { name: "Options" })).toHaveStyle({ left: "26px" })
     fireEvent.click(screen.getByRole("button", { name: "Collapse Details" }))
     expect(screen.getByLabelText("Title")).not.toBeVisible()
-    fireEvent.click(screen.getByRole("button", { name: "Collapse controls" }))
-    expect(screen.getByRole("button", { name: "Expand controls" })).toHaveAttribute(
+    fireEvent.click(screen.getByRole("button", { name: "Collapse options" }))
+    expect(screen.getByRole("button", { name: "Expand options" })).toHaveAttribute(
       "aria-expanded",
       "false",
     )
-    expect(screen.getByRole("button", { name: "Reset all controls" })).toBeEnabled()
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }))
-    expect(screen.queryByRole("complementary", { name: "Controls" })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }))
-    expect(screen.getByRole("complementary", { name: "Controls" })).toHaveStyle({ left: "26px" })
-    fireEvent.click(screen.getByRole("button", { name: "Expand controls" }))
+    expect(screen.getByRole("button", { name: "Reset all options" })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: "Options" }))
+    expect(screen.queryByRole("complementary", { name: "Options" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Options" }))
+    expect(screen.getByRole("complementary", { name: "Options" })).toHaveStyle({ left: "26px" })
+    fireEvent.click(screen.getByRole("button", { name: "Expand options" }))
     expect(screen.getByRole("button", { name: "Expand Details" })).toHaveAttribute(
       "aria-expanded",
       "false",
@@ -576,8 +576,8 @@ describe("ControlsPanel()", () => {
 
   it("captures only the grab handle's pointer and clamps movement to the preview", () => {
     render(<Example />)
-    const panel = screen.getByRole("complementary", { name: "Controls" })
-    const handle = within(panel).getByRole("button", { name: "Move controls" })
+    const panel = screen.getByRole("complementary", { name: "Options" })
+    const handle = within(panel).getByRole("button", { name: "Move options" })
     fireEvent.pointerDown(handle, { pointerId: 4, button: 0, clientX: 30, clientY: 30 })
     expect(capturePointer).toHaveBeenCalledWith(4)
     expect(panel).toHaveAttribute("data-dragging", "true")
@@ -594,8 +594,8 @@ describe("ControlsPanel()", () => {
 
   it("cancels dragging and supports fine keyboard movement without dragging text inputs", () => {
     render(<Example />)
-    const panel = screen.getByRole("complementary", { name: "Controls" })
-    const handle = screen.getByRole("button", { name: "Move controls" })
+    const panel = screen.getByRole("complementary", { name: "Options" })
+    const handle = screen.getByRole("button", { name: "Move options" })
     fireEvent.pointerDown(screen.getByRole("textbox", { name: "Title" }), {
       button: 0,
       pointerId: 2,
@@ -616,7 +616,7 @@ describe("ControlsPanel()", () => {
 
   it("reclamps position when the preview shrinks", () => {
     render(<Example />)
-    const handle = screen.getByRole("button", { name: "Move controls" })
+    const handle = screen.getByRole("button", { name: "Move options" })
     fireEvent.pointerDown(handle, { button: 0, pointerId: 3, clientX: 30, clientY: 30 })
     fireEvent.pointerMove(handle, { pointerId: 3, clientX: 530, clientY: 300 })
     fireEvent.pointerUp(handle, { pointerId: 3 })
@@ -624,7 +624,7 @@ describe("ControlsPanel()", () => {
     act(() => {
       window.dispatchEvent(new Event("resize"))
     })
-    expect(screen.getByRole("complementary", { name: "Controls" })).toHaveStyle({
+    expect(screen.getByRole("complementary", { name: "Options" })).toHaveStyle({
       left: "72px",
       top: "50px",
     })
@@ -640,7 +640,7 @@ describe("ControlsPanel()", () => {
       }),
     )
     const view = render(<Example />)
-    const handle = screen.getByRole("button", { name: "Move controls" })
+    const handle = screen.getByRole("button", { name: "Move options" })
     fireEvent.pointerDown(handle, { button: 0, pointerId: 3, clientX: 30, clientY: 30 })
     fireEvent.pointerMove(handle, { pointerId: 3, clientX: 2000, clientY: 30 })
     fireEvent.pointerUp(handle, { pointerId: 3 })
@@ -648,7 +648,7 @@ describe("ControlsPanel()", () => {
     act(() => {
       for (const resize of resizeCallbacks) resize()
     })
-    const panel = screen.getByRole("complementary", { name: "Controls" })
+    const panel = screen.getByRole("complementary", { name: "Options" })
     expect(panel).toHaveStyle({ left: "160px" })
     expect(panel.style.width).toBe("min(640px, calc(100% - var(--hub-space-16) * 2))")
     viewport = { width: 360, height: 500 }
@@ -660,23 +660,23 @@ describe("ControlsPanel()", () => {
 
   it("keeps the expanded panel in bounds after moving its collapsed header to the bottom", () => {
     render(<Example />)
-    fireEvent.click(screen.getByRole("button", { name: "Collapse controls" }))
-    const handle = screen.getByRole("button", { name: "Move controls" })
+    fireEvent.click(screen.getByRole("button", { name: "Collapse options" }))
+    const handle = screen.getByRole("button", { name: "Move options" })
     fireEvent.pointerDown(handle, { button: 0, pointerId: 3, clientX: 30, clientY: 30 })
     fireEvent.pointerMove(handle, { pointerId: 3, clientX: 30, clientY: 1000 })
     fireEvent.pointerUp(handle, { pointerId: 3 })
-    expect(screen.getByRole("complementary", { name: "Controls" })).toHaveStyle({ top: "452px" })
-    fireEvent.click(screen.getByRole("button", { name: "Expand controls" }))
+    expect(screen.getByRole("complementary", { name: "Options" })).toHaveStyle({ top: "452px" })
+    fireEvent.click(screen.getByRole("button", { name: "Expand options" }))
     act(() => {
       for (const resize of resizeCallbacks) resize()
     })
-    expect(screen.getByRole("complementary", { name: "Controls" })).toHaveStyle({ top: "300px" })
+    expect(screen.getByRole("complementary", { name: "Options" })).toHaveStyle({ top: "300px" })
   })
 
   it("restores the origin on Escape during a drag and finishes on lost capture", () => {
     render(<Example />)
-    const handle = screen.getByRole("button", { name: "Move controls" })
-    const panel = screen.getByRole("complementary", { name: "Controls" })
+    const handle = screen.getByRole("button", { name: "Move options" })
+    const panel = screen.getByRole("complementary", { name: "Options" })
     fireEvent.pointerDown(handle, { button: 0, pointerId: 3, clientX: 30, clientY: 30 })
     fireEvent.pointerMove(handle, { pointerId: 3, clientX: 100, clientY: 100 })
     fireEvent.keyDown(handle, { key: "Escape" })
@@ -692,13 +692,13 @@ describe("ControlsPanel()", () => {
 
   it("resets presentation state on a fresh mount", () => {
     const view = render(<Example />)
-    fireEvent.keyDown(screen.getByRole("button", { name: "Move controls" }), { key: "ArrowRight" })
+    fireEvent.keyDown(screen.getByRole("button", { name: "Move options" }), { key: "ArrowRight" })
     fireEvent.click(screen.getByRole("button", { name: "Collapse Details" }))
-    fireEvent.click(screen.getByRole("button", { name: "Collapse controls" }))
+    fireEvent.click(screen.getByRole("button", { name: "Collapse options" }))
     view.unmount()
     render(<Example />)
-    expect(screen.getByRole("complementary", { name: "Controls" }).style.left).toBe("")
-    expect(screen.getByRole("button", { name: "Collapse controls" })).toHaveAttribute(
+    expect(screen.getByRole("complementary", { name: "Options" }).style.left).toBe("")
+    expect(screen.getByRole("button", { name: "Collapse options" })).toHaveAttribute(
       "aria-expanded",
       "true",
     )
@@ -725,7 +725,7 @@ describe("ControlsPanel()", () => {
     },
   ])("disables Reset while loading, resetting, or running an action", (state) => {
     render(<Example state={state} />)
-    expect(screen.getByRole("button", { name: "Reset all controls" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Reset all options" })).toBeDisabled()
   })
 
   it.each([
@@ -743,7 +743,7 @@ describe("ControlsPanel()", () => {
     "disables Reset while the controls runtime is disconnected or requires reconnection",
     (state) => {
       render(<Example state={state} />)
-      expect(screen.getByRole("button", { name: "Reset all controls" })).toBeDisabled()
+      expect(screen.getByRole("button", { name: "Reset all options" })).toBeDisabled()
     },
   )
 
@@ -751,11 +751,11 @@ describe("ControlsPanel()", () => {
     const view = render(
       <Example state={{ ...ready, runtimeAvailable: false, error: "Not connected." }} />,
     )
-    expect(screen.getByRole("button", { name: "Reset all controls" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Reset all options" })).toBeDisabled()
     view.rerender(<Example state={ready} />)
-    expect(screen.getByRole("button", { name: "Reset all controls" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Reset all options" })).toBeEnabled()
     view.rerender(<Example state={{ ...ready, storageError: "Saving failed." }} />)
-    fireEvent.click(screen.getByRole("button", { name: "Reset all controls" }))
+    fireEvent.click(screen.getByRole("button", { name: "Reset all options" }))
     expect(connection.resetAll).toHaveBeenCalledOnce()
   })
 
@@ -778,7 +778,7 @@ describe("ControlsPanel()", () => {
     expect(connection.retry).toHaveBeenCalledTimes(2)
     view.rerender(<Example state={{ ...ready, error: "Action failed" }} />)
     expect(screen.queryByRole("button", { name: /Retry/ })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Reset all controls" }))
+    fireEvent.click(screen.getByRole("button", { name: "Reset all options" }))
     expect(connection.resetAll).toHaveBeenCalledOnce()
   })
 })

@@ -1,25 +1,42 @@
-import { ChatIcon, CommentIcon, PaintbrushIcon, XIcon } from "@primer/octicons-react"
-import { ActionMenu, Tooltip } from "@primer/react-brand/esm"
+import { ChatIcon, CommentIcon, EyeIcon, XIcon } from "@primer/octicons-react"
+import { ActionMenu } from "@primer/react-brand/esm"
 import { useId } from "react"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
+import { ShortcutTooltip } from "@components/shortcut-tooltip"
 
 import type { ReviewCommentControlProps } from "./types"
 
 import "./styles.css"
 
+function MenuLabel({ children, shortcut }: { children: string; shortcut: string[] }) {
+  return (
+    <span className="review-comment-control__menu-label">
+      {children}
+      <span aria-hidden="true" className="review-comment-control__shortcut">
+        {shortcut.map((key) => (
+          <kbd key={key} className="review-comment-control__key">
+            {key}
+          </kbd>
+        ))}
+      </span>
+    </span>
+  )
+}
+
 /** Starts or cancels selecting a target for a review comment. */
 export function ReviewCommentControl({
   bridgeReady,
+  canCreateComment = true,
   copy,
   selectionBlocked,
   selecting,
+  visibilityAction,
   onCancelSelection,
-  onStartAreaSelection,
-  onStartElementSelection,
+  onStartSelection,
 }: ReviewCommentControlProps) {
   const descriptionId = useId()
-  const unavailable = !bridgeReady || selectionBlocked
+  const unavailable = !bridgeReady || selectionBlocked || (!canCreateComment && !visibilityAction)
   const actionDescription = !bridgeReady
     ? copy.bridgeUnavailableLabel
     : selectionBlocked
@@ -28,16 +45,18 @@ export function ReviewCommentControl({
 
   if (selecting) {
     return (
-      <HubIconButton
-        icon={XIcon}
-        aria-label={copy.cancelSelectionLabel}
-        description={copy.cancelSelectionLabel}
-        aria-pressed
-        size="small"
-        variant="default"
-        className="review-comment-control__trigger"
-        onClick={onCancelSelection}
-      />
+      <ShortcutTooltip text={copy.cancelSelectionLabel} shortcut="C" type="description">
+        <HubIconButton
+          icon={XIcon}
+          aria-label={copy.cancelSelectionLabel}
+          aria-keyshortcuts="C"
+          aria-pressed
+          size="small"
+          variant="default"
+          className="review-comment-control__trigger"
+          onClick={onCancelSelection}
+        />
+      </ShortcutTooltip>
     )
   }
 
@@ -48,6 +67,7 @@ export function ReviewCommentControl({
         variant="secondary"
         aria-label={copy.commentMenuLabel}
         aria-describedby={descriptionId}
+        aria-keyshortcuts="C"
         leadingVisual={<ChatIcon size={16} />}
         onClick={(event) => {
           const button = event.currentTarget
@@ -66,34 +86,36 @@ export function ReviewCommentControl({
       <ActionMenu.Overlay aria-label={copy.commentMenuLabel}>
         <ActionMenu.Item
           className="review-comment-control__menu-item"
-          value="element"
+          value="comment"
           leadingVisual={<CommentIcon size={16} />}
           aria-keyshortcuts="C"
-          onClick={onStartElementSelection}
+          disabled={!canCreateComment}
+          onClick={onStartSelection}
           onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
+            if (canCreateComment && (event.key === "Enter" || event.key === " ")) {
               event.preventDefault()
-              onStartElementSelection()
+              onStartSelection()
             }
           }}
         >
-          {copy.commentOnElementLabel}
+          <MenuLabel shortcut={["C"]}>{copy.commentMenuLabel}</MenuLabel>
         </ActionMenu.Item>
-        <ActionMenu.Item
-          className="review-comment-control__menu-item"
-          value="area"
-          leadingVisual={<PaintbrushIcon size={16} />}
-          aria-keyshortcuts="H"
-          onClick={onStartAreaSelection}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault()
-              onStartAreaSelection()
-            }
-          }}
-        >
-          {copy.highlightRegionLabel}
-        </ActionMenu.Item>
+        {visibilityAction ? (
+          <ActionMenu.Item
+            className="review-comment-control__menu-item"
+            value="visibility"
+            leadingVisual={<EyeIcon size={16} />}
+            onClick={visibilityAction.onToggle}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault()
+                visibilityAction.onToggle()
+              }
+            }}
+          >
+            {visibilityAction.label}
+          </ActionMenu.Item>
+        ) : null}
       </ActionMenu.Overlay>
     </ActionMenu>
   )
@@ -108,8 +130,8 @@ export function ReviewCommentControl({
   }
 
   return (
-    <Tooltip id={descriptionId} text={actionDescription} type="description">
+    <ShortcutTooltip id={descriptionId} text={actionDescription} shortcut="C" type="description">
       <div>{menu}</div>
-    </Tooltip>
+    </ShortcutTooltip>
   )
 }
