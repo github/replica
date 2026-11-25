@@ -1,0 +1,50 @@
+.build-state-label {
+  max-width: 100%;
+  min-height: var(--base-size-24);
+  padding: var(--base-size-6);
+  gap: var(--base-size-4);
+}
+
+.build-state-label--soft {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.build-state-label.build-state-label--queued,
+.build-state-label.build-state-label--running {
+  --brand-Label-color: var(--hub-fg-muted);
+}
+
+.build-state-label--soft.build-state-label--failed {
+  --brand-Label-color: color-mix(in srgb, var(--hub-fg-danger) 75%, var(--hub-fg-default));
+}
+
+.build-state-label--soft.build-state-label--successful {
+  --brand-Label-color: color-mix(in srgb, var(--hub-fg-success) 75%, var(--hub-fg-default));
+}
+
+.build-state-label--soft::before {
+  content: none;
+}
+
+.build-state-label > span:first-child:not(:last-child) {
+  margin-right: 0;
+}
+
+.build-state-label > span:first-child:not(:last-child) > svg,
+.build-state-label .hub-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+/* Lets the 16px line box sit inside the 12px inset without growing the label. */
+.build-state-label > span:last-child {
+  min-width: 0;
+  margin-block: calc(-1 * var(--base-size-2));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-state-label > span:last-child > span {
+  display: block;
+}
