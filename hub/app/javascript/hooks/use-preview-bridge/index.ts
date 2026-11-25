@@ -122,7 +122,7 @@ export function usePreviewBridge({
       if (
         !ready ||
         selectedAnchor !== null ||
-        selecting ||
+        (selecting && !event.shiftKey) ||
         selectionBlocked ||
         event.defaultPrevented ||
         event.repeat ||
@@ -256,7 +256,7 @@ export function usePreviewBridge({
       }
 
       if (message.type === "replica:bridge:sidebar-toggle-requested") {
-        if (ready && !selectedAnchor && !selecting && !selectionBlocked) {
+        if (ready && !selectedAnchor && !selectionBlocked) {
           onToggleSidebar?.()
         }
         return

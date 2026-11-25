@@ -313,7 +313,7 @@ describe("usePreviewBridge()", () => {
     window.removeEventListener(OPTIONS_TOGGLE_EVENT, onToggleOptions)
   })
 
-  it("handles Shift+C in Hub and the trusted preview without starting selection", () => {
+  it("handles Shift+C in Hub and the trusted preview before and during selection but protects a selected draft", () => {
     const iframe = document.createElement("iframe")
     document.body.append(iframe)
     const frameWindow = iframe.contentWindow
@@ -321,7 +321,7 @@ describe("usePreviewBridge()", () => {
     const postMessage = vi.spyOn(frameWindow, "postMessage")
     const onToggleSidebar = vi.fn()
     const iframeRef = { current: iframe }
-    const { rerender } = renderHook(
+    const { rerender, result } = renderHook(
       ({ selectionBlocked }) =>
         usePreviewBridge({
           iframeRef,
@@ -367,6 +367,22 @@ describe("usePreviewBridge()", () => {
       PREVIEW_ORIGIN,
     )
 
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }))
+    })
+    expect(result.current.selecting).toBe(true)
+    const selection = postMessage.mock.calls
+      .map(([command]) => command as PreviewBridgeCommand)
+      .find((command) => command.type === "replica:bridge:select-element")!
+    postMessage.mockClear()
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "C", shiftKey: true }))
+      previewShortcut()
+    })
+    expect(onToggleSidebar).toHaveBeenCalledTimes(4)
+    expect(result.current.selecting).toBe(true)
+    expect(postMessage).not.toHaveBeenCalled()
+
     rerender({ selectionBlocked: true })
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }))
@@ -385,11 +401,34 @@ describe("usePreviewBridge()", () => {
         }),
       )
     })
-    expect(onToggleSidebar).toHaveBeenCalledTimes(2)
+    expect(onToggleSidebar).toHaveBeenCalledTimes(4)
     expect(postMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "replica:bridge:select-element" }),
       PREVIEW_ORIGIN,
     )
+
+    rerender({ selectionBlocked: false })
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            protocolVersion: 1,
+            requestId: selection.requestId,
+            type: "replica:bridge:element-selected",
+            payload: { anchor: ANCHOR_REFERENCE.anchor },
+          },
+          origin: PREVIEW_ORIGIN,
+          source: frameWindow,
+        }),
+      )
+    })
+    expect(result.current.selectedAnchor).toEqual(ANCHOR_REFERENCE.anchor)
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "C", shiftKey: true }))
+      previewShortcut()
+    })
+    expect(onToggleSidebar).toHaveBeenCalledTimes(4)
+    expect(result.current.selectedAnchor).toEqual(ANCHOR_REFERENCE.anchor)
   })
 
   it("forwards O from the trusted preview as an options toggle", () => {
