@@ -401,6 +401,124 @@ it("imports Hub history offline, preserves mappings and redactions, and refuses 
   }
 })
 
+it("refuses a duplicate audited grant under a different SQLite record ID", async () => {
+  const { root, source } = importWorkspace()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    await migrateRepositoryScope({
+      provider: sourceProvider,
+      oldScope,
+      newScope: scope,
+    })
+    assert.ok(await sourceProvider.scopeMigrationFrom(oldScope))
+    assert.ok((await sourceProvider.readRecords("grants", { scope })).length > 0)
+    assert.ok((await sourceProvider.readRecords("audit", { scope })).length > 0)
+  } finally {
+    await sourceProvider.close()
+  }
+  const sqlite = new DatabaseSync(path.join(source, "learning.sqlite"))
+  try {
+    const inserted = sqlite
+      .prepare(
+        `insert into records (stream, id, scope_key, occurred_at, episode_id, digest, body)
+         select stream, ?, scope_key, occurred_at, episode_id, digest, body
+         from records where stream = 'grants' and scope_key = ? limit 1`,
+      )
+      .run("grant_mismatched_physical_id", canonicalJson(scope))
+    assert.equal(inserted.changes, 1)
+  } finally {
+    sqlite.close()
+  }
+  const url = await database()
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /error \(storage_corrupt\)/)
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
+  }
+})
+
+it("refuses a SQLite memory version with a mismatched indexed update time", async () => {
+  const { root, source } = importWorkspace()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    await migrateRepositoryScope({
+      provider: sourceProvider,
+      oldScope,
+      newScope: scope,
+    })
+    assert.ok(await sourceProvider.scopeMigrationFrom(oldScope))
+    assert.ok((await sourceProvider.readMemoryVersions({ scope })).length > 0)
+  } finally {
+    await sourceProvider.close()
+  }
+  const sqlite = new DatabaseSync(path.join(source, "learning.sqlite"))
+  try {
+    const changed = sqlite
+      .prepare(
+        `update memory_versions set updated_at = ?
+         where seq = (select seq from memory_versions where scope_key = ? limit 1)`,
+      )
+      .run("1900-01-01T00:00:00.000Z", canonicalJson(scope))
+    assert.equal(changed.changes, 1)
+  } finally {
+    sqlite.close()
+  }
+  const url = await database()
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /error \(storage_corrupt\)/)
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
+  }
+})
+
 it("refuses an unknown SQLite stream after the scope was migrated", async () => {
   const { root, source } = importWorkspace()
   const url = await database()

@@ -229,12 +229,44 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     })
   }
 
+  function storedRecord(row) {
+    try {
+      if (!Object.hasOwn(STREAMS, row.stream)) throw new Error()
+      const record = JSON.parse(row.body)
+      if (
+        row.id === record.id &&
+        row.scope_key === canonicalJson(record.scope) &&
+        row.digest === record.digest &&
+        row.occurred_at === text(record[STREAMS[row.stream]]) &&
+        row.episode_id === text(row.stream === "episodes" ? record.id : record.episodeId)
+      )
+        return record
+    } catch {
+      throw new LearningError("storage_corrupt", "SQLite store has an invalid record row.")
+    }
+    throw new LearningError("storage_corrupt", "SQLite store has an inconsistent record row.")
+  }
+
+  function storedMemory(row) {
+    try {
+      const record = JSON.parse(row.body)
+      if (
+        row.id === record.id &&
+        row.version === record.version &&
+        row.scope_key === canonicalJson(record.scope) &&
+        row.digest === record.digest &&
+        row.updated_at === text(record.updatedAt)
+      )
+        return record
+    } catch {
+      throw new LearningError("storage_corrupt", "SQLite store has an invalid memory row.")
+    }
+    throw new LearningError("storage_corrupt", "SQLite store has an inconsistent memory row.")
+  }
+
   function storedScopes() {
     const database = connect({ create: false })
     if (!database) return []
-    for (const { stream } of database.prepare("select distinct stream from records").all())
-      if (!Object.hasOwn(STREAMS, stream))
-        throw new LearningError("storage_corrupt", "SQLite store has an unknown record stream.")
     function parseScopeKey(key) {
       try {
         const scope = JSON.parse(key)
@@ -246,10 +278,18 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
       throw new LearningError("storage_corrupt", "SQLite store has a noncanonical scope key.")
     }
     const scopes = new Map()
-    for (const { scope_key: key } of database
-      .prepare("select scope_key from records union select scope_key from memory_versions")
-      .all())
-      scopes.set(key, parseScopeKey(key))
+    for (const row of database
+      .prepare("select stream, id, scope_key, occurred_at, episode_id, digest, body from records")
+      .iterate()) {
+      storedRecord(row)
+      if (!scopes.has(row.scope_key)) scopes.set(row.scope_key, parseScopeKey(row.scope_key))
+    }
+    for (const row of database
+      .prepare("select id, version, scope_key, updated_at, digest, body from memory_versions")
+      .iterate()) {
+      storedMemory(row)
+      if (!scopes.has(row.scope_key)) scopes.set(row.scope_key, parseScopeKey(row.scope_key))
+    }
     if (
       database
         .prepare("select 1 from sqlite_master where type = 'table' and name = 'scope_migrations'")
@@ -569,31 +609,10 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
             throw new LearningError("storage_corrupt", `Memory ${id} spans repository scopes.`)
         const records = Object.fromEntries(Object.keys(STREAMS).map((stream) => [stream, []]))
         for (const row of rows) {
-          if (!Object.hasOwn(records, row.stream))
-            throw new LearningError("storage_corrupt", `Unknown stored stream ${row.stream}.`)
-          const record = JSON.parse(row.body)
-          if (
-            row.id !== record.id ||
-            row.scope_key !== canonicalJson(record.scope) ||
-            row.digest !== record.digest ||
-            row.occurred_at !== text(record[STREAMS[row.stream]]) ||
-            row.episode_id !== text(row.stream === "episodes" ? record.id : record.episodeId)
-          )
-            throw new LearningError("storage_corrupt", `Inconsistent ${row.stream} row ${row.id}.`)
+          const record = storedRecord(row)
           records[row.stream].push(record)
         }
-        const memories = versions.map((row) => {
-          const record = JSON.parse(row.body)
-          if (
-            row.id !== record.id ||
-            row.version !== record.version ||
-            row.scope_key !== canonicalJson(record.scope) ||
-            row.digest !== record.digest ||
-            row.updated_at !== text(record.updatedAt)
-          )
-            throw new LearningError("storage_corrupt", `Inconsistent memory row ${row.id}.`)
-          return record
-        })
+        const memories = versions.map(storedMemory)
         const targetRecords = Object.fromEntries(Object.keys(STREAMS).map((stream) => [stream, []]))
         for (const row of database
           .prepare("select stream, body from records where scope_key = ? order by seq")
