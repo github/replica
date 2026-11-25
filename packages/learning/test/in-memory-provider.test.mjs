@@ -615,7 +615,7 @@ describe("learning decisions", () => {
       expectedDigest: rejected.digest,
       reason: restoreReason,
     })
-    const edited = await store.editMemory(designer(), proposal.id, {
+    await store.editMemory(designer(), proposal.id, {
       expectedDigest: restored.digest,
       title: "Keep labels visible",
       reason: editReason,
