@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises"
 import { resolve } from "node:path"
+import { z } from "zod"
 
 import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 
@@ -11,7 +12,11 @@ export async function processReviewCommentRedaction(
       directory: string
       repositoryScope: string
       repositoryId: string
-    }>
+    } | null>
+    redactLegacy(
+      input: { repositoryId: string; commentId: number; actor: string },
+      options: { signal: AbortSignal },
+    ): Promise<unknown>
     runCommand(arguments_: string[], options: { signal: AbortSignal }): Promise<unknown>
     markComplete(input: {
       repositoryId: string
@@ -22,8 +27,9 @@ export async function processReviewCommentRedaction(
     withLock<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T>
   },
 ) {
+  const repositoryId = z.uuid().parse(input.repositoryId)
   await dependencies.withLock(async (signal) => {
-    const directory = resolve(dependencies.root, "repositories", input.repositoryId)
+    const directory = resolve(dependencies.root, "repositories", repositoryId)
     try {
       await access(resolve(directory, "config.json"))
     } catch (error) {
@@ -31,17 +37,21 @@ export async function processReviewCommentRedaction(
       return
     }
     const store = await dependencies.prepare(input.repositoryId)
-    await dependencies.runCommand(
-      [
-        "redact",
-        "--comment",
-        input.commentId.toString(),
-        "--by",
-        input.actor,
-        ...learningStoreArguments(store),
-      ],
-      { signal },
-    )
+    if (store) {
+      await dependencies.runCommand(
+        [
+          "redact",
+          "--comment",
+          input.commentId.toString(),
+          "--by",
+          input.actor,
+          ...learningStoreArguments(store),
+        ],
+        { signal },
+      )
+    } else {
+      await dependencies.redactLegacy(input, { signal })
+    }
     await dependencies.markComplete({
       repositoryId: input.repositoryId,
       commentId: input.commentId,

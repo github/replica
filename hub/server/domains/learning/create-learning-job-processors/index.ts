@@ -25,6 +25,7 @@ import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/in
 import { enqueueRecoverableJob } from "../../../integrations/bullmq/enqueue-recoverable-job/index.ts"
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
+import { redactLegacyReviewComment } from "../../../integrations/learning/redact-legacy-review-comment/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { CopilotCredentialError } from "../../../integrations/github/create-installation-access-token/errors.ts"
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock/index.ts"
@@ -50,6 +51,7 @@ import { isEffectiveAdministrator } from "../../../repositories/memberships/is-e
 import { lockGitHubRepositoryAccessState } from "../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts"
 import { listDeletedReviewComments } from "../../../repositories/review-comments/list-deleted-review-comments/index.ts"
 import { markReviewCommentLearningRedacted } from "../../../repositories/review-comments/mark-review-comment-learning-redacted/index.ts"
+import { findRepositoryGitHubId } from "../../../repositories/repository-access/find-repository-github-id/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 
 export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logger: Logger) {
@@ -424,14 +426,21 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       root: configuration.root,
       markComplete: (completed) => markReviewCommentLearningRedacted(prisma, completed),
       now: () => new Date(),
-      prepare: async (repositoryId) =>
-        prepareLearningStore({
+      prepare: async (repositoryId) => {
+        const repository = await findRepositoryGitHubId(prisma, repositoryId)
+        if (!repository) throw new Error("The repository for learning redaction no longer exists.")
+        if (repository.githubRepositoryId == null || repository.githubRepositoryId <= 0n)
+          return null
+        return await prepareLearningStore({
           applicationRoot: process.cwd(),
           repositoryKey: repositoryId,
-          repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
+          repositoryScope: `github.com/repositories/${repository.githubRepositoryId}`,
           root: configuration.root,
           staticDirectories: configuration.staticDirectories,
-        }),
+        })
+      },
+      redactLegacy: (request, options) =>
+        redactLegacyReviewComment(request, { ...configuration, ...options }),
       runCommand: (arguments_, options) =>
         runLearningCommand(arguments_, {
           cliPath: configuration.cliPath,
