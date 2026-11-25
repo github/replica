@@ -1,5 +1,6 @@
+import { canonicalJson } from "../canonical-json.mjs"
 import { LearningError } from "../errors.mjs"
-import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
+import { PRODUCER, SCHEMA_VERSIONS, without } from "../records.mjs"
 
 export const DEFAULT_RECURRENCE_OPTIONS = Object.freeze({
   minEpisodes: 2,
@@ -68,10 +69,35 @@ export function createRecurrenceConsolidator(options = {}) {
       const superseded = new Set(
         view.events.filter((event) => event.supersedes).map((event) => event.supersedes),
       )
+      const supersededComments = new Set(
+        [...superseded]
+          .map((id) => events.get(id))
+          .filter((event) => event?.type === "human_comment")
+          .map((event) => `${commentKey(event, episodes)}\u0000${event.actor.id}`),
+      )
       const latestLabels = new Map()
-      for (const event of view.events)
-        if (event.type === "annotation")
-          latestLabels.set(`${event.payload.target.eventId}\u0000${event.actor.id}`, event)
+      for (const event of view.events) {
+        if (event.type !== "annotation" || superseded.has(event.id)) continue
+        const target = events.get(event.payload.target.eventId)
+        if (!target) continue
+        const key = `${commentKey(target, episodes)}\u0000${event.actor.id}`
+        const previous = latestLabels.get(key)
+        if (previous?.payload.target.eventId === event.payload.target.eventId) {
+          latestLabels.set(key, event)
+          continue
+        }
+        if (previous && previous.at === event.at) {
+          const payload = without(event.payload, "target")
+          const previousPayload = without(previous.payload, "target")
+          if (canonicalJson(payload) !== canonicalJson(previousPayload))
+            throw new LearningError(
+              "conflict",
+              "The same labeler recorded conflicting labels at the same time.",
+            )
+        }
+        if (!previous || compare(`${previous.at} ${previous.id}`, `${event.at} ${event.id}`) < 0)
+          latestLabels.set(key, event)
+      }
 
       const diagnostics = []
       const themes = new Map()
@@ -79,7 +105,10 @@ export function createRecurrenceConsolidator(options = {}) {
       for (const label of latestLabels.values()) {
         const target = events.get(label.payload.target.eventId)
         if (!target || target.type !== "human_comment" || target.payload.body === null) continue
-        if (superseded.has(target.id)) {
+        if (
+          superseded.has(target.id) ||
+          supersededComments.has(`${commentKey(target, episodes)}\u0000${target.actor.id}`)
+        ) {
           edited++
           continue
         }
@@ -88,8 +117,9 @@ export function createRecurrenceConsolidator(options = {}) {
         if (!themes.has(key)) themes.set(key, { key, supports: new Map(), contradicts: new Map() })
         const bucket =
           themes.get(key)[label.payload.stance === "contradicts" ? "contradicts" : "supports"]
-        if (!bucket.has(target.id)) bucket.set(target.id, { target, labels: [] })
-        bucket.get(target.id).labels.push(label)
+        const comment = commentKey(target, episodes)
+        if (!bucket.has(comment)) bucket.set(comment, { target, labels: [] })
+        bucket.get(comment).labels.push(label)
       }
       if (edited)
         diagnostics.push({
@@ -253,7 +283,7 @@ function supportOf(targets, episodes) {
   const builds = new Set()
   for (const target of targets) {
     const source = episodes.get(target.episodeId)?.source ?? {}
-    episodeIds.add(target.episodeId)
+    episodeIds.add(threadKey(episodes.get(target.episodeId)) ?? target.episodeId)
     prototypes.add(
       source.prototypeId === undefined
         ? `episode:${target.episodeId}`
@@ -270,6 +300,26 @@ function supportOf(targets, episodes) {
     distinctReviewers: reviewers.size,
     distinctBuilds: builds.size,
   }
+}
+
+function threadKey(episode) {
+  const source = episode?.source
+  if (
+    source?.kind !== "hub_review_comments" ||
+    [source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId].some(
+      (value) => value === undefined,
+    )
+  )
+    return null
+  return canonicalJson([source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId])
+}
+
+function commentKey(target, episodes) {
+  const thread = threadKey(episodes.get(target.episodeId))
+  const commentId = target.payload?.commentId
+  return thread && commentId !== undefined
+    ? canonicalJson([thread, commentId, target.at])
+    : target.id
 }
 
 function evidence(target, episodes) {

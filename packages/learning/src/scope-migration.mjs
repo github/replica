@@ -1,8 +1,18 @@
-import { canonicalJson } from "./canonical-json.mjs"
+import { canonicalJson, digestOf } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
+import { derivedId } from "./ids.mjs"
 import { matchesQuery, STREAMS } from "./provider-contract.mjs"
-import { memoryContentDigest, sealEpisode, sealEvent, sealMemory, sealRecord } from "./records.mjs"
-import { createLearningStore, scopeProblem } from "./store.mjs"
+import {
+  SCHEMA_VERSIONS,
+  memoryContentDigest,
+  sealEpisode,
+  sealEvent,
+  sealMemory,
+  sealRecord,
+  without,
+} from "./records.mjs"
+import { commentIdOf } from "./sources/hub-review-comments.mjs"
+import { createLearningStore, sameCollectionSnapshot, scopeProblem } from "./store.mjs"
 
 const KINDS = {
   episodes: "episode",
@@ -30,6 +40,8 @@ export async function migrateRepositoryScope({
   oldScope,
   newScope,
   clock = Date.now,
+  sourceSnapshot,
+  beforeCommit,
 } = {}) {
   if (scopeProblem(oldScope) || scopeProblem(newScope))
     throw new LearningError("invalid_input", "Both repository scopes must be valid.")
@@ -50,7 +62,8 @@ export async function migrateRepositoryScope({
   return provider.migrateScope({
     oldScope,
     newScope,
-    transform: async ({ records, memories }) => {
+    sourceSnapshot,
+    transform: async ({ records, memories, targetRecords, targetMemories }) => {
       await verifySnapshot({ records, memories, scope: oldScope, manifest, clock })
       assertReferences(records, memories)
 
@@ -150,13 +163,217 @@ export async function migrateRepositoryScope({
         manifest,
         clock,
       })
+      if (targetRecords && targetMemories) {
+        const snapshots = new Map(
+          targetRecords.collections.map((record) => [record.snapshotId, record]),
+        )
+        for (const record of changed.collections) {
+          const existing = snapshots.get(record.snapshotId)
+          if (existing && !sameCollectionSnapshot(record, existing))
+            throw new LearningError(
+              "conflict",
+              "Both repository histories contain different contents for the same snapshot. No records were moved.",
+            )
+        }
+        const targetThreads = new Set(targetRecords.episodes.map(threadKey).filter(Boolean))
+        const groups = new Map()
+        for (const episode of [...targetRecords.episodes, ...changed.episodes]) {
+          const key = threadKey(episode)
+          if (key) groups.set(key, [...(groups.get(key) ?? []), episode.id])
+        }
+        const overlappingEpisodes = [...groups.values()].filter((ids) => ids.length > 1)
+        if (
+          changed.episodes.some((episode) => targetThreads.has(threadKey(episode))) &&
+          !provider.atomicMigrationRedactions
+        )
+          throw new LearningError(
+            "unsupported",
+            "This provider cannot atomically reconcile overlapping repository histories.",
+          )
+        const { targetRedactions, audit } = reconcileRedactions(
+          targetRecords,
+          changed,
+          newScope,
+          manifest,
+        )
+        if ((targetRedactions.length || audit.length) && !provider.atomicMigrationRedactions)
+          throw new LearningError(
+            "unsupported",
+            "This provider cannot reconcile redactions atomically during migration.",
+          )
+        const merged = Object.fromEntries(
+          Object.keys(STREAMS).map((stream) => [
+            stream,
+            [
+              ...targetRecords[stream].map((record) =>
+                stream === "events"
+                  ? (targetRedactions.find((redacted) => redacted.id === record.id) ?? record)
+                  : record,
+              ),
+              ...changed[stream],
+              ...(stream === "audit" ? audit : []),
+            ],
+          ]),
+        )
+        await verifySnapshot({
+          records: merged,
+          memories: [...targetMemories, ...versions],
+          scope: newScope,
+          manifest,
+          clock,
+        })
+        await beforeCommit?.()
+        return {
+          records: changed,
+          memories: versions,
+          targetRedactions,
+          audit,
+          metadata: {
+            oldScope,
+            newScope,
+            digestMappings,
+            overlappingEpisodes,
+            sourceDigest: digestOf({ records, memories }),
+            migrated: true,
+          },
+        }
+      }
+      await beforeCommit?.()
       return {
         records: changed,
         memories: versions,
-        metadata: { oldScope, newScope, digestMappings, migrated: true },
+        metadata: {
+          oldScope,
+          newScope,
+          digestMappings,
+          sourceDigest: digestOf({ records, memories }),
+          migrated: true,
+        },
       }
     },
   })
+}
+
+function threadKey(episode) {
+  const source = episode.source
+  if (
+    source.kind !== "hub_review_comments" ||
+    [source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId].some(
+      (value) => value === undefined,
+    )
+  )
+    return null
+  return canonicalJson([source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId])
+}
+
+/** Apply an existing removal to copies of the same comment, preserving every event ID. */
+function reconcileRedactions(target, source, scope, manifest) {
+  const episodes = [...target.episodes, ...source.episodes]
+  const threads = new Map(episodes.map((episode) => [episode.id, threadKey(episode)]))
+  const targetIds = new Set(target.episodes.map(threadKey).filter(Boolean))
+  const sourceIds = new Set(source.episodes.map(threadKey).filter(Boolean))
+  const overlapping = new Set([...targetIds].filter((key) => sourceIds.has(key)))
+  const events = [...target.events, ...source.events]
+  const versions = new Map()
+  for (const event of events) {
+    const thread = threads.get(event.episodeId)
+    if (!overlapping.has(thread) || event.type !== "human_comment") continue
+    const commentId = commentIdOf(event)
+    if (commentId === undefined) continue
+    const key = canonicalJson([thread, commentId, event.at])
+    const previous = versions.get(key) ?? []
+    for (const other of previous)
+      if (
+        event.payloadDigest !== other.payloadDigest &&
+        event.payload?.body !== null &&
+        other.payload?.body !== null
+      )
+        throw new LearningError(
+          "conflict",
+          "Overlapping histories contain different contents for the same comment version.",
+        )
+    previous.push(event)
+    versions.set(key, previous)
+  }
+  const removals = new Map()
+  for (const event of events) {
+    const thread = threads.get(event.episodeId)
+    if (!overlapping.has(thread) || event.type !== "human_comment" || !event.redaction) continue
+    const commentId = commentIdOf(event)
+    if (commentId === undefined)
+      throw new LearningError(
+        "conflict",
+        "A redacted comment in an overlapping thread has no Hub comment ID.",
+      )
+    const key = canonicalJson([thread, commentId])
+    const entries = removals.get(key) ?? []
+    entries.push(event)
+    removals.set(key, entries)
+  }
+  const selected = new Map()
+  for (const event of events) {
+    if (event.type !== "human_comment" || event.payload === undefined) continue
+    const thread = threads.get(event.episodeId)
+    const commentId = commentIdOf(event)
+    if (!overlapping.has(thread) || commentId === undefined) continue
+    const key = canonicalJson([thread, commentId])
+    const removal = (removals.get(key) ?? [])
+      .filter(
+        (removed) =>
+          event.at <= removed.redaction.at || event.payloadDigest === removed.payloadDigest,
+      )
+      .sort((a, b) => a.redaction.at.localeCompare(b.redaction.at))[0]
+    if (removal) selected.set(event.id, removal.redaction)
+  }
+  for (const event of events)
+    if (
+      event.type === "annotation" &&
+      event.payload !== undefined &&
+      selected.has(event.parentEventId)
+    )
+      selected.set(event.id, selected.get(event.parentEventId))
+  const targetRedactions = []
+  const audit = []
+  for (const [stream, items] of [
+    [targetRedactions, target.events],
+    [null, source.events],
+  ]) {
+    for (let index = 0; index < items.length; index++) {
+      const event = items[index]
+      const note = selected.get(event.id)
+      if (!note) continue
+      const redacted = {
+        ...without(event, "payload"),
+        redaction: {
+          at: note.at,
+          by: note.by,
+          reason: note.reason,
+          ...(event.type === "human_comment" ? { commentId: event.payload.commentId } : {}),
+        },
+      }
+      if (stream) stream.push(redacted)
+      else items[index] = redacted
+      audit.push(
+        sealRecord({
+          schemaVersion: SCHEMA_VERSIONS.auditEntry,
+          id: derivedId("audit", {
+            operation: "evidence.redact",
+            event: event.id,
+            digest: event.digest,
+          }),
+          at: note.at,
+          actor: note.by,
+          operation: "evidence.redact",
+          scope,
+          subjects: [{ kind: "event", id: event.id, digest: event.digest }],
+          outcome: "ok",
+          reason: note.reason,
+          provider: { id: manifest.id, version: manifest.version },
+        }),
+      )
+    }
+  }
+  return { targetRedactions, audit }
 }
 
 /** Verify the exact locked snapshot without letting the store write to the real provider. */

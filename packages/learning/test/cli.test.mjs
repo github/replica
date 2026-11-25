@@ -334,6 +334,7 @@ describe("replica-learning CLI: the first learning milestone", () => {
         memory: { provider: { module: "./providers/json-file-provider.mjs" } },
       }),
     )
+    await ok(repo, ["migrate-scope", "--offline", "--empty"])
     const doctor = (await ok(repo, ["doctor", "--json"])).json()
     assert.equal(doctor.provider.manifest.id, "json-file")
     assert.equal(doctor.provider.source, "module ./providers/json-file-provider.mjs")
@@ -1191,7 +1192,7 @@ describe("replica-learning CLI: guard rails", () => {
       path.join(repo, ".replica", "learning", "config.json"),
       JSON.stringify({
         schemaVersion: "replica.learning-config/v1",
-        githubRepository: GITHUB_REPOSITORY,
+        githubRepository: { ...GITHUB_REPOSITORY, legacyConfirmed: true },
         memory: { provider: { module: "./providers/held-open-provider.mjs" } },
       }),
     )

@@ -5,7 +5,7 @@ import { lstat, mkdir, open, realpath, rename, stat, unlink } from "node:fs/prom
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
-import { canonicalJson, decodeUtf8, parseJson } from "./canonical-json.mjs"
+import { canonicalJson, decodeUtf8, digestOf, parseJson } from "./canonical-json.mjs"
 import { createNoopConsolidator } from "./consolidators/noop.mjs"
 import { createRecurrenceConsolidator } from "./consolidators/recurrence.mjs"
 import { LearningError } from "./errors.mjs"
@@ -48,7 +48,15 @@ export async function resolveEnvironment({
   directory,
   repository,
   legacyRepository,
+  legacyRedaction = false,
 } = {}) {
+  if (legacyRedaction)
+    return resolveHostedEnvironment({
+      cwd,
+      directory: directory ?? env.REPLICA_LEARNING_DIR,
+      repository: legacyRepository,
+      legacyRedaction: true,
+    })
   if (repository !== undefined)
     return resolveHostedEnvironment({
       cwd,
@@ -82,6 +90,7 @@ export async function resolveEnvironment({
     scope: null,
     sourceRepository: originScope?.repository ?? null,
     legacyScope: originScope,
+    explicitLegacyScope: legacyRepository !== undefined,
     scopeSource: remote ? `git remote origin (${withoutCredentials(remote)})` : null,
     insideCheckout: placement.inside,
     underReplica: placement.underReplica,
@@ -104,13 +113,30 @@ export async function resolveEnvironment({
 }
 
 /** The environment for a store a host names, with no checkout behind it. */
-async function resolveHostedEnvironment({ cwd, directory, repository, legacyRepository }) {
+async function resolveHostedEnvironment({
+  cwd,
+  directory,
+  repository,
+  legacyRepository,
+  legacyRedaction = false,
+}) {
   if (!directory)
     throw new LearningError(
       "invalid_input",
       "--repository needs --dir, the directory that holds this repository's learning data.",
     )
-  const scope = scopeFromName(repository)
+  const scope = legacyRedaction ? legacyScopeFromName(repository) : scopeFromName(repository)
+  if (
+    legacyRedaction &&
+    (scope?.host !== "github.com" ||
+      !/^repositories\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        scope.repository,
+      ))
+  )
+    throw new LearningError(
+      "invalid_input",
+      "Legacy redaction needs the Hub repository UUID as github.com/repositories/<uuid>.",
+    )
   if (!scope)
     throw new LearningError(
       "invalid_input",
@@ -126,6 +152,7 @@ async function resolveHostedEnvironment({ cwd, directory, repository, legacyRepo
   const placement = checkout ? placeIn(checkout, dataDirectory) : null
   return {
     hosted: true,
+    legacyRedaction,
     root: dataDirectory,
     checkout,
     dataDirectory,
@@ -401,6 +428,16 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
   const { provider, source } = await openProvider(environment)
   try {
     let result = null
+    if (
+      !environment.hosted &&
+      !environment.config.githubRepository?.legacyConfirmed &&
+      source.startsWith("module ") &&
+      typeof provider.legacyScopes !== "function"
+    )
+      throw new LearningError(
+        "conflict",
+        "This provider cannot discover old repository names. Stop older clients and run migrate-scope --offline with --legacy-repository, or --empty for a new store.",
+      )
     if (environment.legacyScope && typeof provider.migrateScope === "function") {
       if (!environment.hosted && !environment.config.githubRepository?.legacyConfirmed) {
         const scopes =
@@ -438,8 +475,15 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
           "This store has data under its old repository scope. Stop older clients, then run replica-learning migrate-scope --offline.",
         )
     }
+    const migrations =
+      typeof provider.scopeMigrations === "function"
+        ? await provider.scopeMigrations(environment.scope)
+        : result
+          ? [result]
+          : []
     const digestMappings = Object.fromEntries(
-      (result?.digestMappings ?? [])
+      migrations
+        .flatMap((migration) => migration.digestMappings ?? [])
         .filter((entry) => entry.kind === "memory" && entry.field === "digest")
         .map((entry) => [entry.oldDigest, entry.newDigest]),
     )
@@ -447,11 +491,51 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
       store: await createLearningStore({
         provider,
         clock,
-        legacyScopes: result ? [result.oldScope] : [],
+        legacyScopes: migrations.map((migration) => migration.oldScope),
         digestMappings,
       }),
       providerSource: source,
     }
+  } catch (error) {
+    await provider.close?.()
+    throw error
+  }
+}
+
+/** Open only the known Hub store for a deleted-comment maintenance operation. */
+export async function openLegacyRedactionStore(environment, { clock = Date.now } = {}) {
+  const problem = await placementProblem(environment, environment.dataDirectory)
+  if (problem) throw new LearningError("invalid_input", problem)
+  if (!environment.legacyRedaction)
+    throw new LearningError("invalid_input", "This is not a legacy redaction request.")
+  const { provider } = await openProvider(environment)
+  try {
+    if (
+      typeof provider.scopeMigrationFrom !== "function" &&
+      (typeof provider.migrateScope === "function" || environment.config.memory?.migration)
+    )
+      throw new LearningError(
+        "conflict",
+        "The store cannot identify the migrated repository scope for redaction.",
+      )
+    const migration = await provider.scopeMigrationFrom?.(environment.scope)
+    if (migration) {
+      const target = scopeFromName(`github.com/${migration.newScope?.repository}`)
+      if (
+        canonicalJson(migration.oldScope) !== canonicalJson(environment.scope) ||
+        !target ||
+        canonicalJson(migration.newScope) !== canonicalJson(target) ||
+        (environment.config.memory?.migration &&
+          environment.config.memory.migration.repository !== migration.newScope.repository)
+      )
+        throw new LearningError("storage_corrupt", "The repository migration mapping is invalid.")
+      environment.scope = target
+    } else if (environment.config.memory?.migration)
+      throw new LearningError(
+        "conflict",
+        "The migrated store has no mapping for this Hub repository.",
+      )
+    return { store: await createLearningStore({ provider, clock }) }
   } catch (error) {
     await provider.close?.()
     throw error
@@ -490,7 +574,7 @@ export async function openProvider(environment) {
  * Copy one offline legacy store into SQLite without changing the source. The caller must stop
  * older clients first; provider contracts cannot prevent an old client from writing later.
  */
-export async function migrateScopeOffline(environment, { clock = Date.now } = {}) {
+export async function migrateScopeOffline(environment, { clock = Date.now, empty = false } = {}) {
   const problem = await placementProblem(environment, environment.dataDirectory)
   if (problem) throw new LearningError("invalid_input", problem)
   if (!environment.scope || !environment.legacyScope)
@@ -506,33 +590,74 @@ export async function migrateScopeOffline(environment, { clock = Date.now } = {}
         config.memory.provider?.builtin !== "sqlite"
       )
         throw new LearningError("conflict", "This configuration names another migrated store.")
-      const { store } = await openLearningStore(environment, { clock })
-      try {
-        const verified = await store.verify({
-          scope: environment.scope,
-          principal: { kind: "system", id: "system:scope-migration" },
-        })
-        if (!verified.ok) throw new LearningError("storage_corrupt", verified.problems.join("; "))
-      } finally {
-        await store.close()
-      }
-      return {
-        file: path.join(environment.dataDirectory, config.memory.provider.file),
-        sourceProvider: config.memory.migration.sourceProvider,
-        alreadyMigrated: true,
+      if (empty) throw new LearningError("invalid_input", "This store has already been migrated.")
+      if (!environment.explicitLegacyScope) {
+        const { store } = await openLearningStore(environment, { clock })
+        try {
+          const verified = await store.verify({
+            scope: environment.scope,
+            principal: { kind: "system", id: "system:scope-migration" },
+          })
+          if (!verified.ok) throw new LearningError("storage_corrupt", verified.problems.join("; "))
+        } finally {
+          await store.close()
+        }
+        return {
+          file: path.join(environment.dataDirectory, config.memory.provider.file),
+          sourceProvider: config.memory.migration.sourceProvider,
+          alreadyMigrated: true,
+        }
       }
     }
-    const { provider: source } = await openProvider(environment)
+    const sourceEnvironment = config.memory?.migration
+      ? {
+          ...environment,
+          config: {
+            ...config,
+            memory: { ...config.memory, provider: config.memory.migration.sourceProvider },
+          },
+        }
+      : environment
+    const { provider: source, source: sourceDescription } = await openProvider(sourceEnvironment)
     let destination
     let file
     let createdFile = false
     let switched = false
     let sourceClosed = false
     try {
-      const scopes = typeof source.legacyScopes === "function" ? await source.legacyScopes() : []
       if (
-        scopes.length &&
-        !scopes.some((scope) => canonicalJson(scope) === canonicalJson(environment.legacyScope))
+        !environment.hosted &&
+        sourceDescription.startsWith("module ") &&
+        typeof source.legacyScopes !== "function" &&
+        !environment.explicitLegacyScope &&
+        !empty
+      )
+        throw new LearningError(
+          "conflict",
+          "Name the old repository with --legacy-repository, or use --empty to confirm this is a new store.",
+        )
+      const scopes = typeof source.legacyScopes === "function" ? await source.legacyScopes() : []
+      if (config.memory?.migration)
+        destination = createSqliteMemoryProvider({
+          directory: environment.dataDirectory,
+          file: config.memory.provider.file,
+        })
+      const migrations = config.memory?.migration
+        ? await destination.scopeMigrations(environment.scope)
+        : typeof source.scopeMigrations === "function"
+          ? await source.scopeMigrations(environment.scope)
+          : []
+      const selectedScopeExists = scopes.some(
+        (scope) => canonicalJson(scope) === canonicalJson(environment.legacyScope),
+      )
+      const selectedScopeMigrated = migrations.some(
+        (migration) => canonicalJson(migration.oldScope) === canonicalJson(environment.legacyScope),
+      )
+      if (
+        (scopes.length ||
+          (environment.explicitLegacyScope && typeof source.legacyScopes === "function")) &&
+        !selectedScopeExists &&
+        !selectedScopeMigrated
       )
         throw new LearningError(
           "conflict",
@@ -549,13 +674,37 @@ export async function migrateScopeOffline(environment, { clock = Date.now } = {}
             },
           }
       if (typeof source.migrateScope === "function") {
-        if (!environment.hosted) await writePrivateConfig(environment.configPath, confirmedConfig)
+        if (sourceDescription.startsWith("module ") && typeof source.legacyScopes !== "function") {
+          const old = await readScope(source, environment.legacyScope)
+          const current = await readScope(source, environment.scope)
+          const oldHasRecords =
+            Object.values(old.records).some((records) => records.length) || old.memories.length > 0
+          const currentHasRecords =
+            Object.values(current.records).some((records) => records.length) ||
+            current.memories.length > 0
+          if (empty) {
+            if (oldHasRecords || currentHasRecords)
+              throw new LearningError(
+                "conflict",
+                "This store is not empty; its data was not changed.",
+              )
+            await writePrivateConfig(environment.configPath, confirmedConfig)
+            return { empty: true }
+          }
+          if (!oldHasRecords)
+            throw new LearningError(
+              "not_found",
+              "No old data matches that repository name; the provider was not changed.",
+            )
+        } else if (empty)
+          throw new LearningError("invalid_input", "--empty is not needed for this provider.")
         const result = await migrateRepositoryScope({
           provider: source,
           oldScope: environment.legacyScope,
           newScope: environment.scope,
           clock,
         })
+        if (!environment.hosted) await writePrivateConfig(environment.configPath, confirmedConfig)
         return { file: source.manifest().storage.location, migrated: result.migrated }
       }
       async function readScope(provider, scope) {
@@ -573,10 +722,43 @@ export async function migrateScopeOffline(environment, { clock = Date.now } = {}
       }
       const old = await readScope(source, environment.legacyScope)
       const current = await readScope(source, environment.scope)
-      if (
+      const oldHasRecords =
+        Object.values(old.records).some((records) => records.length) || old.memories.length > 0
+      const currentHasRecords =
         Object.values(current.records).some((records) => records.length) ||
-        current.memories.length
-      )
+        current.memories.length > 0
+      if (empty) {
+        if (scopes.length || oldHasRecords || currentHasRecords)
+          throw new LearningError("conflict", "This store is not empty; its data was not changed.")
+        if (environment.hosted)
+          throw new LearningError("invalid_input", "--empty is only for a new checkout store.")
+        await writePrivateConfig(environment.configPath, confirmedConfig)
+        return { empty: true }
+      }
+      if (!oldHasRecords)
+        throw new LearningError(
+          "not_found",
+          "No old data matches that repository name; the provider was not changed.",
+        )
+      if (config.memory?.migration) {
+        const previous = migrations.find(
+          (migration) =>
+            canonicalJson(migration.oldScope) === canonicalJson(environment.legacyScope),
+        )
+        if (previous) {
+          if (previous.sourceDigest !== digestOf(old))
+            throw new LearningError(
+              "conflict",
+              "The original source changed after migration. Keep it offline and investigate before retrying.",
+            )
+          return {
+            file: path.join(environment.dataDirectory, config.memory.provider.file),
+            sourceProvider: config.memory.migration.sourceProvider,
+            alreadyMigrated: true,
+          }
+        }
+      }
+      if (currentHasRecords)
         throw new LearningError("conflict", "The new repository scope already contains records.")
       const originalStore = await createLearningStore({ provider: source, clock })
       const verified = await originalStore.verify({
@@ -588,6 +770,33 @@ export async function migrateScopeOffline(environment, { clock = Date.now } = {}
           "storage_corrupt",
           `Scope migration refused: ${verified.problems.join("; ")}`,
         )
+      if (config.memory?.migration) {
+        await migrateRepositoryScope({
+          provider: destination,
+          oldScope: environment.legacyScope,
+          newScope: environment.scope,
+          clock,
+          sourceSnapshot: old,
+          beforeCommit: async () => {
+            if (
+              canonicalJson(await readScope(source, environment.legacyScope)) !==
+                canonicalJson(old) ||
+              canonicalJson(await readScope(source, environment.scope)) !== canonicalJson(current)
+            )
+              throw new LearningError(
+                "conflict",
+                "The source changed during migration. Try again offline.",
+              )
+            if (canonicalJson(await readConfig(environment.configPath)) !== canonicalJson(config))
+              throw new LearningError("conflict", "The learning configuration changed. Try again.")
+          },
+        })
+        await writePrivateConfig(environment.configPath, confirmedConfig)
+        return {
+          file: path.join(environment.dataDirectory, config.memory.provider.file),
+          sourceProvider: config.memory.migration.sourceProvider,
+        }
+      }
       file = `scope-migration-${randomBytes(12).toString("hex")}.sqlite`
       const target = path.join(environment.dataDirectory, file)
       const handle = await open(

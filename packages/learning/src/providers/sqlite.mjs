@@ -134,6 +134,11 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         insert into records (stream, id, scope_key, occurred_at, episode_id, digest, body)
         values (?, ?, ?, ?, ?, ?, ?) on conflict (stream, id) do nothing`),
       storedDigest: db.prepare("select digest from records where stream = ? and id = ?"),
+      snapshotCollections: db.prepare(`
+        select id, digest from records
+        where stream = 'collections' and scope_key = ?
+          and json_extract(body, '$.snapshotId') = ?
+        order by id`),
       storedEvent: db.prepare("select body from records where stream = 'events' and id = ?"),
       replaceEvent: db.prepare("update records set body = ? where stream = 'events' and id = ?"),
       latestVersion: db.prepare(
@@ -189,9 +194,16 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
   }
 
   /** Append to several streams in one transaction. */
-  function write(batch, { audit = [] } = {}) {
+  function write(batch, { audit = [], expectedCollection } = {}) {
     const writes = batchWrites(batch, audit)
     return transaction(() => {
+      if (expectedCollection) {
+        const actual = statements.snapshotCollections
+          .all(canonicalJson(expectedCollection.scope), expectedCollection.snapshotId)
+          .map(({ id, digest }) => ({ id, digest }))
+        if (canonicalJson(actual) !== canonicalJson(expectedCollection.records))
+          throw new ProviderConflictError("The snapshot changed during import.")
+      }
       const counts = {}
       for (const [stream, records] of writes) {
         const result = insert(stream, records)
@@ -202,6 +214,8 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
   }
 
   return {
+    atomicMigrationRedactions: true,
+
     manifest() {
       return {
         schemaVersion: SCHEMA_VERSIONS.providerManifest,
@@ -315,6 +329,36 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         )
     },
 
+    async scopeMigrations(scope) {
+      const database = connect({ create: false })
+      if (
+        !database ||
+        !database
+          .prepare("select 1 from sqlite_master where type = 'table' and name = 'scope_migrations'")
+          .get()
+      )
+        return []
+      return database
+        .prepare("select metadata from scope_migrations where new_scope_key = ? order by rowid")
+        .all(canonicalJson(scope))
+        .map((row) => JSON.parse(row.metadata))
+    },
+
+    async scopeMigrationFrom(scope) {
+      const database = connect({ create: false })
+      if (
+        !database ||
+        !database
+          .prepare("select 1 from sqlite_master where type = 'table' and name = 'scope_migrations'")
+          .get()
+      )
+        return null
+      const row = database
+        .prepare("select metadata from scope_migrations where old_scope_key = ?")
+        .get(canonicalJson(scope))
+      return row ? JSON.parse(row.metadata) : null
+    },
+
     /**
      * Replace one event with its redacted copy. secure_delete overwrites the old text in the
      * database pages, and the checkpoint empties the write-ahead log, unless a reader in another
@@ -342,7 +386,7 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
      * { records, memories, metadata }. Retrying returns the same metadata. A durable trigger
      * refuses later writes to the old scope, including writes from older provider processes.
      */
-    async migrateScope({ oldScope, newScope, transform }) {
+    async migrateScope({ oldScope, newScope, transform, sourceSnapshot }) {
       const database = connect({ create: true })
       assertPrivate(root)
       assertPrivate(target)
@@ -357,9 +401,11 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         database.exec(`
           create table if not exists scope_migrations (
             old_scope_key text primary key,
-            new_scope_key text not null unique,
+            new_scope_key text not null,
             metadata text not null
           );
+          create index if not exists scope_migrations_by_target
+            on scope_migrations (new_scope_key);
           create trigger if not exists migrated_records_insert before insert on records
           when exists (select 1 from scope_migrations where old_scope_key = new.scope_key)
           begin select raise(abort, 'repository scope has migrated'); end;
@@ -397,8 +443,48 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
             limit 1`,
           )
           .get(newKey, newKey, newKey, newKey)
-        if (used)
+        const knownTarget = database
+          .prepare("select 1 from scope_migrations where new_scope_key = ?")
+          .get(newKey)
+        if (used && !knownTarget)
           throw new LearningError("conflict", "The target repository scope is already in use.")
+        if (sourceSnapshot) {
+          const existingSource = database
+            .prepare(
+              "select 1 from records where scope_key = ? union all select 1 from memory_versions where scope_key = ? limit 1",
+            )
+            .get(oldKey, oldKey)
+          if (existingSource)
+            throw new LearningError("conflict", "The old scope already exists in the target store.")
+          for (const [stream, items] of Object.entries(sourceSnapshot.records)) {
+            assertStream(stream)
+            assertStorable(items)
+            if (items.some((item) => canonicalJson(item.scope) !== oldKey))
+              throw new LearningError("storage_corrupt", "The source contains another scope.")
+            insert(stream, items)
+          }
+          assertStorable(sourceSnapshot.memories)
+          for (const record of sourceSnapshot.memories) {
+            if (canonicalJson(record.scope) !== oldKey)
+              throw new LearningError("storage_corrupt", "The source contains another scope.")
+            const latest = statements.latestVersion.get(record.id)
+            if (
+              (latest?.digest ?? null) !== (record.previousDigest ?? null) ||
+              record.version !== (latest?.version ?? 0) + 1
+            )
+              throw new ProviderConflictError(`Memory ${record.id} conflicts with the target.`, {
+                id: record.id,
+              })
+            statements.insertVersion.run(
+              record.id,
+              record.version,
+              oldKey,
+              text(record.updatedAt),
+              record.digest,
+              JSON.stringify(record),
+            )
+          }
+        }
         const rows = database
           .prepare(
             "select seq, stream, id, scope_key, occurred_at, episode_id, digest, body from records where scope_key = ? order by seq",
@@ -442,7 +528,19 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
             throw new LearningError("storage_corrupt", `Inconsistent memory row ${row.id}.`)
           return record
         })
-        const result = await transform({ records, memories })
+        const targetRecords = Object.fromEntries(Object.keys(STREAMS).map((stream) => [stream, []]))
+        for (const row of database
+          .prepare("select stream, body from records where scope_key = ? order by seq")
+          .all(newKey)) {
+          if (!Object.hasOwn(targetRecords, row.stream))
+            throw new LearningError("storage_corrupt", `Unknown stored stream ${row.stream}.`)
+          targetRecords[row.stream].push(JSON.parse(row.body))
+        }
+        const targetMemories = database
+          .prepare("select body from memory_versions where scope_key = ? order by seq")
+          .all(newKey)
+          .map((row) => JSON.parse(row.body))
+        const result = await transform({ records, memories, targetRecords, targetMemories })
         const offsets = Object.fromEntries(Object.keys(STREAMS).map((stream) => [stream, 0]))
         const updateRecord = database.prepare(
           "update records set scope_key = ?, digest = ?, body = ? where seq = ?",
@@ -467,6 +565,18 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
             throw new LearningError("storage_corrupt", "Migration changed a memory identity.")
           updateMemory.run(newKey, record.digest, JSON.stringify(record), row.seq)
         }
+        for (const redacted of result.targetRedactions ?? []) {
+          const row = database
+            .prepare(
+              "select body from records where stream = 'events' and id = ? and scope_key = ?",
+            )
+            .get(redacted.id, newKey)
+          const stored = row ? JSON.parse(row.body) : undefined
+          const problem = redactionProblem(stored, redacted)
+          if (problem) throw problem
+          statements.replaceEvent.run(JSON.stringify(redacted), redacted.id)
+        }
+        insert("audit", result.audit ?? [])
         database
           .prepare(
             "insert into scope_migrations (old_scope_key, new_scope_key, metadata) values (?, ?, ?)",
@@ -474,6 +584,8 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
           .run(oldKey, newKey, JSON.stringify(result.metadata))
         database.exec("commit")
         started = false
+        if (result.targetRedactions?.length || result.audit?.length)
+          database.exec("pragma wal_checkpoint(truncate)")
         return result.metadata
       } catch (error) {
         if (started) database.exec("rollback")

@@ -7,6 +7,7 @@ import { LearningError } from "./errors.mjs"
 import {
   openConsolidator,
   openLabeler,
+  openLegacyRedactionStore,
   openLearningStore,
   openProvider,
   migrateScopeOffline,
@@ -40,6 +41,7 @@ Inspect
                                   Whether one host decision operation is in intact history
   verify                          Re-check every record's schema, digest, and history
   migrate-scope --offline         Confirm and migrate a legacy store after stopping older clients
+                [--empty]         Confirm that a new custom-provider store is empty
   copilot status                  Whether Copilot answers here, as whom, and with which models
 
 Consent (a person decides; --by github:<login>)
@@ -107,6 +109,8 @@ const OPTIONS = {
   repository: { type: "string" },
   "legacy-repository": { type: "string" },
   offline: { type: "boolean" },
+  empty: { type: "boolean" },
+  "legacy-redaction": { type: "boolean" },
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
   purpose: { type: "string", multiple: true },
@@ -195,8 +199,25 @@ export async function main(
   const opened = []
   try {
     if (
+      values["legacy-redaction"] &&
+      (positionals.length !== 1 ||
+        positionals[0] !== "redact" ||
+        values.comment === undefined ||
+        !values["legacy-repository"] ||
+        values.repository)
+    )
+      throw new UsageError(
+        "--legacy-redaction is only for redact --comment with a Hub UUID in --legacy-repository.",
+      )
+    if (
+      values.empty &&
+      (positionals[0] !== "migrate-scope" || !values.offline || values["legacy-repository"])
+    )
+      throw new UsageError("--empty is used only with migrate-scope --offline and no old name.")
+    if (
       values["legacy-repository"] &&
       !values.repository &&
+      !values["legacy-redaction"] &&
       (positionals[0] !== "migrate-scope" || !values.offline)
     )
       throw new UsageError(
@@ -208,6 +229,7 @@ export async function main(
       directory: values.dir,
       repository: values.repository,
       legacyRepository: values["legacy-repository"],
+      legacyRedaction: values["legacy-redaction"],
     })
     const session = {
       environment,
@@ -304,15 +326,23 @@ async function run(session) {
 async function migrateScope(session) {
   if (session.positionals.length !== 1 || !session.values.offline)
     throw new UsageError("Stop older clients, then run migrate-scope --offline.")
-  const result = await migrateScopeOffline(session.environment, { clock: session.clock })
+  const result = await migrateScopeOffline(session.environment, {
+    clock: session.clock,
+    empty: session.values.empty,
+  })
   session.out(
     result,
-    `Migrated this repository to ${result.file}. The original provider is unchanged and may contain other repositories.`,
+    result.empty
+      ? "Confirmed the new store is empty. The configured provider is unchanged."
+      : `Migrated this repository to ${result.file}. The original provider is unchanged and may contain other repositories.`,
   )
 }
 
 async function open(session) {
-  const opened = await openLearningStore(session.environment, {
+  const openStore = session.environment.legacyRedaction
+    ? openLegacyRedactionStore
+    : openLearningStore
+  const opened = await openStore(session.environment, {
     clock: session.clock,
   })
   session.opened.push(opened.store)

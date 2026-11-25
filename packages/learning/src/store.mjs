@@ -198,6 +198,38 @@ function unique(values) {
   return [...new Set(values)]
 }
 
+/** Compare snapshot facts, not the separate import receipts for those facts. */
+export function sameCollectionSnapshot(left, right) {
+  function facts(record) {
+    return {
+      snapshotId: record.snapshotId,
+      snapshotDigest: record.snapshotDigest,
+      source: record.source,
+      reviewerIdentity: record.reviewerIdentity ?? null,
+      capturedAt: record.capturedAt,
+      filters: record.filters,
+      complete: record.complete,
+      problems: record.problems,
+      counts: {
+        threads: record.counts.threads,
+        messages: record.counts.messages,
+        episodes: record.counts.episodes,
+      },
+    }
+  }
+  return canonicalJson(facts(left)) === canonicalJson(facts(right))
+}
+
+function conflictingCollections(collections) {
+  const snapshots = new Map()
+  for (const record of collections) {
+    const previous = snapshots.get(record.snapshotId)
+    if (previous && !sameCollectionSnapshot(previous, record)) return [previous, record]
+    snapshots.set(record.snapshotId, record)
+  }
+  return null
+}
+
 function compare(left, right) {
   return left < right ? -1 : left > right ? 1 : 0
 }
@@ -291,6 +323,47 @@ function commentVersions(events, target) {
     }
   }
   return versions
+}
+
+function hubThreadKey(episode) {
+  const source = episode?.source
+  if (
+    source?.kind !== HUB_SOURCE ||
+    [source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId].some(
+      (value) => value === undefined,
+    )
+  )
+    return null
+  return canonicalJson([source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId])
+}
+
+/** Retractions follow the same Hub comment version across independently imported histories. */
+function retractedEvents(episodes, events) {
+  const episodeKeys = new Map(episodes.map((episode) => [episode.id, hubThreadKey(episode)]))
+  const byId = new Map(events.map((event) => [event.id, event]))
+  const comments = events.filter((event) => event.type === "human_comment")
+  const retracted = new Set()
+  for (const event of events) {
+    if (event.type !== "retraction") continue
+    retracted.add(targetOf(event))
+    const target = byId.get(targetOf(event))
+    const thread = episodeKeys.get(target?.episodeId)
+    const commentId = target && commentIdOf(target)
+    if (!thread || target?.type !== "human_comment" || commentId === undefined) continue
+    const deleted =
+      event.payload?.reason === "deleted_at_source" ||
+      event.id === derivedId("ev", { episodeId: event.episodeId, retracts: target.id })
+    for (const candidate of comments) {
+      if (episodeKeys.get(candidate.episodeId) !== thread || commentIdOf(candidate) !== commentId)
+        continue
+      if (
+        (deleted && candidate.at <= event.at) ||
+        (candidate.at === target.at && candidate.actor.id === target.actor.id)
+      )
+        retracted.add(candidate.id)
+    }
+  }
+  return retracted
 }
 
 /** What may be shown of a version that is damaged or whose evidence a purpose may not use. */
@@ -434,6 +507,11 @@ class LearningStore {
         "storage_corrupt",
         `${damaged.length} ${stream} record(s) from provider ${this.#manifest.id} failed their checks. Run verify; learning operations stay blocked until the store is repaired.`,
       )
+    if (stream === "collections" && conflictingCollections(records))
+      throw new LearningError(
+        "storage_corrupt",
+        "Collections disagree about a snapshot. Run verify; learning operations stay blocked until the store is repaired.",
+      )
     return records
   }
 
@@ -486,31 +564,72 @@ class LearningStore {
   }
 
   async #eligibility(context, at = this.#now()) {
-    const [grants, withdrawals, collections] = await Promise.all([
+    const [grants, withdrawals, collections, migrations] = await Promise.all([
       this.#read("grants", context),
       this.#read("withdrawals", context),
       this.#read("collections", context),
+      this.#provider.scopeMigrations?.(context.scope) ?? [],
     ])
     const eligibility = createEligibility({ grants, withdrawals, at })
+    const origins = new Map()
+    for (const migration of migrations)
+      for (const mapping of migration.digestMappings ?? [])
+        if (mapping.field === "digest" && ["grant", "event"].includes(mapping.kind))
+          origins.set(`${mapping.kind} ${mapping.id}`, canonicalJson(migration.oldScope))
+    const byOrigin = new Map()
+    const allGrantsFor = eligibility.grantsFor
+    eligibility.grantsForEvent = (episode, event, purpose) => {
+      const origin = origins.get(`event ${event.id}`)
+      if (!origin) return allGrantsFor(episode, event.at, purpose)
+      if (!byOrigin.has(origin))
+        byOrigin.set(
+          origin,
+          createEligibility({
+            grants: grants.filter((grant) => {
+              const grantOrigin = origins.get(`grant ${grant.id}`)
+              return !grantOrigin || grantOrigin === origin
+            }),
+            withdrawals,
+            at,
+          }),
+        )
+      return byOrigin.get(origin).grantsFor(episode, event.at, purpose)
+    }
     eligibility.stableSources = collections
       .filter((collection) => collection.reviewerIdentity === "stable-user-id")
       .map((collection) => collection.source)
+    eligibility.migrationScope = context.scope
+    eligibility.migrationDigest = digestOf(migrations)
     return { eligibility, grants, withdrawals }
   }
 
   async #observations(context, query = {}) {
+    let ids = query.episodeIds
+    let migrationDigest
     if (query.eventIds !== undefined) {
       const selected = await this.#read("events", context, { ids: query.eventIds })
-      query = {
-        episodeIds: unique(selected.map((event) => event.episodeId)).filter(
-          (id) => !query.episodeIds || query.episodeIds.includes(id),
-        ),
-      }
+      ids = unique(selected.map((event) => event.episodeId)).filter(
+        (id) => !query.episodeIds || query.episodeIds.includes(id),
+      )
+    }
+    if (ids) {
+      const migrations = (await this.#provider.scopeMigrations?.(context.scope)) ?? []
+      migrationDigest = digestOf(migrations)
+      const selected = new Set(ids)
+      for (const migration of migrations)
+        for (const group of migration.overlappingEpisodes ?? [])
+          if (group.some((id) => selected.has(id))) for (const id of group) selected.add(id)
+      ids = [...selected]
     }
     const [episodes, events] = await Promise.all([
-      this.#read("episodes", context, query.episodeIds ? { ids: query.episodeIds } : {}),
-      this.#read("events", context, query.episodeIds ? { episodeIds: query.episodeIds } : {}),
+      this.#read("episodes", context, ids ? { ids } : {}),
+      this.#read("events", context, ids ? { episodeIds: ids } : {}),
     ])
+    if (
+      migrationDigest &&
+      migrationDigest !== digestOf((await this.#provider.scopeMigrations?.(context.scope)) ?? [])
+    )
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
     const known = new Set(episodes.map((episode) => episode.id))
     return { episodes, events: events.filter((event) => known.has(event.episodeId)) }
   }
@@ -522,10 +641,25 @@ class LearningStore {
    * usable only while that comment is, and its time is the comment's time. Retracted and
    * redacted events are never usable.
    */
-  #eligible({ episodes, events }, eligibility, purpose) {
+  async #eligible({ episodes, events }, eligibility, purpose) {
+    if (
+      eligibility.migrationDigest !==
+      digestOf((await this.#provider.scopeMigrations?.(eligibility.migrationScope)) ?? [])
+    )
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
     const episodesById = new Map(episodes.map((episode) => [episode.id, episode]))
     const byId = new Map(events.map((event) => [event.id, event]))
-    const retracted = new Set(events.filter((event) => event.type === "retraction").map(targetOf))
+    const retracted = retractedEvents(episodes, events)
+    const copies = new Map()
+    const evidenceGrants = new Map()
+    for (const event of events) {
+      if (event.type !== "human_comment") continue
+      const thread = hubThreadKey(episodesById.get(event.episodeId))
+      const commentId = commentIdOf(event)
+      if (!thread || commentId === undefined) continue
+      const key = canonicalJson([thread, commentId, event.at])
+      copies.set(key, [...(copies.get(key) ?? []), event])
+    }
     const identityObsolete = new Set(
       events
         .filter(
@@ -559,6 +693,22 @@ class LearningStore {
           source.hubOrigin === episode.source.hubOrigin &&
           source.repositoryId === episode.source.repositoryId,
       )
+      const thread = hubThreadKey(episode)
+      const commentId = event.type === "human_comment" ? commentIdOf(event) : undefined
+      const related =
+        thread && commentId !== undefined
+          ? copies.get(canonicalJson([thread, commentId, event.at]))
+          : [event]
+      const grants = related.map((copy) =>
+        eligibility.grantsForEvent(episodesById.get(copy.episodeId), copy, purpose),
+      )
+      const permitted =
+        related.every(
+          (copy) =>
+            copy.payload !== undefined &&
+            (!retracted.has(copy.id) || copy.actor.id !== event.actor.id),
+        ) && grants.every((items) => items.length)
+      if (permitted) evidenceGrants.set(event.id, unique(grants.flat()))
       return (
         !retracted.has(event.id) &&
         event.payload !== undefined &&
@@ -566,7 +716,7 @@ class LearningStore {
           !stableSource ||
           event.type !== "human_comment" ||
           stableReviewer(event.actor, episode.scope, episode.source)) &&
-        eligibility.evidenceEligible(episode, event.at, purpose)
+        permitted
       )
     }
     const kept = events.filter((event) => {
@@ -589,6 +739,7 @@ class LearningStore {
       episodeIds,
       episodesById,
       eventsById,
+      evidenceGrants,
       retracted,
       identityObsolete,
     }
@@ -753,7 +904,7 @@ class LearningStore {
       this.#observations(context),
       this.#memories(context),
     ])
-    const eligible = this.#eligible(observations, eligibility, purpose)
+    const eligible = await this.#eligible(observations, eligibility, purpose)
     const items = [...entries.values()].map((entry) => ({
       ...entry,
       status: this.#statusOf(entry, eligible, now),
@@ -991,11 +1142,11 @@ class LearningStore {
     requireHuman(context, "redact a comment")
     assertRemovalReason(reason)
     this.#assertRedactable()
-    const { events } = await this.#observations(context)
+    const { episodes, events } = await this.#observations(context)
     const target = events.find((event) => event.id === eventId)
     if (target?.type !== "human_comment")
       throw new LearningError("not_found", `No review comment event ${eventId} in this scope.`)
-    return this.#removeCommentText(context, events, [target], reason)
+    return this.#removeCommentText(context, episodes, events, [target], reason)
   }
 
   /**
@@ -1023,12 +1174,12 @@ class LearningStore {
       throw new LearningError("invalid_input", "A Hub comment ID is a positive whole number.")
     assertRemovalReason(reason)
     this.#assertRedactable()
-    const { events } = await this.#observations(context)
+    const { episodes, events } = await this.#observations(context)
     const versions = events.filter(
       (event) => event.type === "human_comment" && commentIdOf(event) === commentId,
     )
     if (!versions.length) return { redacted: [], memoriesNeedingRebuild: [], exportsToFollowUp: [] }
-    return this.#removeCommentText(context, events, versions, reason)
+    return this.#removeCommentText(context, episodes, events, versions, reason)
   }
 
   #assertRedactable() {
@@ -1047,7 +1198,21 @@ class LearningStore {
    * each removal once, and reports the accepted learnings and exports that cite them. Running it
    * again finishes an interrupted removal and reports the same follow-ups.
    */
-  async #removeCommentText(context, events, targets, reason) {
+  async #removeCommentText(context, episodes, events, targets, reason) {
+    const episodeKeys = new Map(episodes.map((episode) => [episode.id, hubThreadKey(episode)]))
+    for (const target of [...targets]) {
+      const thread = episodeKeys.get(target.episodeId)
+      const commentId = commentIdOf(target)
+      if (!thread || commentId === undefined) continue
+      for (const event of events)
+        if (
+          event.type === "human_comment" &&
+          episodeKeys.get(event.episodeId) === thread &&
+          commentIdOf(event) === commentId &&
+          !targets.some((item) => item.id === event.id)
+        )
+          targets.push(event)
+    }
     const versions = new Set(targets.flatMap((target) => [...commentVersions(events, target)]))
     const chosen = events.filter(
       (event) =>
@@ -1218,6 +1383,24 @@ class LearningStore {
       problems: collection.problems,
       threads: collection.threads,
     })
+    const snapshot = {
+      snapshotId,
+      snapshotDigest,
+      source: {
+        kind: HUB_SOURCE,
+        hubOrigin: collection.meta.hubOrigin,
+        repository: collection.meta.repository,
+        repositoryId: collection.meta.repositoryId,
+      },
+      ...(collection.meta.reviewerIdentity
+        ? { reviewerIdentity: collection.meta.reviewerIdentity }
+        : {}),
+      capturedAt: collection.meta.capturedAt,
+      filters: collection.filters,
+      complete: collection.complete,
+      problems: collection.problems.slice(0, 1000).map((problem) => problem.slice(0, 2000)),
+      counts: { ...collection.counts, episodes: collection.threads.length },
+    }
     const id = derivedId("col", { scope: context.scope, snapshotId })
     const reused = new LearningError(
       "conflict",
@@ -1230,13 +1413,14 @@ class LearningStore {
         item.source.hubOrigin === collection.meta.hubOrigin &&
         item.source.repositoryId === collection.meta.repositoryId,
     )
-    const previous = collections.find((item) => item.snapshotId === snapshotId)
+    const matches = collections.filter((item) => item.snapshotId === snapshotId)
+    const previous = matches[0]
     if (historicalSource && !previous)
       throw new LearningError(
         "scope_violation",
         "An earlier repository name may only be used to replay a snapshot already in this store.",
       )
-    if (previous && previous.snapshotDigest !== snapshotDigest) throw reused
+    if (matches.some((item) => !sameCollectionSnapshot(item, snapshot))) throw reused
     const newer = collections.some(
       (item) =>
         item.source.kind === HUB_SOURCE &&
@@ -1258,39 +1442,92 @@ class LearningStore {
     const known = new Set(stored.map((episode) => episode.id))
     const episodeIds = candidateIds.map((ids) => {
       const matches = unique(ids.filter((id) => known.has(id)))
-      if (matches.length > 1)
-        throw new LearningError("conflict", "This thread has more than one stored episode.")
-      return matches[0] ?? ids[0]
+      return matches.length ? matches : [ids[0]]
     })
-    const existingEvents = await this.#read("events", context, { episodeIds })
+    const existingEvents = await this.#read("events", context, {
+      episodeIds: unique(episodeIds.flat()),
+    })
     const episodes = []
     const events = []
     for (const [index, thread] of collection.threads.entries()) {
-      if (newer) continue
-      const episodeId = episodeIds[index]
-      if (!known.has(episodeId))
-        episodes.push(
-          sealEpisode(
-            hubThreadEpisode({
-              meta: collection.meta,
-              thread,
-              scope: context.scope,
-              grantIds,
-              principal: context.principal,
-              importedAt: now,
-            }),
-          ),
+      if (previous) continue
+      const ids = episodeIds[index]
+      const threadEvents = existingEvents.filter((event) => ids.includes(event.episodeId))
+      const byId = new Map(threadEvents.map((event) => [event.id, event]))
+      const deleted = new Set(
+        threadEvents
+          .filter((event) => {
+            if (event.type !== "retraction") return false
+            const target = byId.get(event.parentEventId)
+            return (
+              event.payload?.reason === "deleted_at_source" ||
+              (target &&
+                event.id === derivedId("ev", { episodeId: event.episodeId, retracts: target.id }))
+            )
+          })
+          .map((event) => {
+            const target = byId.get(event.parentEventId)
+            return target ? commentIdOf(target) : undefined
+          })
+          .filter((id) => id !== undefined),
+      )
+      if ([thread.root, ...thread.replies].some((item) => deleted.has(item.id) && !item.deletedAt))
+        throw new LearningError(
+          "conflict",
+          "A newer snapshot would restore a comment already deleted at its source.",
         )
-      const existing = existingEvents.filter((event) => event.episodeId === episodeId)
-      events.push(
-        ...hubThreadEvents({
+      for (const episodeId of ids) {
+        if (!known.has(episodeId))
+          episodes.push(
+            sealEpisode(
+              hubThreadEpisode({
+                meta: collection.meta,
+                thread,
+                scope: context.scope,
+                grantIds,
+                principal: context.principal,
+                importedAt: now,
+              }),
+            ),
+          )
+        const existing = threadEvents.filter((event) => event.episodeId === episodeId)
+        const additions = hubThreadEvents({
           meta: collection.meta,
           thread,
           scope: context.scope,
           episodeId,
           existing,
-        }).map(sealEvent),
-      )
+        })
+        const removedRoots = new Map()
+        for (const event of additions) {
+          if (event.type !== "human_comment") continue
+          const removed = threadEvents.some(
+            (item) =>
+              item.type === "human_comment" &&
+              item.redaction &&
+              commentIdOf(item) === event.payload.commentId &&
+              (event.at <= item.redaction.at || item.at === event.at),
+          )
+          if (!removed) continue
+          if (event.payload.role === "root") {
+            const root = existing.find(
+              (item) => item.type === "human_comment" && commentIdOf(item) === thread.root.id,
+            )
+            if (!root)
+              throw new LearningError("storage_corrupt", "A stored review thread has no root.")
+            removedRoots.set(event.id, root.id)
+          } else removedRoots.set(event.id, null)
+        }
+        for (const event of additions) {
+          if (removedRoots.has(event.id)) continue
+          if (removedRoots.has(event.parentEventId)) {
+            const parent = removedRoots.get(event.parentEventId)
+            if (!parent) continue
+            event.parentEventId = parent
+          }
+          events.push(sealEvent(event))
+        }
+      }
     }
     for (const episode of episodes) assertValid("episode", episode)
     for (const event of events) assertValid("event", event)
@@ -1299,25 +1536,10 @@ class LearningStore {
       sealRecord({
         schemaVersion: SCHEMA_VERSIONS.collection,
         id,
-        source: {
-          kind: HUB_SOURCE,
-          hubOrigin: collection.meta.hubOrigin,
-          repository: collection.meta.repository,
-          repositoryId: collection.meta.repositoryId,
-        },
+        ...snapshot,
         scope: context.scope,
-        snapshotId,
-        snapshotDigest,
-        ...(collection.meta.reviewerIdentity
-          ? { reviewerIdentity: collection.meta.reviewerIdentity }
-          : {}),
-        capturedAt: collection.meta.capturedAt,
-        filters: collection.filters,
-        complete: collection.complete,
-        problems: collection.problems.slice(0, 1000).map((problem) => problem.slice(0, 2000)),
         counts: {
-          ...collection.counts,
-          episodes: collection.threads.length,
+          ...snapshot.counts,
           events: events.length,
         },
         importedAt: now,
@@ -1329,6 +1551,17 @@ class LearningStore {
       await this.#provider.appendBatch(
         { episodes, events, collections: [record] },
         {
+          ...(this.#provider.atomicMigrationRedactions
+            ? {
+                expectedCollection: {
+                  scope: context.scope,
+                  snapshotId,
+                  records: matches
+                    .map(({ id: collectionId, digest }) => ({ id: collectionId, digest }))
+                    .sort((a, b) => compare(a.id, b.id)),
+                },
+              }
+            : {}),
           audit: this.#auditEntries(context, "collection.import", [
             { kind: "collection", id: record.id, digest: record.digest },
             ...episodes.map((episode) => ({
@@ -1342,15 +1575,22 @@ class LearningStore {
       )
     } catch (error) {
       if (error?.code !== "conflict") throw error
-      const [stored] = await this.#read("collections", context, { ids: [id] })
-      if (stored && stored.snapshotDigest !== snapshotDigest) throw reused
+      const current = (await this.#read("collections", context)).filter(
+        (item) => item.snapshotId === snapshotId,
+      )
+      if (current.some((item) => !sameCollectionSnapshot(item, snapshot))) throw reused
       throw new LearningError(
         "conflict",
         `Another import stored some of these comments while this one ran, so nothing was imported. Import ${snapshotId} again.`,
       )
     }
     const removal = redactDeleted
-      ? await this.#removeDeletedText(context, collection, [...existingEvents, ...events])
+      ? await this.#removeDeletedText(
+          context,
+          collection,
+          [...stored, ...episodes],
+          [...existingEvents, ...events],
+        )
       : null
     const identityUpdates =
       collection.meta.reviewerIdentity || adopted
@@ -1387,7 +1627,7 @@ class LearningStore {
    * version with text and any label on a version. A removal cut short is finished by the next
    * import that asks, and a finished one is not reported again.
    */
-  async #removeDeletedText(context, collection, events) {
+  async #removeDeletedText(context, collection, episodes, events) {
     const deleted = new Set(
       collection.threads
         .flatMap((thread) => [thread.root, ...thread.replies])
@@ -1418,7 +1658,7 @@ class LearningStore {
       } else if (label || event.payload.body !== null) targets.set(commentIdOf(version), version)
     }
     return targets.size
-      ? this.#removeCommentText(context, events, [...targets.values()], DELETED_AT_SOURCE)
+      ? this.#removeCommentText(context, episodes, events, [...targets.values()], DELETED_AT_SOURCE)
       : null
   }
 
@@ -1480,8 +1720,8 @@ class LearningStore {
     assertContext(context)
     if (!Array.isArray(labels) || !labels.length)
       throw new LearningError("invalid_input", "Pass at least one label.")
-    const { events } = await this.#observations(context)
-    const retracted = new Set(events.filter((event) => event.type === "retraction").map(targetOf))
+    const { episodes, events } = await this.#observations(context)
+    const retracted = retractedEvents(episodes, events)
     const superseded = new Set(
       events.filter((event) => event.supersedes).map((event) => event.supersedes),
     )
@@ -1491,7 +1731,7 @@ class LearningStore {
     )
     const created = []
     for (const [index, label] of labels.entries()) {
-      const target = this.#labelTarget(label?.target, comments, superseded, index)
+      const target = this.#labelTarget(label?.target, comments, superseded, index, episodes)
       const payload = {
         target: { eventId: target.id },
         theme: label.theme,
@@ -1556,8 +1796,8 @@ class LearningStore {
     assertContext(context)
     if (!Array.isArray(eventIds) || !eventIds.length)
       throw new LearningError("invalid_input", "Name at least one comment event.")
-    const { events } = await this.#observations(context)
-    const retracted = new Set(events.filter((event) => event.type === "retraction").map(targetOf))
+    const { episodes, events } = await this.#observations(context)
+    const retracted = retractedEvents(episodes, events)
     const comments = new Map(
       events
         .filter(
@@ -1609,7 +1849,7 @@ class LearningStore {
     return created
   }
 
-  #labelTarget(target, comments, superseded, index) {
+  #labelTarget(target, comments, superseded, index, episodes) {
     if (target?.eventId) {
       const event = comments.find((item) => item.id === target.eventId)
       if (!event)
@@ -1626,6 +1866,14 @@ class LearningStore {
           !superseded.has(item.id) &&
           item.payload.body !== null,
       )
+      if (matches.length > 1) {
+        const byEpisode = new Map(episodes.map((episode) => [episode.id, episode]))
+        const threads = new Set(
+          matches.map((event) => hubThreadKey(byEpisode.get(event.episodeId))),
+        )
+        if (threads.size === 1 && !threads.has(null))
+          return matches.sort((a, b) => compare(b.at, a.at) || compare(a.id, b.id))[0]
+      }
       if (matches.length !== 1)
         throw new LearningError(
           matches.length ? "invalid_input" : "not_found",
@@ -1661,13 +1909,14 @@ class LearningStore {
       )
     const requested = eventIds === undefined ? null : new Set(eventIds)
     const { eligibility } = await this.#eligibility(context)
-    const eligible = this.#eligible(
+    const eligible = await this.#eligible(
       await this.#observations(context, { episodeIds, eventIds }),
       eligibility,
       purpose,
     )
     const events = eligible.events.filter(
       (event) =>
+        (!episodeIds || episodeIds.includes(event.episodeId)) &&
         (!requested || requested.has(event.id)) &&
         (!since || event.at >= since) &&
         (!until || event.at < until) &&
@@ -1677,7 +1926,7 @@ class LearningStore {
     return {
       episodes: requested
         ? eligible.episodes.filter((episode) => included.has(episode.id))
-        : eligible.episodes,
+        : eligible.episodes.filter((episode) => !episodeIds || episodeIds.includes(episode.id)),
       events,
     }
   }
@@ -1694,7 +1943,11 @@ class LearningStore {
     assertContext(context)
     const now = this.#now()
     const { eligibility } = await this.#eligibility(context, now)
-    const eligible = this.#eligible(await this.#observations(context), eligibility, "instruction")
+    const eligible = await this.#eligible(
+      await this.#observations(context),
+      eligibility,
+      "instruction",
+    )
     const entries = await this.#memories(context)
     const { record } = await this.#storeProposal(context, proposal, { eligible, entries, now })
     return record
@@ -2526,10 +2779,11 @@ class LearningStore {
       : eligible.events
     const usedGrants = new Set(
       permittingEvents.flatMap((event) => {
-        const time = JUDGMENTS.has(event.type)
-          ? eligible.eventsById.get(targetOf(event)).at
-          : event.at
-        return eligibility.grantsFor(eligible.episodesById.get(event.episodeId), time, purpose)
+        const target = JUDGMENTS.has(event.type) ? eligible.eventsById.get(targetOf(event)) : event
+        return (
+          eligible.evidenceGrants.get(target.id) ??
+          eligibility.grantsForEvent(eligible.episodesById.get(event.episodeId), target, purpose)
+        )
       }),
     )
     const exportedGrants = grants.filter((grant) => usedGrants.has(grant.id))
@@ -2723,6 +2977,9 @@ class LearningStore {
     const stored = {}
     for (const stream of Object.keys(STREAMS))
       if (stream !== "audit") stored[stream] = await read(stream)
+    const conflict = conflictingCollections(stored.collections.filter((item) => !damaged.has(item)))
+    if (conflict)
+      problems.push(`collections ${conflict[0].id}, ${conflict[1].id}: snapshot contents disagree`)
     const memories = await this.#memories(context)
     for (const entry of memories.values())
       for (const problem of entry.problems) problems.push(`memories ${entry.id}: ${problem}`)
