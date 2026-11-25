@@ -2,11 +2,13 @@ import { fork } from "node:child_process"
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
+import type { ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it, onTestFinished } from "vitest"
 import WebSocket from "ws"
 
+import { deferred } from "../../../../test/ws/deferred"
 import { createApp } from "../../../create-app"
 import { captureRepositoryReviewSnapshot } from "../../../domains/review-comments/capture-repository-review-snapshot"
 import { createReviewDirectory } from "../../../integrations/github/create-review-directory"
@@ -129,7 +131,11 @@ async function grant(repositoryId: string, membershipId: string) {
   })
 }
 
-async function api(provider: "local" | "github", directory?: GitHubReviewDirectory) {
+async function api(
+  provider: "local" | "github",
+  directory?: GitHubReviewDirectory,
+  observeResponse?: (response: ServerResponse) => void,
+) {
   const authentication = await createAuthenticationRouteDependencies(authEnvironment(provider))
   const server = createServer(
     createApp({
@@ -140,6 +146,8 @@ async function api(provider: "local" | "github", directory?: GitHubReviewDirecto
       }),
     }),
   )
+  if (observeResponse)
+    server.prependListener("request", (_request, response) => observeResponse(response))
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   onTestFinished(
@@ -289,6 +297,138 @@ describe("saved review collaboration", () => {
       true,
     )
   })
+
+  it("cancels the collaborator request and skips the next page when the client disconnects", async () => {
+    const firstPageStarted = deferred<AbortSignal | null | undefined>()
+    const releaseFirstPage = deferred<void>()
+    const disconnected = deferred<void>()
+    const searchFinished = deferred<void>()
+    const pages: string[] = []
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const directory = createReviewDirectory(
+      { appId: "123", installationId: "456", privateKey },
+      async (input, options) => {
+        const url = new URL(input instanceof Request ? input.url : input)
+        const author = { id: 500, login: "author_corp" }
+        if (url.pathname === "/app/installations/456/access_tokens")
+          return Response.json({
+            token: "synthetic",
+            expires_at: new Date(Date.now() + 600_000).toISOString(),
+          })
+        if (url.pathname === "/repositories/771")
+          return Response.json({ id: 771, full_name: "review/example" })
+        if (url.pathname === "/user/500") return Response.json(author)
+        if (url.pathname === "/repos/review/example/collaborators/author_corp/permission")
+          return Response.json({ user: author, permission: "read" })
+        if (url.pathname === "/repos/review/example/collaborators") {
+          const page = url.searchParams.get("page") ?? ""
+          pages.push(page)
+          if (page !== "1") return Response.json([])
+
+          firstPageStarted.resolve(options?.signal)
+          await releaseFirstPage.promise
+          // A full page can arrive as the client disconnects and would normally start another page.
+          return Response.json(
+            Array.from({ length: 100 }, (_, index) => ({
+              id: index + 1,
+              login: `collaborator-${index}`,
+            })),
+          )
+        }
+        throw new Error(`Unexpected synthetic GitHub path: ${url.pathname}`)
+      },
+    )
+    const base = await api(
+      "github",
+      {
+        ...directory,
+        search: (...args) => directory.search(...args).finally(() => searchFinished.resolve()),
+      },
+      (response) => response.once("close", () => disconnected.resolve()),
+    )
+    const author = await member("github", "author_corp", "500")
+    const { path, repositoryId } = await target(author.userId, false)
+    await grant(repositoryId, author.membershipId)
+
+    const abort = new AbortController()
+    const lookup = fetch(`${base}${path}/mention-candidates?q=target`, {
+      headers: { origin, cookie: `hub_session=${author.token}` },
+      signal: abort.signal,
+    }).catch((error: unknown) => error)
+
+    try {
+      const providerSignal = await firstPageStarted.promise
+      abort.abort()
+      await disconnected.promise
+      const providerAborted = providerSignal?.aborted
+      releaseFirstPage.resolve()
+      await searchFinished.promise
+
+      expect({ providerAborted, pages }).toEqual({
+        providerAborted: true,
+        pages: ["1"],
+      })
+    } finally {
+      abort.abort()
+      releaseFirstPage.resolve()
+      await lookup
+    }
+  })
+
+  it.each(["initial", "final"] as const)(
+    "cancels the %s access check if the mention client disconnects",
+    async (phase) => {
+      const checkStarted = deferred<AbortSignal | undefined>()
+      const checkFinished = deferred<void>()
+      const releaseCheck = deferred<void>()
+      const disconnected = deferred<void>()
+      let checks = 0
+      let searches = 0
+      const base = await api(
+        "github",
+        {
+          async canRead(_repository, _login, _githubId, signal) {
+            checks++
+            if (checks === (phase === "initial" ? 1 : 2)) {
+              checkStarted.resolve(signal)
+              await releaseCheck.promise
+              checkFinished.resolve()
+              signal?.throwIfAborted()
+            }
+            return true
+          },
+          find: () => Promise.resolve(null),
+          search() {
+            searches++
+            return Promise.resolve([])
+          },
+        },
+        (response) => response.once("close", () => disconnected.resolve()),
+      )
+      const author = await member("github", "author_corp", "500")
+      const { path, repositoryId } = await target(author.userId, false)
+      await grant(repositoryId, author.membershipId)
+
+      const controller = new AbortController()
+      const lookup = fetch(`${base}${path}/mention-candidates?q=target`, {
+        headers: { origin, cookie: `hub_session=${author.token}` },
+        signal: controller.signal,
+      }).catch((error: unknown) => error)
+
+      try {
+        const signal = await checkStarted.promise
+        controller.abort()
+        await disconnected.promise
+        expect(signal?.aborted).toBe(true)
+        expect(searches).toBe(phase === "initial" ? 0 : 1)
+      } finally {
+        controller.abort()
+        releaseCheck.resolve()
+        await lookup
+      }
+      await checkFinished.promise
+    },
+  )
 
   it("verifies new hosted mentions before saving and hides retained notices after the recipient loses access", async () => {
     let collaboratorCanRead = true

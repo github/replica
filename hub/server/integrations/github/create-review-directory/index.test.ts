@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
+import { deferred } from "../../../../test/ws/deferred"
 import { GitHubProviderRequestError } from "../errors"
 
 import { createReviewDirectory } from "."
@@ -85,6 +86,65 @@ it("uses the immutable repository ID when checking a collaborator after a rename
   request.mockClear()
   await expect(directory.find(42n, "reviewer", 501)).resolves.toBeNull()
   expect(request).toHaveBeenCalledTimes(1)
+})
+
+it("cancels a token request when its last caller aborts", async () => {
+  const { directory, request } = directoryWith(() => Response.json([]))
+  const started = deferred<AbortSignal>()
+  request.mockImplementationOnce(async (_input, options) => {
+    const signal = options?.signal
+    if (!signal) throw new Error("Missing provider signal")
+    started.resolve(signal)
+    await new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    )
+    signal.throwIfAborted()
+    throw new Error("Expected cancellation")
+  })
+
+  const controller = new AbortController()
+  const search = directory.search(42n, "mona", controller.signal)
+  const rejected = expect(search).rejects.toThrow()
+  const signal = await started.promise
+  controller.abort()
+  await rejected
+  expect(signal.aborted).toBe(true)
+  expect(request).toHaveBeenCalledTimes(1)
+  await expect(directory.search(42n, "mona")).resolves.toEqual([])
+})
+
+it("keeps a shared token request running for another caller", async () => {
+  const { directory, request } = directoryWith(() => Response.json([]))
+  const started = deferred<AbortSignal>()
+  const token = deferred<Response>()
+  request.mockImplementationOnce((_input, options) => {
+    const signal = options?.signal
+    if (!signal) return Promise.reject(new Error("Missing provider signal"))
+    started.resolve(signal)
+    return token.promise
+  })
+
+  const controller = new AbortController()
+  const cancelled = directory.search(42n, "mona", controller.signal)
+  const rejected = expect(cancelled).rejects.toThrow()
+  const signal = await started.promise
+  const active = directory.search(42n, "mona")
+  controller.abort()
+  await rejected
+  expect(signal.aborted).toBe(false)
+  token.resolve(
+    Response.json({
+      token: "synthetic",
+      expires_at: new Date(Date.now() + 600_000).toISOString(),
+    }),
+  )
+  await expect(active).resolves.toEqual([])
+  expect(
+    request.mock.calls.filter(
+      ([input]) =>
+        new URL(input instanceof Request ? input.url : input).pathname === installationTokenPath,
+    ),
+  ).toHaveLength(1)
 })
 
 describe("createReviewDirectory()", () => {

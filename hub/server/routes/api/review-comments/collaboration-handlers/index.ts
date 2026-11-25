@@ -35,11 +35,24 @@ export function createCollaborationHandlers(
 ) {
   function handle<Result>(
     permission: "view" | "change",
-    run: (input: ReviewMutationScope, request: Request) => Promise<Result | null>,
+    run: (
+      input: ReviewMutationScope,
+      request: Request,
+      signal: AbortSignal,
+    ) => Promise<Result | null>,
   ): RequestHandler {
     return async (request, response, next) => {
+      const cancellation = new AbortController()
+      const signal = cancellation.signal
+      function cancel() {
+        cancellation.abort()
+      }
+      // The incoming GET can finish before its client disconnects.
+      if (permission === "view") response.once("close", cancel)
       try {
+        if (response.destroyed) return
         const actor = await readReviewSession(request, session)
+        signal.throwIfAborted()
         if (!actor) {
           response.status(401).json({ error: "Sign in to continue." })
           return
@@ -56,19 +69,23 @@ export function createCollaborationHandlers(
             identifiers.repositoryId,
             actor,
             permission,
+            signal,
           ))
         )
           return
         const result = await run(
           { ...identifiers, sessionDigest: actor.sessionDigest, actor },
           request,
+          signal,
         )
+        if (response.destroyed) return
         if (result === null) {
           response.status(400).json({ error: "The review request is invalid." })
           return
         }
         if (permission === "view") {
           const current = await readReviewSession(request, session)
+          signal.throwIfAborted()
           if (!current || current.userId !== actor.userId) {
             response.status(401).json({ error: "Sign in to continue." })
             return
@@ -80,13 +97,17 @@ export function createCollaborationHandlers(
               identifiers.repositoryId,
               current,
               "view",
+              signal,
             ))
           )
             return
         }
         response.json(result)
       } catch (error) {
+        if (response.destroyed) return
         if (!respondReviewError(error, response)) next(error)
+      } finally {
+        response.off("close", cancel)
       }
     }
   }
@@ -135,7 +156,7 @@ export function createCollaborationHandlers(
     removeReaction: react(false),
     markRead: markRead(true),
     markUnread: markRead(false),
-    mentionCandidates: handle("view", async (input, request) => {
+    mentionCandidates: handle("view", async (input, request, signal) => {
       const query = candidateQuery.safeParse(request.query)
       if (!query.success || !review.searchReviewMentions) return null
       const candidates = await review.searchReviewMentions(
@@ -143,7 +164,9 @@ export function createCollaborationHandlers(
         input.prototypeId,
         query.data.q.toLowerCase(),
         input.actor.userId,
+        signal,
       )
+      signal.throwIfAborted()
       // Recheck the branch itself after the provider request as well.
       if (
         review.isPrototypeReviewable &&
