@@ -5,6 +5,7 @@ import { parseArgs } from "node:util"
 import { decodeUtf8, parseJson } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
 import {
+  importSqliteStore,
   openConsolidator,
   openLabeler,
   openLegacyRedactionStore,
@@ -44,6 +45,7 @@ Inspect
   migrate                         Set up PostgreSQL using REPLICA_LEARNING_MIGRATION_DATABASE_URL
   migrate-scope --offline         Confirm and migrate a legacy store after stopping older clients
                 [--empty]         Confirm that a new custom-provider store is empty
+  import-sqlite --offline         Copy a stopped Hub SQLite store into PostgreSQL
   copilot status                  Whether Copilot answers here, as whom, and with which models
 
 Consent (a person decides; --by github:<login>)
@@ -210,6 +212,19 @@ export async function main(
       return 0
     }
     if (
+      positionals[0] === "import-sqlite" &&
+      (positionals.length !== 1 ||
+        !values.offline ||
+        !values.dir ||
+        !values.repository ||
+        !/^github\.com\/repositories\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+          values["legacy-repository"] ?? "",
+        ))
+    )
+      throw new UsageError(
+        "Stop older clients, then use import-sqlite --offline with --dir, --repository, and the Hub UUID as --legacy-repository.",
+      )
+    if (
       values["legacy-redaction"] &&
       (positionals.length !== 1 ||
         positionals[0] !== "redact" ||
@@ -309,6 +324,16 @@ async function run(session) {
       return doctor(session)
     case "migrate-scope":
       return migrateScope(session)
+    case "import-sqlite": {
+      const result = await importSqliteStore(session.environment, { clock: session.clock })
+      session.out(
+        result,
+        result.alreadyImported
+          ? "SQLite history was already imported."
+          : "SQLite history was imported.",
+      )
+      return 0
+    }
     case "grants":
       if (sub === "list") return listGrants(session)
       if (sub === "withdrawals") return listWithdrawals(session)

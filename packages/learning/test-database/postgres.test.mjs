@@ -1,7 +1,17 @@
 import assert from "node:assert/strict"
-import { spawnSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { createConnection, createServer } from "node:net"
+import path from "node:path"
 import { after, afterEach, it } from "node:test"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
@@ -14,8 +24,11 @@ import {
 } from "../conformance/index.mjs"
 import { main } from "../src/cli.mjs"
 import { openProvider } from "../src/config.mjs"
+import { STREAMS } from "../src/provider-contract.mjs"
 import { migratePostgres, postgresPool } from "../src/providers/postgres-database.mjs"
 import { createPostgresMemoryProvider } from "../src/providers/postgres.mjs"
+import { createSqliteMemoryProvider } from "../src/providers/sqlite.mjs"
+import { migrateRepositoryScope } from "../src/scope-migration.mjs"
 import { createLearningStore } from "../src/store.mjs"
 import { validateRecord } from "../src/validate.mjs"
 
@@ -26,6 +39,53 @@ const admin = new pg.Pool({ connectionString: baseUrl })
 const databases = []
 const roles = []
 const providers = []
+const workspaces = []
+
+function importWorkspace() {
+  const root = path.resolve(`.learning-import-tests-${randomBytes(12).toString("hex")}`)
+  mkdirSync(root, { mode: 0o700 })
+  workspaces.push(root)
+  execFileSync("git", ["init", "-q", root])
+  writeFileSync(path.join(root, ".gitignore"), ".replica/\n")
+  const source = path.join(root, ".replica", "source")
+  const reference = path.join(root, ".replica", "reference")
+  for (const directory of [source, reference]) {
+    mkdirSync(directory, { recursive: true, mode: 0o700 })
+    copyFileSync(
+      new URL("../test/fixtures/legacy-hub-scope.sqlite", import.meta.url),
+      path.join(directory, "learning.sqlite"),
+    )
+    chmodSync(path.join(directory, "learning.sqlite"), 0o600)
+    writeFileSync(
+      path.join(directory, "config.json"),
+      JSON.stringify({
+        schemaVersion: "replica.learning-config/v1",
+        memory: { provider: "sqlite" },
+      }),
+    )
+  }
+  return { root, source, reference }
+}
+
+async function learningCommand(root, url, args) {
+  let stdout = ""
+  let stderr = ""
+  const code = await main(args, {
+    cwd: root,
+    env: { REPLICA_LEARNING_DATABASE_URL: url, PATH: "" },
+    stdout: { write: (text) => (stdout += text) },
+    stderr: { write: (text) => (stderr += text) },
+  })
+  return { code, stdout, stderr }
+}
+
+async function snapshot(opened, scope) {
+  const query = { scope }
+  const records = {}
+  for (const stream of Object.keys(STREAMS))
+    records[stream] = await opened.readRecords(stream, query)
+  return { records, versions: await opened.readMemoryVersions(query) }
+}
 
 async function database({ migrate = true } = {}) {
   const name = `replica_test_${randomBytes(12).toString("hex")}`
@@ -66,6 +126,7 @@ afterEach(async () => {
       errors.push(error)
     }
   }
+  for (const root of workspaces.splice(0)) rmSync(root, { recursive: true, force: true })
   if (errors.length) throw new AggregateError(errors, "Could not remove test resources.")
 })
 after(async () => admin.end())
@@ -73,6 +134,363 @@ after(async () => admin.end())
 memoryProviderConformance({
   name: "PostgreSQL provider",
   createProvider: async () => provider(await database()),
+})
+
+it("redacts a new PostgreSQL repository using its old Hub UUID", async () => {
+  const root = path.resolve(`.learning-hub-tests-${randomBytes(12).toString("hex")}`)
+  mkdirSync(root, { mode: 0o700 })
+  workspaces.push(root)
+  execFileSync("git", ["init", "-q", root])
+  writeFileSync(path.join(root, ".gitignore"), ".replica/\n")
+  const directory = path.join(root, ".replica", "learning")
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  writeFileSync(
+    path.join(directory, "config.json"),
+    JSON.stringify({
+      schemaVersion: "replica.learning-config/v1",
+      memory: { provider: "postgres" },
+    }),
+  )
+  const hubId = "11111111-2222-4333-8444-555555555555"
+  const log = weekOneLog({ repository: `repositories/${hubId}` })
+  for (const call of log.calls) call.result.target.repositoryId = hubId
+  writeFileSync(path.join(root, "log.json"), JSON.stringify(log))
+  const url = await database()
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const flags = [
+    "--dir",
+    directory,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/repositories/${hubId}`,
+    "--json",
+  ]
+  const grant = await learningCommand(root, url, [
+    "grants",
+    "add",
+    "--purpose",
+    "review",
+    "--basis",
+    "Synthetic consent for review.",
+    "--by",
+    "github:ana-designer",
+    ...flags,
+  ])
+  assert.equal(grant.code, 0, grant.stderr)
+  const imported = await learningCommand(root, url, [
+    "import",
+    "hub-comments",
+    "log.json",
+    "--grant",
+    JSON.parse(grant.stdout).id,
+    "--actor",
+    "agent:copilot",
+    ...flags,
+  ])
+  assert.equal(imported.code, 0, imported.stderr)
+  const opened = provider(url)
+  const events = await opened.readRecords("events", { scope })
+  const comment = events.find((event) => event.payload?.commentId === 103)
+  const other = events.find((event) => event.payload?.commentId === 101)
+  assert.ok(comment?.payload?.body)
+  assert.ok(other?.payload?.body)
+
+  const redact = [
+    "redact",
+    "--comment",
+    "103",
+    "--by",
+    "github:ana-designer",
+    "--dir",
+    directory,
+    "--legacy-repository",
+    `github.com/repositories/${hubId}`,
+    "--legacy-redaction",
+    "--json",
+  ]
+  const removed = await learningCommand(root, url, redact)
+  assert.equal(removed.code, 0, removed.stderr)
+  assert.ok(JSON.parse(removed.stdout).removed > 0)
+  const after = await opened.readRecords("events", { scope })
+  assert.equal(after.find((event) => event.id === comment.id).payload, undefined)
+  assert.deepEqual(
+    after.find((event) => event.id === other.id),
+    other,
+  )
+  const repeated = await learningCommand(root, url, redact)
+  assert.equal(repeated.code, 0, repeated.stderr)
+  assert.equal(JSON.parse(repeated.stdout).removed, 0)
+})
+
+it("leaves legacy SQLite unchanged when PostgreSQL is unavailable", async () => {
+  const { root, source, reference } = importWorkspace()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const original = createSqliteMemoryProvider({ directory: reference })
+  try {
+    assert.ok((await original.readRecords("events", { scope: oldScope })).length > 0)
+    assert.equal(await original.scopeMigrationFrom(oldScope), null)
+  } finally {
+    await original.close()
+  }
+  const names = readdirSync(source).sort()
+  const contents = names.map((name) => readFileSync(path.join(source, name)))
+  let attempts = 0
+  const server = createServer((socket) => {
+    attempts++
+    socket.destroy()
+  })
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  try {
+    const url = `postgresql://test:test@127.0.0.1:${server.address().port}/postgres`
+    const result = await learningCommand(root, url, [
+      "import-sqlite",
+      "--offline",
+      "--dir",
+      source,
+      "--repository",
+      "github.com/repositories/123456",
+      "--legacy-repository",
+      `github.com/${oldScope.repository}`,
+    ])
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /unavailable/i)
+    assert.ok(attempts > 0)
+    assert.deepEqual(readdirSync(source).sort(), names)
+    assert.deepEqual(
+      names.map((name) => readFileSync(path.join(source, name))),
+      contents,
+    )
+  } finally {
+    await new Promise((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
+  }
+})
+
+it("imports Hub history offline, preserves mappings and redactions, and refuses a changed retry", async () => {
+  const { root, source, reference } = importWorkspace()
+  const url = await database()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const flags = [
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ]
+  const target = provider(url)
+  const expected = createSqliteMemoryProvider({ directory: reference })
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    const original = await snapshot(sourceProvider, oldScope)
+    assert.ok(original.records.events.some((event) => event.redaction && !event.payload))
+    assert.deepEqual(
+      original.versions.map((version) => version.state),
+      ["proposed", "accepted"],
+    )
+    await migrateRepositoryScope({
+      provider: expected,
+      oldScope,
+      newScope: scope,
+    })
+    const expectedHistory = await snapshot(expected, scope)
+    const expectedMapping = await expected.scopeMigrationFrom(oldScope)
+    assert.ok(expectedMapping.digestMappings.length > 0)
+
+    const online = await learningCommand(root, url, ["import-sqlite", ...flags])
+    assert.notEqual(online.code, 0)
+    assert.deepEqual(await snapshot(target, scope), {
+      records: Object.fromEntries(Object.keys(STREAMS).map((stream) => [stream, []])),
+      versions: [],
+    })
+
+    const imported = await learningCommand(root, url, ["import-sqlite", "--offline", ...flags])
+    assert.equal(imported.code, 0, imported.stderr)
+    assert.deepEqual(await snapshot(target, scope), expectedHistory)
+    assert.deepEqual(await target.scopeMigrationFrom(oldScope), expectedMapping)
+    const oldSource = await snapshot(sourceProvider, oldScope)
+    const newSource = await snapshot(sourceProvider, scope)
+    if (newSource.records.events.length) assert.deepEqual(newSource, expectedHistory)
+    else assert.deepEqual(oldSource, original)
+
+    const retry = await learningCommand(root, url, ["import-sqlite", "--offline", ...flags])
+    assert.equal(retry.code, 0, retry.stderr)
+    assert.deepEqual(await snapshot(target, scope), expectedHistory)
+    assert.deepEqual(await target.scopeMigrationFrom(oldScope), expectedMapping)
+
+    const sourceScope = newSource.records.events.length ? scope : oldScope
+    const store = await createLearningStore({ provider: sourceProvider })
+    await store.addGrant(
+      { scope: sourceScope, principal: { kind: "human", id: "github:later" } },
+      {
+        purposes: ["review"],
+        sources: ["hub_review_comments"],
+        basis: "Later consent.",
+      },
+    )
+    const changed = await learningCommand(root, url, ["import-sqlite", "--offline", ...flags])
+    assert.notEqual(changed.code, 0)
+    assert.deepEqual(await snapshot(target, scope), expectedHistory)
+    assert.deepEqual(await target.scopeMigrationFrom(oldScope), expectedMapping)
+
+    const pgConfig = path.join(root, ".replica", "postgres")
+    mkdirSync(pgConfig, { recursive: true, mode: 0o700 })
+    writeFileSync(
+      path.join(pgConfig, "config.json"),
+      JSON.stringify({
+        schemaVersion: "replica.learning-config/v1",
+        memory: { provider: "postgres" },
+      }),
+    )
+    const redaction = await learningCommand(root, url, [
+      "redact",
+      "--comment",
+      "103",
+      "--by",
+      "github:ana-designer",
+      "--json",
+      "--dir",
+      pgConfig,
+      "--legacy-repository",
+      `github.com/${oldScope.repository}`,
+      "--legacy-redaction",
+    ])
+    assert.equal(redaction.code, 0, redaction.stderr)
+    assert.ok(JSON.parse(redaction.stdout).removed > 0)
+    const after = await snapshot(target, scope)
+    const beforeEvent = expectedHistory.records.events.find(
+      (event) => event.payload?.commentId === 103,
+    )
+    assert.ok(beforeEvent)
+    assert.equal(
+      after.records.events.find((event) => event.id === beforeEvent.id).payload,
+      undefined,
+    )
+    const repeatedRedaction = await learningCommand(root, url, [
+      "redact",
+      "--comment",
+      "103",
+      "--by",
+      "github:ana-designer",
+      "--json",
+      "--dir",
+      pgConfig,
+      "--legacy-repository",
+      `github.com/${oldScope.repository}`,
+      "--legacy-redaction",
+    ])
+    assert.equal(repeatedRedaction.code, 0, repeatedRedaction.stderr)
+    assert.equal(JSON.parse(repeatedRedaction.stdout).removed, 0)
+  } finally {
+    await expected.close()
+    await sourceProvider.close()
+  }
+})
+
+it("refuses unrelated history in the same scope but preserves other scopes", async () => {
+  const { root, source } = importWorkspace()
+  const url = await database()
+  const secondUrl = await database()
+  const target = provider(url)
+  const second = provider(secondUrl)
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const other = { host: "github.com", repository: "repositories/987654" }
+  await target.appendRecords("grants", [{ id: "unrelated-same", digest: "sha256:same", scope }])
+  await second.appendRecords("grants", [
+    { id: "unrelated-other", digest: "sha256:other", scope: other },
+  ])
+  const before = await snapshot(target, scope)
+  const otherBefore = await snapshot(second, other)
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    "github.com/repositories/123456",
+    "--legacy-repository",
+    "github.com/repositories/11111111-2222-4333-8444-555555555555",
+  ])
+  assert.notEqual(result.code, 0)
+  assert.match(result.stderr, /conflict|populated|destination/i)
+  assert.deepEqual(await snapshot(target, scope), before)
+  const differentScope = await learningCommand(root, secondUrl, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    "github.com/repositories/123456",
+    "--legacy-repository",
+    "github.com/repositories/11111111-2222-4333-8444-555555555555",
+  ])
+  assert.equal(differentScope.code, 0, differentScope.stderr)
+  assert.deepEqual(await snapshot(second, other), otherBefore)
+  const imported = await snapshot(second, scope)
+  assert.ok(imported.records.events.length > 0)
+  assert.equal(imported.versions.length, 2)
+})
+
+it("rolls back a failed PostgreSQL import and permits a retry", async () => {
+  const { root, source } = importWorkspace()
+  const url = await database()
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    await db.query("create sequence replica_learning.test_import_attempt")
+    await db.query(`
+      create function replica_learning.test_refuse_events() returns trigger language plpgsql as $$
+      begin
+        perform nextval('replica_learning.test_import_attempt');
+        raise exception 'test import failure';
+      end $$
+    `)
+    await db.query(`
+      create trigger test_refuse_events before insert on replica_learning.records
+      for each row when (new.stream = 'events') execute function replica_learning.test_refuse_events()
+    `)
+    const args = [
+      "import-sqlite",
+      "--offline",
+      "--dir",
+      source,
+      "--repository",
+      "github.com/repositories/123456",
+      "--legacy-repository",
+      "github.com/repositories/11111111-2222-4333-8444-555555555555",
+    ]
+    const failed = await learningCommand(root, url, args)
+    assert.notEqual(failed.code, 0)
+    const attempt = await db.query("select is_called from replica_learning.test_import_attempt")
+    assert.equal(attempt.rows[0].is_called, true)
+    const records = await db.query("select count(*)::int as count from replica_learning.records")
+    const versions = await db.query(
+      "select count(*)::int as count from replica_learning.memory_versions",
+    )
+    assert.equal(records.rows[0].count, 0)
+    assert.equal(versions.rows[0].count, 0)
+    await db.query("drop trigger test_refuse_events on replica_learning.records")
+    const retried = await learningCommand(root, url, args)
+    assert.equal(retried.code, 0, retried.stderr)
+    const target = provider(url)
+    const scope = { host: "github.com", repository: "repositories/123456" }
+    assert.ok((await target.readRecords("events", { scope })).length > 0)
+    assert.equal((await target.readMemoryVersions({ scope })).length, 2)
+  } finally {
+    await db.end()
+  }
 })
 
 it("migrates only with the migration URL and lets a limited runtime login use the store", async () => {
@@ -123,7 +541,21 @@ it("migrates only with the migration URL and lets a limited runtime login use th
     await db.query(`grant select on replica_learning.schema_migrations to "${role}"`)
     await db.query(`grant select, insert, update on replica_learning.records to "${role}"`)
     await db.query(`grant select, insert on replica_learning.memory_versions to "${role}"`)
+    await db.query(
+      `grant select on replica_learning.scope_migrations, replica_learning.sqlite_imports to "${role}"`,
+    )
     await db.query(`grant usage on all sequences in schema replica_learning to "${role}"`)
+    const oldScope = { repository: "old" }
+    const scope = { repository: "a" }
+    const mapping = { oldScope, newScope: scope, digestMappings: [] }
+    await db.query(
+      "insert into replica_learning.scope_migrations (old_scope_key, new_scope_key, metadata) values ($1, $2, $3)",
+      [JSON.stringify(oldScope), JSON.stringify(scope), JSON.stringify(mapping)],
+    )
+    await db.query(
+      "insert into replica_learning.sqlite_imports (scope_key, source_digest) values ($1, $2)",
+      [JSON.stringify(scope), "sha256:source"],
+    )
     const restricted = new pg.Client({ connectionString: runtimeUrl.href })
     await restricted.connect()
     try {
@@ -164,6 +596,10 @@ it("migrates only with the migration URL and lets a limited runtime login use th
     }
     assert.deepEqual(await runtime.redactRecord("events", redacted), { redacted: true })
     assert.deepEqual(await runtime.readRecords("events", { scope: record.scope }), [redacted])
+    assert.deepEqual(await runtime.scopeMigrations(scope), [mapping])
+    assert.deepEqual(await runtime.scopeMigrationFrom(oldScope), mapping)
+    assert.equal(await runtime.hasSqliteImport(scope), true)
+    assert.equal(await runtime.hasSqliteImport(oldScope), false)
   } finally {
     await db.end()
   }
@@ -182,10 +618,8 @@ it("refuses a changed migration ledger rather than using or repairing it", async
     })
     await assert.rejects(migratePostgres({ connectionString: url }), { code: "storage_corrupt" })
     const { rows } = await db.query("select checksum from replica_learning.schema_migrations")
-    assert.deepEqual(
-      rows.map((row) => row.checksum),
-      ["changed"],
-    )
+    assert.ok(rows.length > 0)
+    assert.ok(rows.every((row) => row.checksum === "changed"))
   } finally {
     await db.end()
   }

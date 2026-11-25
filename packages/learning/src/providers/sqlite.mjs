@@ -229,6 +229,15 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     })
   }
 
+  function storedScopes() {
+    const database = connect({ create: false })
+    if (!database) return []
+    return database
+      .prepare("select scope_key from records union select scope_key from memory_versions")
+      .all()
+      .map((row) => JSON.parse(row.scope_key))
+  }
+
   return {
     atomicMigrationRedactions: true,
     atomicMigrationFence: true,
@@ -336,19 +345,16 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     },
 
     async legacyScopes() {
-      const database = connect({ create: false })
-      if (!database) return []
-      const rows = database
-        .prepare("select scope_key from records union select scope_key from memory_versions")
-        .all()
-      return rows
-        .map((row) => JSON.parse(row.scope_key))
-        .filter(
-          (scope) =>
-            scope.host === "github.com" &&
-            typeof scope.repository === "string" &&
-            !/^repositories\/[1-9][0-9]*$/.test(scope.repository),
-        )
+      return storedScopes().filter(
+        (scope) =>
+          scope.host === "github.com" &&
+          typeof scope.repository === "string" &&
+          !/^repositories\/[1-9][0-9]*$/.test(scope.repository),
+      )
+    },
+
+    async storedScopes() {
+      return storedScopes()
     },
 
     async scopeMigrations(scope) {

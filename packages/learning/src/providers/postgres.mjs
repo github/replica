@@ -181,6 +181,7 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
 
   return {
     atomicCollectionImport: true,
+    atomicMigrationRedactions: true,
 
     manifest() {
       return {
@@ -270,6 +271,154 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
 
     async readMemoryVersions(queryOptions) {
       return select(queryOptions, { table: "memory_versions", time: "updated_at" })
+    },
+
+    async scopeMigrations(scope) {
+      const { rows } = await query(
+        "select metadata from replica_learning.scope_migrations where new_scope_key = $1 order by seq",
+        [canonicalJson(scope)],
+      )
+      try {
+        return rows.map((row) => JSON.parse(row.metadata))
+      } catch {
+        throw new LearningError("storage_corrupt", "A PostgreSQL migration mapping is invalid.")
+      }
+    },
+
+    async scopeMigrationFrom(scope) {
+      const { rows } = await query(
+        "select metadata from replica_learning.scope_migrations where old_scope_key = $1",
+        [canonicalJson(scope)],
+      )
+      try {
+        return rows.length ? JSON.parse(rows[0].metadata) : null
+      } catch {
+        throw new LearningError("storage_corrupt", "A PostgreSQL migration mapping is invalid.")
+      }
+    },
+
+    async registerLegacyScope(oldScope, newScope) {
+      const oldKey = canonicalJson(oldScope)
+      const newKey = canonicalJson(newScope)
+      const saved = await query(
+        "select new_scope_key from replica_learning.scope_migrations where old_scope_key = $1",
+        [oldKey],
+      )
+      if (saved.rows.length) {
+        if (saved.rows[0].new_scope_key !== newKey)
+          throw new LearningError("conflict", "The old scope belongs to another repository.")
+        return
+      }
+      return transaction([oldKey, newKey], async (client) => {
+        const previous = await client.query(
+          "select new_scope_key from replica_learning.scope_migrations where old_scope_key = $1",
+          [oldKey],
+        )
+        if (previous.rows.length) {
+          if (previous.rows[0].new_scope_key !== newKey)
+            throw new LearningError("conflict", "The old scope belongs to another repository.")
+          return
+        }
+        const old = await client.query(
+          `select 1 from replica_learning.records where scope_key = $1
+           union all select 1 from replica_learning.memory_versions where scope_key = $1
+           limit 1`,
+          [oldKey],
+        )
+        if (old.rows.length)
+          throw new LearningError("conflict", "The old repository scope still contains data.")
+        await client.query(
+          `insert into replica_learning.scope_migrations (old_scope_key, new_scope_key, metadata)
+           values ($1, $2, $3)`,
+          [oldKey, newKey, JSON.stringify({ oldScope, newScope, digestMappings: [] })],
+        )
+      })
+    },
+
+    async hasSqliteImport(scope) {
+      const { rows } = await query(
+        "select 1 from replica_learning.sqlite_imports where scope_key = $1",
+        [canonicalJson(scope)],
+      )
+      return rows.length > 0
+    },
+
+    async importSqlite({ scope, records, memories, migrations, sourceDigest, beforeCommit }) {
+      const key = canonicalJson(scope)
+      const writes = batchWrites(records)
+      assertStorable(memories)
+      for (const items of writes.values())
+        if (items.some((record) => canonicalJson(record.scope) !== key))
+          throw new LearningError("storage_corrupt", "The source contains another scope.")
+      if (memories.some((record) => canonicalJson(record.scope) !== key))
+        throw new LearningError("storage_corrupt", "The source contains another scope.")
+      for (const migration of migrations)
+        if (
+          !migration.oldScope ||
+          canonicalJson(migration.oldScope) === key ||
+          canonicalJson(migration.newScope) !== key
+        )
+          throw new LearningError("storage_corrupt", "A repository migration mapping is invalid.")
+      return transaction([key], async (client) => {
+        const prior = await client.query(
+          "select source_digest from replica_learning.sqlite_imports where scope_key = $1",
+          [key],
+        )
+        if (prior.rows.length) {
+          if (prior.rows[0].source_digest !== sourceDigest)
+            throw new LearningError(
+              "conflict",
+              "The SQLite source changed after import. Keep it offline and investigate.",
+            )
+          return { alreadyImported: true }
+        }
+        const occupied = await client.query(
+          `select 1 from replica_learning.records where scope_key = $1
+           union all select 1 from replica_learning.memory_versions where scope_key = $1
+           union all select 1 from replica_learning.scope_migrations where new_scope_key = $1
+           limit 1`,
+          [key],
+        )
+        if (occupied.rows.length)
+          throw new LearningError("conflict", "The PostgreSQL repository already contains data.")
+        for (const [stream, items] of writes) await insert(client, stream, items)
+        const latest = new Map()
+        for (const record of memories) {
+          const previous = latest.get(record.id)
+          if (
+            record.version !== (previous?.version ?? 0) + 1 ||
+            (record.previousDigest ?? null) !== (previous?.digest ?? null)
+          )
+            throw new LearningError("storage_corrupt", "A source memory history is invalid.")
+          await client.query(
+            `insert into replica_learning.memory_versions
+             (id, version, scope_key, updated_at, operation, digest, body)
+             values ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              record.id,
+              record.version,
+              key,
+              text(record.updatedAt),
+              text(record.operation),
+              record.digest,
+              JSON.stringify(record),
+            ],
+          )
+          latest.set(record.id, record)
+        }
+        for (const migration of migrations)
+          await client.query(
+            `insert into replica_learning.scope_migrations (old_scope_key, new_scope_key, metadata)
+             values ($1, $2, $3)`,
+            [canonicalJson(migration.oldScope), key, JSON.stringify(migration)],
+          )
+        await beforeCommit()
+        await client.query(
+          "insert into replica_learning.sqlite_imports (scope_key, source_digest) values ($1, $2)",
+          [key, sourceDigest],
+        )
+        return { alreadyImported: false }
+      })
     },
 
     async redactRecord(stream, record) {

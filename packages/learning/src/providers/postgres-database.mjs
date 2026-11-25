@@ -41,6 +41,23 @@ const MIGRATIONS = [
       create index memory_versions_by_operation on replica_learning.memory_versions (scope_key, operation);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      create table replica_learning.scope_migrations (
+        seq bigint generated always as identity primary key,
+        old_scope_key text collate "C" not null unique,
+        new_scope_key text collate "C" not null,
+        metadata text not null
+      );
+      create index scope_migrations_by_target
+        on replica_learning.scope_migrations (new_scope_key, seq);
+      create table replica_learning.sqlite_imports (
+        scope_key text collate "C" primary key,
+        source_digest text not null
+      );
+    `,
+  },
 ]
 
 function checksum(migration) {

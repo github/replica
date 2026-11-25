@@ -435,6 +435,22 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
     )
   const { provider, source } = await openProvider(environment)
   try {
+    if (
+      environment.config.memory?.requireImport &&
+      !(await provider.hasSqliteImport?.(environment.scope))
+    )
+      throw new LearningError(
+        "conflict",
+        "This repository has existing learning files. Import its SQLite history before using PostgreSQL.",
+      )
+    if (
+      environment.hosted &&
+      environment.legacyScope &&
+      /^repositories\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        environment.legacyScope.repository,
+      )
+    )
+      await provider.registerLegacyScope?.(environment.legacyScope, environment.scope)
     let result = null
     if (
       !environment.hosted &&
@@ -549,6 +565,15 @@ export async function openLegacyRedactionStore(environment, { clock = Date.now }
         "The store cannot identify the migrated repository scope for redaction.",
       )
     const migration = await provider.scopeMigrationFrom?.(environment.scope)
+    if (
+      (!migration && typeof provider.hasSqliteImport === "function") ||
+      (environment.config.memory?.requireImport &&
+        (!migration || !(await provider.hasSqliteImport?.(migration.newScope))))
+    )
+      throw new LearningError(
+        "conflict",
+        "The repository's SQLite history has not been imported for legacy redaction.",
+      )
     if (migration) {
       const target = scopeFromName(`github.com/${migration.newScope?.repository}`)
       if (
@@ -605,6 +630,99 @@ export async function openProvider(environment) {
     dataDirectory: environment.dataDirectory,
   })
   return { provider, source: `module ${choice.module}` }
+}
+
+/**
+ * Copy one stopped Hub SQLite store into PostgreSQL without removing the source. Its numeric
+ * scope and historical mappings must be intact before the destination is made visible.
+ */
+export async function importSqliteStore(environment, { clock = Date.now } = {}) {
+  const choice = environment.config.memory?.provider ?? "sqlite"
+  if (
+    !environment.hosted ||
+    !environment.scope ||
+    !environment.legacyScope ||
+    !environment.configFound ||
+    (choice !== "sqlite" && choice?.builtin !== "sqlite")
+  )
+    throw new LearningError(
+      "invalid_input",
+      "Import needs an existing Hub SQLite store, its numeric repository ID, and its old Hub scope.",
+    )
+  const destination = createPostgresMemoryProvider({
+    connectionString: environment.env.REPLICA_LEARNING_DATABASE_URL,
+  })
+  let source
+  async function snapshot() {
+    const scopes = await source.storedScopes()
+    if (scopes.some((scope) => canonicalJson(scope) !== canonicalJson(environment.scope)))
+      throw new LearningError(
+        "conflict",
+        "The SQLite store contains another repository scope. Reconcile it before import.",
+      )
+    return {
+      records: Object.fromEntries(
+        await Promise.all(
+          Object.keys(STREAMS).map(async (stream) => [
+            stream,
+            await source.readRecords(stream, { scope: environment.scope }),
+          ]),
+        ),
+      ),
+      memories: await source.readMemoryVersions({ scope: environment.scope }),
+      migrations: await source.scopeMigrations(environment.scope),
+    }
+  }
+  try {
+    await destination.hasSqliteImport(environment.scope)
+    const { store } = await openLearningStore(environment, { clock })
+    try {
+      const verified = await store.verify({
+        scope: environment.scope,
+        principal: { kind: "system", id: "system:sqlite-import" },
+      })
+      if (!verified.ok)
+        throw new LearningError(
+          "storage_corrupt",
+          `SQLite import refused: ${verified.problems.join("; ")}`,
+        )
+    } finally {
+      await store.close()
+    }
+    source = (await openProvider(environment)).provider
+    const original = await snapshot()
+    if (
+      !original.migrations.some(
+        (migration) => canonicalJson(migration.oldScope) === canonicalJson(environment.legacyScope),
+      )
+    )
+      throw new LearningError(
+        "conflict",
+        "The SQLite store has no mapping for this Hub repository.",
+      )
+    return await destination.importSqlite({
+      scope: environment.scope,
+      ...original,
+      sourceDigest: digestOf(original),
+      beforeCommit: async () => {
+        if (
+          canonicalJson(await snapshot()) !== canonicalJson(original) ||
+          canonicalJson(await readConfig(environment.configPath)) !==
+            canonicalJson(environment.config)
+        )
+          throw new LearningError(
+            "conflict",
+            "The SQLite source changed during import. Try again offline.",
+          )
+      },
+    })
+  } finally {
+    try {
+      await source?.close()
+    } finally {
+      await destination.close()
+    }
+  }
 }
 
 /**
