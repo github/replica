@@ -151,14 +151,26 @@ export async function runLearningCommand(
     const secrets = [learningDatabaseUrl, githubToken].filter((value): value is string =>
       Boolean(value),
     )
+    let hideDiagnostics = false
     if (learningDatabaseUrl) {
       try {
-        const password = new URL(learningDatabaseUrl).password
-        if (password) secrets.push(password, decodeURIComponent(password))
+        let url: URL
+        try {
+          url = new URL(learningDatabaseUrl)
+        } catch {
+          url = new URL(learningDatabaseUrl.replace("@/", "@replica-placeholder/"))
+        }
+        if (!["postgres:", "postgresql:"].includes(url.protocol)) throw new Error()
+        if (url.password) secrets.push(url.password, decodeURIComponent(url.password))
+        for (const part of url.search.slice(1).split("&")) {
+          const password = new URLSearchParams(part).get("password")
+          if (password) secrets.push(password, part.slice(part.indexOf("=") + 1))
+        }
       } catch {
-        // The command reports an invalid URL without requiring it to be parsed here.
+        hideDiagnostics = true
       }
     }
+    secrets.sort((first, second) => second.length - first.length)
     function redact(value: string) {
       return secrets.reduce((text, secret) => text.replaceAll(secret, "[redacted]"), value)
     }
@@ -293,6 +305,10 @@ export async function runLearningCommand(
         const stdout = Buffer.concat(output).toString("utf8")
         const stderr = redact(Buffer.concat(errors).toString("utf8").trim())
         if (code !== 0) {
+          if (hideDiagnostics) {
+            reject(new LearningCommandError("learning_failed", "replica-learning failed."))
+            return
+          }
           const match = errorPattern.exec(stderr)
           let result: unknown
           if (stdout.trim()) {
@@ -315,12 +331,11 @@ export async function runLearningCommand(
         }
         try {
           resolve(JSON.parse(stdout))
-        } catch (error) {
+        } catch {
           reject(
             new LearningCommandError(
               "unreadable_output",
               "replica-learning returned output Hub could not read.",
-              { cause: error },
             ),
           )
         }

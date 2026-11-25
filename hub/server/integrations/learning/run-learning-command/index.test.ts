@@ -1,12 +1,43 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { isAbsolute, relative, resolve, sep } from "node:path"
+import { inspect } from "node:util"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runLearningCommand } from "."
 import { LearningCommandError } from "./errors"
 
 const fixtures = resolve("test/fixtures/learning")
+
+async function runPasswordFailure(databaseUrl: string, password: string, encodedPassword: string) {
+  const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+  await mkdir(directory)
+  onTestFinished(() => rm(directory, { force: true, recursive: true }))
+  const cliPath = resolve(directory, "fail.mjs")
+  await writeFile(
+    cliPath,
+    `
+      const databaseUrl = process.env.REPLICA_LEARNING_DATABASE_URL
+      const password = ${JSON.stringify(password)}
+      const encodedPassword = ${JSON.stringify(encodedPassword)}
+      process.stdout.write(JSON.stringify({
+        considered: 3,
+        receivedDatabaseUrl: Boolean(databaseUrl),
+        nested: { databaseUrl, password, [password]: encodedPassword },
+      }))
+      process.stderr.write("error (learning_failed): Database failure: " + databaseUrl + " " + password + " " + encodedPassword)
+      process.exitCode = 1
+    `,
+  )
+
+  const error: unknown = await runLearningCommand(["label", "--dir", resolve(directory, "store")], {
+    cliPath,
+    learningDatabaseUrl: databaseUrl,
+    environment: { PATH: process.env.PATH },
+  }).catch((failure: unknown) => failure)
+  if (!(error instanceof LearningCommandError)) throw new Error("Expected a command failure.")
+  return error
+}
 
 describe("runLearningCommand()", () => {
   it("isolates the environment in a private temporary directory and removes it afterward", async () => {
@@ -334,6 +365,75 @@ describe("runLearningCommand()", () => {
     for (const secret of [databaseUrl, password, encodedPassword]) {
       expect.soft(error.message).not.toContain(secret)
       expect.soft(result).not.toContain(secret)
+    }
+  })
+
+  it("hides query parameter passwords in command errors and progress", async () => {
+    const password = "query@password"
+    const encodedPassword = "query%40password"
+    const databaseUrl = `postgres://learning-user@localhost/learning?password=${encodedPassword}`
+
+    const error = await runPasswordFailure(databaseUrl, password, encodedPassword)
+
+    expect(error).toMatchObject({
+      code: "learning_failed",
+      result: { considered: 3, receivedDatabaseUrl: true },
+    })
+    const result = JSON.stringify(error.result) ?? ""
+    for (const secret of [databaseUrl, password, encodedPassword]) {
+      expect.soft(error.message).not.toContain(secret)
+      expect.soft(result).not.toContain(secret)
+    }
+  })
+
+  it("hides Unix-socket URL passwords in command errors and progress", async () => {
+    const password = "socket@password"
+    const encodedPassword = "socket%40password"
+    const databaseUrl = `postgresql://learning-user:${encodedPassword}@/learning?host=%2Fvar%2Frun%2Fpostgresql`
+
+    const error = await runPasswordFailure(databaseUrl, password, encodedPassword)
+
+    expect(error).toMatchObject({
+      code: "learning_failed",
+      result: { considered: 3, receivedDatabaseUrl: true },
+    })
+    const result = JSON.stringify(error.result) ?? ""
+    for (const secret of [databaseUrl, password, encodedPassword]) {
+      expect.soft(error.message).not.toContain(secret)
+      expect.soft(result).not.toContain(secret)
+    }
+  })
+
+  it("does not expose malformed successful output through the error or its cause", async () => {
+    const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+    await mkdir(directory)
+    onTestFinished(() => rm(directory, { force: true, recursive: true }))
+    const cliPath = resolve(directory, "malformed.mjs")
+    await writeFile(
+      cliPath,
+      `
+        const databaseUrl = process.env.REPLICA_LEARNING_DATABASE_URL
+        process.stdout.write(new URL(databaseUrl).password)
+      `,
+    )
+    const password = "parseSecret"
+    const databaseUrl = `postgres://learning-user:${password}@localhost/learning`
+
+    const error: unknown = await runLearningCommand(
+      ["label", "--dir", resolve(directory, "store")],
+      {
+        cliPath,
+        learningDatabaseUrl: databaseUrl,
+        environment: { PATH: process.env.PATH },
+      },
+    ).catch((failure: unknown) => failure)
+
+    expect(error).toBeInstanceOf(LearningCommandError)
+    if (!(error instanceof LearningCommandError)) throw new Error("Expected a command failure.")
+    expect(error.code).toBe("unreadable_output")
+    const diagnostic = inspect(error, { depth: null })
+    for (const secret of [databaseUrl, password]) {
+      expect.soft(diagnostic).not.toContain(secret)
     }
   })
 
