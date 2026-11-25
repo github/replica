@@ -1,8 +1,41 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
+import { agent, designer, weekOneLabels, weekOneLog } from "../conformance/index.mjs"
+import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
+import { LearningError } from "../src/errors.mjs"
 import { createInMemoryProvider } from "../src/providers/in-memory.mjs"
+import { createLearningStore } from "../src/store.mjs"
 
 describe("in-memory provider atomic writes", () => {
+  it("reports an unknown outcome when a proposal commits but its response is lost", async () => {
+    const provider = createInMemoryProvider()
+    const store = await createLearningStore({
+      provider: {
+        ...provider,
+        async appendMemoryVersion(version, options) {
+          await provider.appendMemoryVersion(version, options)
+          throw new LearningError("storage_outcome_unknown", "Response lost after commit.")
+        },
+      },
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    await assert.rejects(
+      store.consolidate(agent(), {
+        consolidator: createRecurrenceConsolidator(),
+        window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+      }),
+      { code: "storage_outcome_unknown" },
+    )
+    assert.equal((await provider.readMemoryVersions({ scope: agent().scope })).length, 1)
+  })
+
   it("stores a batch larger than the JavaScript argument limit with all its audit entries", async () => {
     const provider = createInMemoryProvider()
     const scope = { repository: "acme/prototypes" }

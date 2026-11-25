@@ -2043,14 +2043,10 @@ class LearningStore {
   async #storeProposal(
     context,
     proposal,
-    { eligible, entries, now, migration, purpose = "instruction", reason },
+    { eligible, entries, now, migration, purpose = "instruction", reason, prepared },
   ) {
-    const { record, latest } = this.#draftProposal(context, proposal, {
-      eligible,
-      entries,
-      now,
-      migration,
-    })
+    const { record, latest } =
+      prepared ?? this.#draftProposal(context, proposal, { eligible, entries, now, migration })
     if (latest && latest.reviewDigest === record.reviewDigest)
       return { record: latest, changed: false }
     assertValid("memoryRecord", record)
@@ -2585,18 +2581,11 @@ class LearningStore {
         if (change === "changed") room--
         continue
       }
+      let prepared
       try {
-        const { record, changed } = await this.#storeProposal(context, proposal, {
-          eligible,
-          entries,
-          now,
-          migration,
-          purpose,
-          reason: `Proposed by consolidator ${consolidator.manifest.id}.`,
-        })
-        entries.set(record.id, { id: record.id, record, versions: [], problems: [] })
-        results.push({ record, changed })
-        if (changed) room--
+        prepared = this.#draftProposal(context, proposal, { eligible, entries, now, migration })
+        if (!prepared.latest || prepared.latest.reviewDigest !== prepared.record.reviewDigest)
+          assertValid("memoryRecord", prepared.record)
       } catch (error) {
         if (!(error instanceof LearningError)) throw error
         diagnostics.push({
@@ -2604,7 +2593,20 @@ class LearningStore {
           themeKey: proposal?.themeKey,
           message: error.message,
         })
+        continue
       }
+      const { record, changed } = await this.#storeProposal(context, proposal, {
+        eligible,
+        entries,
+        now,
+        migration,
+        purpose,
+        reason: `Proposed by consolidator ${consolidator.manifest.id}.`,
+        prepared,
+      })
+      entries.set(record.id, { id: record.id, record, versions: [], problems: [] })
+      results.push({ record, changed })
+      if (changed) room--
     }
     if (overBudget)
       diagnostics.splice(budgetNoteAt, 0, {
