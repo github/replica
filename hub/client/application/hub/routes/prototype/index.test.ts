@@ -19,14 +19,9 @@ describe("prototype route", () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it("still loads the prototype when applied learnings cannot be read", async () => {
+  it("loads the prototype without waiting for applied learnings", async () => {
     const { historical, path, repository, prototype } = previewRecords()
-    const readApplied = vi.fn(() =>
-      Response.json(
-        { code: "learnings_unavailable", error: "Learnings are off." },
-        { status: 503 },
-      ),
-    )
+    const readApplied = vi.fn()
     stubHubFetch(
       http.get(`${window.location.origin}/api${path}`, () =>
         Response.json({ repository, prototype, selectedBuild: historical }),
@@ -43,9 +38,8 @@ describe("prototype route", () => {
       params: { repositoryId: repository.id, prototypeId: prototype.id },
     })
 
-    expect(readApplied).toHaveBeenCalledOnce()
     expect(result.selectedBuild?.number).toBe(1)
-    expect(result.appliedLearnings).toEqual([])
+    expect(readApplied).not.toHaveBeenCalled()
   })
 
   it("does not confirm a save when the API returns an invalid success response", async () => {

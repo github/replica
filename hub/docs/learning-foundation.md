@@ -140,7 +140,7 @@ The MCP endpoint accepts `POST` only and needs `HUB_APPLICATION_ORIGIN` and the 
 
 When an agent reports the learnings it applied, the prototype page shows them on the Build made from that commit. For example, an agent recalls "Label every form field", builds a checkout prototype, and reports it with commit `4f2c…`. Anyone who can read the library opens that Build with `?build=N` and chooses **Applied learnings** from **More actions**. The dialog lists each learning with the version the agent received and any before and after screenshots. It says the list is the agent's report and not verified.
 
-Hub matches a report to a Build only by the exact commit SHA, never by branch or time. A report that names a prototype shows only on that prototype. A report without one shows on every prototype built from that commit. Hub reads the package's `usage --commit` command when the page loads. If Learnings is off or the read fails, the page loads without the menu item.
+Hub matches a report to a Build only by the exact commit SHA, never by branch or time. A report that names a prototype shows only on that prototype. A report without one shows on every prototype built from that commit. Hub reads the package's `usage --commit` command after the page shows, so a slow read never holds up the Build. If Learnings is off or the read fails, the page stays without the menu item.
 
 Screenshots open from Hub, not the agent. Hub serves one only while the screenshot consent it was saved under is still active, so withdrawing consent hides it before the deletion job runs. The browser contracts are:
 

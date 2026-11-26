@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { data, useFetcher, useOutletContext } from "react-router"
 
 import { prototypeEditSchema } from "@application/hub/contracts"
@@ -28,36 +29,40 @@ type ActionResponse = ReturnType<typeof data<PrototypeActionResult>>
 export async function clientLoader({
   request,
   params,
-}: Pick<Route.ClientLoaderArgs, "request" | "params">): Promise<
-  PrototypeResponse & { appliedLearnings: AppliedLearningResponse[] }
-> {
-  const prototype = await getPrototype(
+}: Pick<Route.ClientLoaderArgs, "request" | "params">): Promise<PrototypeResponse> {
+  return getPrototype(
     request,
     readRecordIdentifier(params.repositoryId, "repository"),
     readRecordIdentifier(params.prototypeId, "prototype"),
   )
-  return { ...prototype, appliedLearnings: await appliedLearnings(request, prototype) }
 }
 
 /**
- * Reads what agents applied in the selected Build. Learnings are optional, so a missing
- * library or a failed read leaves the prototype page as it was.
+ * Reads what agents applied in the selected Build after the page shows. Learnings are
+ * optional, so a slow or failed read never holds up or breaks the prototype page.
  */
-async function appliedLearnings(request: Request, prototype: PrototypeResponse) {
-  const commitSha = prototype.selectedBuild?.commitSha
-  if (!commitSha) return []
-  try {
-    const response = await getAppliedLearnings(
-      request,
-      prototype.repository.id,
-      prototype.prototype.id,
-      commitSha.toLowerCase(),
+function useAppliedLearnings(prototype: PrototypeResponse) {
+  const repositoryId = prototype.repository.id
+  const prototypeId = prototype.prototype.id
+  const commitSha = prototype.selectedBuild?.commitSha?.toLowerCase()
+  const key = `${repositoryId}/${prototypeId}/${commitSha}`
+  const [loaded, setLoaded] = useState<{ key: string; learnings: AppliedLearningResponse[] }>()
+  useEffect(() => {
+    if (!commitSha) return
+    const controller = new AbortController()
+    getAppliedLearnings(
+      new Request(window.location.href, { signal: controller.signal }),
+      repositoryId,
+      prototypeId,
+      commitSha,
+    ).then(
+      (response) => setLoaded({ key, learnings: response.learnings }),
+      () => undefined,
     )
-    return response.learnings
-  } catch {
-    request.signal.throwIfAborted()
-    return []
-  }
+    return () => controller.abort()
+  }, [commitSha, key, prototypeId, repositoryId])
+  // Learnings from a previously selected Build must not show beside this one.
+  return loaded?.key === key ? loaded.learnings : []
 }
 
 export async function clientAction({
@@ -120,12 +125,13 @@ export default function Prototype({ loaderData }: Pick<Route.ComponentProps, "lo
     key: `prototype-details:${loaderData.repository.id}/${loaderData.prototype.id}`,
   })
   const saving = fetcher.state !== "idle"
+  const appliedLearnings = useAppliedLearnings(loaderData)
   return (
     <PrototypeScreen
       key={`${loaderData.repository.id}/${loaderData.prototype.id}`}
       workspace={workspace}
       data={loaderData}
-      appliedLearnings={loaderData.appliedLearnings}
+      appliedLearnings={appliedLearnings}
       onSaveDetails={(details) => {
         void fetcher.submit(
           {
