@@ -70,14 +70,18 @@ const meta = {
   component: AgentConnectionsPage,
   parameters: { layout: "fullscreen" },
   args: { data: connections },
-  render: ({ data }) =>
-    data.view === "connections" ? (
-      <RepositoryWorkspace data={workspace}>
+  // The page's forms post to Hub, so stories keep them from leaving Storybook.
+  render: ({ data }) => (
+    <div onSubmit={(event) => event.preventDefault()}>
+      {data.view === "connections" ? (
+        <RepositoryWorkspace data={workspace}>
+          <AgentConnectionsPage data={data} />
+        </RepositoryWorkspace>
+      ) : (
         <AgentConnectionsPage data={data} />
-      </RepositoryWorkspace>
-    ) : (
-      <AgentConnectionsPage data={data} />
-    ),
+      )}
+    </div>
+  ),
 } satisfies Meta<typeof AgentConnectionsPage>
 
 export default meta
