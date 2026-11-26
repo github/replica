@@ -27,6 +27,11 @@ export function BuildsIndexPage({
   fullScreenPreview?: boolean
   preferenceError?: string
 }) {
+  function controlPath(path: string) {
+    const url = new URL(withControlQuery(path, controlQuery))
+    return `${url.pathname}${url.search}${url.hash}`
+  }
+
   return (
     <PrototypeWorkspace data={data}>
       <Stack gap="normal">
@@ -105,7 +110,7 @@ export function BuildsIndexPage({
             gap="normal"
           >
             {data.newestPagePath ? (
-              <InlineLink href={data.newestPagePath} data-sg-visit="true">
+              <InlineLink href={controlPath(data.newestPagePath)} data-sg-visit="true">
                 {data.newestPageLabel}
               </InlineLink>
             ) : (
@@ -113,7 +118,7 @@ export function BuildsIndexPage({
             )}
 
             {data.nextPagePath ? (
-              <InlineLink href={data.nextPagePath} data-sg-visit="true">
+              <InlineLink href={controlPath(data.nextPagePath)} data-sg-visit="true">
                 {data.nextPageLabel}
               </InlineLink>
             ) : null}

@@ -38,6 +38,7 @@ const state: SharingState = {
       canEdit: true,
       canManageShareLinks: true,
       shareLinkExpirationOptions: ["one_day", "seven_days"],
+      supportsLatestBuildLinks: true,
       canRegister: true,
       published: true,
       buildState: "successful",
@@ -87,6 +88,17 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Empty: Story = {}
+export const OlderHub: Story = {
+  args: {
+    state: {
+      ...state,
+      context: {
+        ...state.context!,
+        prototype: { ...state.context!.prototype, supportsLatestBuildLinks: undefined },
+      },
+    },
+  },
+}
 export const ThirtyDayMaximum: Story = {
   args: {
     state: {

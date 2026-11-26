@@ -1,7 +1,11 @@
+import { NavigationContext } from "@thoughtbot/superglue"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { describe, it, vi } from "vitest"
 
+import { PrototypeWorkspaceHeader } from "@features/prototype-workspace-header"
+import headerStory from "@features/prototype-workspace-header/stories"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
+import { useControlQuery } from "@hooks/use-prototype-control-query"
 
 import { BuildsIndexPage } from "./index"
 import story from "./stories"
@@ -191,6 +195,80 @@ describe("BuildsIndexPage()", () => {
       "data-sg-visit",
       "true",
     )
+  })
+
+  it("preserves option settings on both History pagination links", () => {
+    render(
+      <BuildsIndexPage
+        data={{
+          ...PAGE_DATA,
+          newestPageLabel: "Newest builds",
+          newestPagePath: "/repositories/2001/prototypes/1/builds",
+        }}
+        controlQuery="rc.page.title=%22Shared%22"
+      />,
+      { wrapper: HubThemeProvider },
+    )
+    const newest = new URL(
+      screen.getByRole("link", { name: "Newest builds" }).getAttribute("href")!,
+      window.location.href,
+    )
+    const older = new URL(
+      screen.getByRole("link", { name: "Older builds" }).getAttribute("href")!,
+      window.location.href,
+    )
+    expect(newest.searchParams.get("rc.page.title")).toBe('"Shared"')
+    expect(older.searchParams.get("rc.page.title")).toBe('"Shared"')
+    expect(older.searchParams.get("before")).toBe("2")
+    expect(older.searchParams.get("before_at")).toBe("2026-09-11T12:00:00.000000Z")
+  })
+
+  it("keeps preview options through History pagination and copying a Build", async () => {
+    const original = window.location.href
+    try {
+      window.history.replaceState({}, "", "/preview?rc.shared.state=%22empty%22")
+      const visit = vi.fn()
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal("navigator", { clipboard: { writeText } })
+      const header = render(
+        <HubThemeProvider>
+          <NavigationContext.Provider
+            value={{ pageKey: "/", search: {}, navigateTo: vi.fn(), remote: vi.fn(), visit }}
+          >
+            <PrototypeWorkspaceHeader {...headerStory.args} />
+          </NavigationContext.Provider>
+        </HubThemeProvider>,
+      )
+      fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+      fireEvent.click(screen.getByRole("menuitem", { name: "History" }))
+      const historyPath: unknown = visit.mock.calls[0]?.[0]
+      if (typeof historyPath !== "string") throw new Error("History navigation did not occur.")
+      header.unmount()
+      window.history.pushState({}, "", historyPath)
+
+      function HistoryPage() {
+        const controls = useControlQuery()
+        return (
+          <BuildsIndexPage
+            data={PAGE_DATA}
+            controlQuery={controls.query}
+            fullScreenPreview={false}
+          />
+        )
+      }
+      const firstPage = render(<HistoryPage />, { wrapper: HubThemeProvider })
+      const olderPath = screen.getByRole("link", { name: "Older builds" }).getAttribute("href")!
+      firstPage.unmount()
+      window.history.pushState({}, "", olderPath)
+      render(<HistoryPage />, { wrapper: HubThemeProvider })
+      fireEvent.click(screen.getByRole("button", { name: "Copy link to Build 2" }))
+      const expected = new URL("/repositories/2001/prototypes/1?build=2", window.location.href)
+      expected.searchParams.set("rc.shared.state", '"empty"')
+      await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith(expected.href))
+    } finally {
+      window.history.replaceState({}, "", original)
+      vi.unstubAllGlobals()
+    }
   })
 
   it("keeps an unlinked author and avatar aligned in the history", () => {

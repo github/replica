@@ -92,6 +92,7 @@ class CanvasApi::PrototypesController < CanvasApi::BaseController
       canManageShareLinks: can_manage_share_links,
       publicSharingEnabled: SharingSetting.enabled?,
       shareLinkExpirationOptions: ShareLink.expiration_options.keys,
+      supportsLatestBuildLinks: true,
       canRegister: reason.nil?,
       registrationReason: reason,
       published: prototype.registered? && published.present?,

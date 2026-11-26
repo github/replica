@@ -110,6 +110,36 @@ describe("ShareLinksPage()", () => {
     expect(f.props.onCreate).not.toHaveBeenCalled()
   })
 
+  it.each([undefined, false])(
+    "keeps the fixed Build link when Hub does not advertise latest support (%s)",
+    async (supportsLatestBuildLinks) => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal("navigator", { clipboard: { writeText } })
+      const url = "https://hub.example.com/prototypes/1?build=2&return_path=%2Fsettings#preview"
+      fixture({
+        ...state,
+        context: {
+          ...state.context!,
+          prototype: {
+            ...state.context!.prototype,
+            supportsLatestBuildLinks,
+            build: { ...state.context!.prototype.build!, number: 2, url },
+          },
+        },
+      })
+      const expected = new URL(url)
+      expected.searchParams.set("view", "minimized")
+      expect(screen.getByText(shareCopy.internalPinned(2))).toBeInTheDocument()
+      expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(expected.href)
+      expect(screen.getByRole("link", { name: shareCopy.internalOpen })).toHaveAttribute(
+        "href",
+        expected.href,
+      )
+      fireEvent.click(screen.getByRole("button", { name: shareCopy.internalCopy }))
+      await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith(expected.href))
+    },
+  )
+
   it("explains public access and commenting before creation", () => {
     fixture()
     expect(screen.getByText(shareCopy.warning)).toHaveTextContent(

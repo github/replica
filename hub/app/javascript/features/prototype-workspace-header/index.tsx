@@ -90,7 +90,7 @@ export function PrototypeWorkspaceHeader({
               },
             ]
           : []),
-        { label: data.historyLabel, path: data.historyPath, icon: HistoryIcon },
+        { label: data.historyLabel, path: controlPath(data.historyPath), icon: HistoryIcon },
         ...(data.selectedBuild?.detailsPath && data.selectedBuild.detailsLabel
           ? [
               {

@@ -102,7 +102,11 @@ export function ShareLinksPage({
   const internalShareUrl =
     internalUrl && build && !controlsBlocked
       ? withViewMode(
-          sharedUrl(prototypeShareLink(internalUrl, "latest")),
+          sharedUrl(
+            prototype?.supportsLatestBuildLinks === true
+              ? prototypeShareLink(internalUrl, "latest")
+              : internalUrl,
+          ),
           previewPreference.fullScreenPreview,
         )
       : null
@@ -213,6 +217,9 @@ export function ShareLinksPage({
                 <p>{shareCopy.internalDescription}</p>
                 {internalShareUrl && build ? (
                   <>
+                    {prototype?.supportsLatestBuildLinks !== true ? (
+                      <p>{shareCopy.internalPinned(build.number)}</p>
+                    ) : null}
                     <div className="share-link-item__actions canvas-share-internal-actions">
                       <CopyableTextInput
                         value={internalShareUrl}

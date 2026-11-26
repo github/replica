@@ -208,6 +208,31 @@ describe("PrototypeWorkspaceHeader()", () => {
     )
   })
 
+  it("preserves current option settings when opening History", () => {
+    const original = window.location.href
+    try {
+      window.history.replaceState({}, "", "/preview?rc.page.title=%22Shared%22")
+      const visit = vi.fn()
+      render(
+        <HubThemeProvider>
+          <NavigationContext.Provider
+            value={{ pageKey: "/", search: {}, navigateTo: vi.fn(), remote: vi.fn(), visit }}
+          >
+            <PrototypeWorkspaceHeader {...story.args} />
+          </NavigationContext.Provider>
+        </HubThemeProvider>,
+      )
+      fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+      fireEvent.click(screen.getByRole("menuitem", { name: "History" }))
+      expect(visit).toHaveBeenCalledExactlyOnceWith(
+        "/repositories/2001/prototypes/1/builds?rc.page.title=%22Shared%22",
+        { method: "GET", dataset: { sgVisit: "true" } },
+      )
+    } finally {
+      window.history.replaceState({}, "", original)
+    }
+  })
+
   it("uses Superglue navigation once when Space activates a focused Build option", () => {
     const visit = vi.fn()
     const path = "/repositories/2001/prototypes/1?build=2"
