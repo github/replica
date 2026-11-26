@@ -327,6 +327,12 @@ export interface UsedLearning {
   digest: Digest
 }
 
+/** A screenshot as usageForCommit lists it, without the image. */
+export type UsedScreenshot = Pick<
+  ScreenshotRecord,
+  "sha256" | "route" | "viewport" | "theme" | "capturedAt" | "consentGrantId"
+>
+
 /** A screenshot's capture details. The image stays on the machine, named by sha256. */
 export interface ScreenshotRecord {
   schemaVersion: "replica.screenshot/v1"
@@ -1084,6 +1090,30 @@ export interface LearningStore {
       consentGrantId?: string
     },
   ): Promise<{ id: string; reportId: string; stored: boolean }>
+  /**
+   * List what agents said they used for a commit. Title and text are null when the learning's
+   * evidence no longer allows review, so withdrawn consent hides the delivered wording.
+   */
+  usageForCommit(
+    context: LearningContext,
+    options: { commitSha: string },
+  ): Promise<
+    Array<{
+      id: string
+      reportId: string
+      prototypeId?: string
+      reportedAt: Timestamp
+      used: Array<{
+        id: string
+        memoryId: string
+        version: number | null
+        title: string | null
+        text: string | null
+        before?: UsedScreenshot
+        after?: UsedScreenshot
+      }>
+    }>
+  >
   /** Remove a learning for good, with its deliveries, use, and screenshots. Needs a person. */
   deleteMemory(
     context: LearningContext,
