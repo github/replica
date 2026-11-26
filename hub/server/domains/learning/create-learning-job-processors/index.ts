@@ -482,9 +482,18 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
   })
 
   let storagePromise: ReturnType<typeof createConfiguredArtifactStorage> | undefined
+  // Storage opens only when there is an image to delete, and a failed open is retried.
+  function artifactStorage() {
+    storagePromise ??= createConfiguredArtifactStorage(
+      resolveLocalSignInEnvironment(environment),
+    ).catch((error: unknown) => {
+      storagePromise = undefined
+      throw error
+    })
+    return storagePromise
+  }
   const deleteScreenshots = createJobProcessor(deleteAgentScreenshotsJob, async (input) => {
     const { prisma } = await databaseDependencies()
-    storagePromise ??= createConfiguredArtifactStorage(resolveLocalSignInEnvironment(environment))
     await deleteWithdrawnAgentScreenshots({
       activeGrantId: async () =>
         (await getRepositoryEvaluationSetting(prisma, input.repositoryId))?.screenshotGrantId ??
@@ -492,7 +501,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       deleteRecord: (id) => deleteAgentScreenshot(prisma, id),
       grantId: input.grantId,
       list: () => listGrantAgentScreenshots(prisma, input),
-      storage: await storagePromise,
+      storage: { delete: async (key) => (await artifactStorage()).delete(key) },
     })
   })
 

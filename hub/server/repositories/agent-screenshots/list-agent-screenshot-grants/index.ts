@@ -2,17 +2,17 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
 /** Lists each repository and consent grant that still has stored agent screenshots. */
 export async function listAgentScreenshotGrants(database: PrismaClient) {
-  const rows = await database.agentScreenshot.findMany({
-    distinct: ["repositoryId", "grantId"],
-    select: {
-      grantId: true,
-      repositoryId: true,
-      repository: { select: { evaluationSetting: { select: { screenshotGrantId: true } } } },
-    },
+  const groups = await database.agentScreenshot.groupBy({ by: ["repositoryId", "grantId"] })
+  const settings = await database.repositoryEvaluationSetting.findMany({
+    where: { repositoryId: { in: [...new Set(groups.map((group) => group.repositoryId))] } },
+    select: { repositoryId: true, screenshotGrantId: true },
   })
-  return rows.map((row) => ({
-    repositoryId: row.repositoryId,
-    grantId: row.grantId,
-    active: row.repository.evaluationSetting?.screenshotGrantId === row.grantId,
+  const activeGrants = new Map(
+    settings.map((setting) => [setting.repositoryId, setting.screenshotGrantId]),
+  )
+  return groups.map((group) => ({
+    repositoryId: group.repositoryId,
+    grantId: group.grantId,
+    active: activeGrants.get(group.repositoryId) === group.grantId,
   }))
 }
