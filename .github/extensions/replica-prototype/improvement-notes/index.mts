@@ -808,10 +808,7 @@ export function createImprovementNotes(
     const command = pickAndPolishCommand(skillCatalog)
     if (command) return { command, instructions: null }
     const skill = (
-      await readFile(
-        new URL("../skills/replica-pick-and-polish/SKILL.md", import.meta.url),
-        "utf8",
-      )
+      await readFile(new URL("../skills/replica-pick-and-polish/SKILL.md", import.meta.url), "utf8")
     ).replaceAll("\r\n", "\n")
     const frontmatterEnd = skill.indexOf("\n---\n", 4)
     if (!skill.startsWith("---\n") || frontmatterEnd === -1)

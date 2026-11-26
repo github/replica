@@ -1499,8 +1499,7 @@ for (const { label, error, configure } of [
 for (const catalogAvailable of [true, false]) {
   it(`sends the complete bundled procedure when ${catalogAvailable ? "the skill is missing" : "the catalog RPC is absent"}`, async () => {
     await fixture(async ({ create, session, anchor, messages }) => {
-      if (catalogAvailable)
-        session.rpc = { skills: { list: async () => ({ skills: [] }) } }
+      if (catalogAvailable) session.rpc = { skills: { list: async () => ({ skills: [] }) } }
       else delete session.rpc
       const store = create()
       const state = await store.save({
