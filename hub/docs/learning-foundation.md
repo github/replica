@@ -163,15 +163,22 @@ Turning evaluations on also adds a consent grant that lets the store use the rep
 
 When an agent's `report_usage` call names a commit, Hub remembers it. A later report for the same commit is kept for another pass, even if scoring is already running. Once a successful Build exists for that commit, the worker's recovery pass queues a scoring job. For example, an agent applies the learning "Use the shared empty state" in commit `abc123`, a Build for `abc123` succeeds, and Hub asks the store to score that learning against the commit's diff and any screenshots the agent sent.
 
-- Each reported use of a learning is scored once. Hub records the attempt and its cost before asking for the next one, so a crash retries the same operation instead of paying twice.
+- Each reported use of a learning gets one automated score, plus at most one reviewer-confirmed score (see below). Hub records the attempt and its cost before asking for the next one, so a crash retries the same operation instead of paying twice.
 - A failed score is recorded with what it spent and is not retried. A score interrupted by a worker stopping stays running and is retried with the same operation.
 - Before each score, Hub checks again that evaluations are still on, the repository is still connected, and budget remains, and it asks for a fresh Copilot credential.
 - When the budget runs out or Copilot is unavailable, the request waits. If Copilot refuses the credential, Hub marks the connection refused, as a learning run does. The recovery pass tries it again each minute and starts scoring once the budget is raised or the next month begins. Requests that never find a successful Build are dropped after 30 days. A storage outage while reading a screenshot also leaves the score to be retried, so it is never scored without that evidence.
 - Scoring holds the learning execution lock for each command, so agent calls may briefly get a busy reply while a score runs. Scoring is automatic work, so it waits behind learning runs a person asked for.
 
+When the person who left review feedback resolves their own thread, Hub treats that as verification. It finds the prototype's newest successful Build after the one they commented on, judged by when each Build's workflow started, and asks for that commit to be scored again. Each learning an agent applied in that commit gets one more score that tells the scorer a reviewer confirmed the work. The first score is kept. For example, a reviewer comments on Checkout Build 3, an agent's fix lands in Build 5, and the reviewer resolves the thread. Hub scores Build 5's applied learnings again with that confirmation.
+
+- Hub keeps the verification for that prototype and commit, so usage reported after the thread is resolved still gets the extra score. A report that names a different prototype doesn't.
+- Someone else resolving the thread doesn't count. A thread on the newest Build has no later change to verify, so nothing is scored.
+- The scorer gets only the time of the verification, never the thread's text.
+- The re-score follows the same budget, retry, and lock rules as the first score.
+
 ### Observed outcomes
 
-An active learning's detail view lists how later Builds did with its current wording, newest first. Each entry reads a score as one result. A score where the agent didn't clearly follow the guidance is "Inconclusive". Otherwise a score of 3 or 4 "Supports the guidance" and 1 or 2 is a "Possible concern". The entry shows the scorer's issue, or its reasoning when there is no issue, and links to the Build it judged. For example, "Possible concern · Automated assessment · Checkout, Build 12" with "The rule did not say where the label goes."
+An active learning's detail view lists how later Builds did with its current wording, newest first. Each entry reads a score as one result. A score where the agent didn't clearly follow the guidance is "Inconclusive". Otherwise a score of 3 or 4 "Supports the guidance" and 1 or 2 is a "Possible concern". The entry shows the scorer's issue, or its reasoning when there is no issue, and links to the Build it judged. For example, "Possible concern · Automated assessment · Checkout, Build 12" with "The rule did not say where the label goes." A score made after a reviewer verified the work reads "Reviewer-confirmed" instead, and replaces the earlier score for the same use.
 
 - Scores of earlier wording are left out, since they say nothing about the guidance agents get now. Retiring and reinstating a learning keeps its wording, so its scores stay.
 - A score with no successful Build people can open is left out.
