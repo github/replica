@@ -1,5 +1,5 @@
 import { createReadStream, existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 import { decodeUtf8, parseJson } from "./canonical-json.mjs"
@@ -19,6 +19,7 @@ import {
 import { labelComments, labelingError } from "./labeling.mjs"
 import { migratePostgres } from "./providers/postgres-database.mjs"
 import { FEEDBACK_TYPES, feedbackText, PRODUCER } from "./records.mjs"
+import { MAX_SCREENSHOT_BYTES } from "./screenshots.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
 import { parseTimeOption, timestampFromMilliseconds } from "./time.mjs"
@@ -59,6 +60,15 @@ Consent (a person decides; --by github:<login>)
   redact --comment <hub-comment-id> --by <id> [--reason <text>]
                                   The same, for a Hub comment named by its Hub ID; it
                                   imports nothing and needs no active grant
+  delete <memory-id> --by <id> --reason <text>
+                                  Remove a learning for good, with the records of its
+                                  deliveries and use and their screenshots
+  expire-guidance --by <id> [--days <n>]
+                                  Remove recall records older than n days (default 365)
+                                  that no usage report names
+  delete-repository --by <id> --confirm <owner/name>
+                                  Remove every record this repository's store holds,
+                                  including the audit trail
 
 Capture and propose
   import hub-comments <log.json> --grant <grant-id>... [--actor <id>] [--redact-deleted]
@@ -91,10 +101,13 @@ Review (a person decides; --by github:<login>)
 
 Use
   recall [--task <text> | --task-file <file>] [--limit <n>] [--budget <chars>]
-         [--preview --by <id>]
+         [--session-id <id> [--session-label <text>]] [--preview --by <id>]
                                   --task-file - reads the task from standard input;
                                   --preview shows a person what an agent would get,
                                   unaudited
+  report-usage <report.json> --actor <id>
+                                  Record which recalled learnings an agent used for a
+                                  commit, with optional before and after screenshots
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
 
 Decision model
@@ -165,6 +178,10 @@ const OPTIONS = {
   builds: { type: "string" },
   "brand-sheet": { type: "string" },
   "created-at": { type: "string" },
+  "session-id": { type: "string" },
+  "session-label": { type: "string" },
+  days: { type: "string" },
+  confirm: { type: "string" },
 }
 
 class UsageError extends Error {}
@@ -283,6 +300,10 @@ export async function main(
           "supersede",
           "redact",
           "recall",
+          "report-usage",
+          "delete",
+          "expire-guidance",
+          "delete-repository",
           "export",
           "verify",
         ].includes(positionals[0]) ||
@@ -386,6 +407,14 @@ async function run(session) {
       return redact(session)
     case "recall":
       return recall(session)
+    case "report-usage":
+      return reportUsage(session)
+    case "delete":
+      return deleteMemory(session)
+    case "expire-guidance":
+      return expireGuidance(session)
+    case "delete-repository":
+      return deleteRepository(session)
     case "export":
       return exportRecords(session)
     case "verify":
@@ -1291,8 +1320,106 @@ async function recall(session) {
     limit: positive(session.values.limit, "--limit", 20),
     budgetChars: positive(session.values.budget, "--budget", 6000),
     preview,
+    session: sessionOption(session),
   })
   session.out(result, result.text)
+}
+
+function sessionOption(session) {
+  const { "session-id": id, "session-label": label } = session.values
+  if (id === undefined) {
+    if (label !== undefined) throw new UsageError("--session-label needs --session-id.")
+    return undefined
+  }
+  return label === undefined ? { id } : { id, label }
+}
+
+/**
+ * report-usage: the report file names each screenshot by a PNG file beside it, so the bytes
+ * are read here and only their digest reaches the records.
+ */
+async function reportUsage(session) {
+  const file = argument(session, 1, "report file")
+  const report = await readJsonFile(session, file)
+  const directory = path.dirname(path.resolve(session.cwd, file))
+  const principal = actor(session, { required: true })
+  if (!report || typeof report !== "object" || Array.isArray(report))
+    throw new LearningError("invalid_input", `${file} must be a JSON object.`)
+  const used = Array.isArray(report.used)
+    ? await Promise.all(
+        report.used.map(async (item) => {
+          if (!item || typeof item !== "object") return item
+          const copy = { ...item }
+          for (const role of ["before", "after"])
+            if (copy[role]?.file !== undefined)
+              copy[role] = await screenshotFile(directory, copy[role])
+          return copy
+        }),
+      )
+    : report.used
+  const { store } = await open(session)
+  const result = await store.reportUsage(context(session, principal), { ...report, used })
+  session.out(
+    result,
+    result.stored
+      ? `Stored usage report ${result.reportId}.`
+      : `Usage report ${result.reportId} was already stored.`,
+  )
+}
+
+async function screenshotFile(directory, { file, ...rest }) {
+  if (typeof file !== "string" || !file)
+    throw new LearningError("invalid_input", "A screenshot names its PNG file.")
+  const target = path.resolve(directory, file)
+  let info
+  try {
+    info = await lstat(target)
+  } catch (error) {
+    throw new LearningError("not_found", `Cannot read ${file} (${error.code}).`)
+  }
+  if (!info.isFile()) throw new LearningError("invalid_input", `${file} must be a regular file.`)
+  if (info.size > MAX_SCREENSHOT_BYTES)
+    throw new LearningError("invalid_input", `${file} is larger than 10 MB.`)
+  return { ...rest, bytes: await readFile(target) }
+}
+
+async function deleteMemory(session) {
+  const id = argument(session, 1, "memory ID")
+  const reason = await reasonOf(session)
+  const principal = person(session)
+  const { store } = await open(session)
+  const result = await store.deleteMemory(context(session, principal), id, { reason })
+  session.out(result, `Deleted ${id} and ${deletedCount(result)} related record(s).`)
+}
+
+async function expireGuidance(session) {
+  const principal = person(session)
+  const days = positive(session.values.days, "--days", 365)
+  const { store } = await open(session)
+  const result = await store.expireGuidance(context(session, principal), { days })
+  session.out(result, `Removed ${deletedCount(result)} recall record(s) older than ${days} days.`)
+}
+
+async function deleteRepository(session) {
+  const principal = person(session)
+  const { environment } = session
+  const { store } = await open(session)
+  // Naming the repository again guards against deleting the wrong store by accident. A
+  // GitHub scope is a numeric ID, so its owner/name is accepted too.
+  const names = [environment.scope.repository, environment.legacyScope?.repository]
+  if (!names.includes(session.values.confirm))
+    throw new UsageError(
+      `Confirm with --confirm ${names.at(-1) ?? names[0]} to delete this repository's records.`,
+    )
+  const result = await store.deleteRepository(context(session, principal))
+  session.out(
+    result,
+    `Deleted ${deletedCount(result)} record(s) and ${result.memories} learning version(s).\n${OUTSIDE_THE_STORE}`,
+  )
+}
+
+function deletedCount(result) {
+  return Object.values(result.records).reduce((sum, count) => sum + count, 0)
 }
 
 // The most task text recall reads from a file or standard input.

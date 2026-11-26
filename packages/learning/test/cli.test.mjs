@@ -1212,6 +1212,67 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal((await ok(repo, ["verify", "--json"])).json().ok, true)
   })
 
+  it("records what an agent used, then deletes the learning with its screenshot", async () => {
+    const repo = checkout("usage-and-deletion")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const recalled = (
+      await ok(repo, ["recall", "--task", "Build the form", "--session-id", "s-1", "--json"])
+    ).json()
+    const [memory] = recalled.memories
+    writeFileSync(
+      path.join(repo, "after.png"),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]),
+    )
+    writeFileSync(
+      path.join(repo, "report.json"),
+      JSON.stringify({
+        reportId: "report-1",
+        guidanceIds: [recalled.guidanceId],
+        commitSha: "a".repeat(40),
+        used: [
+          {
+            deliveryId: memory.deliveryId,
+            after: {
+              file: "after.png",
+              route: "/checkout",
+              viewport: { width: 1280, height: 800 },
+              theme: "light",
+              capturedAt: "2026-10-09T12:00:00.000000Z",
+            },
+          },
+        ],
+      }),
+    )
+    const args = ["report-usage", "report.json", "--actor", "agent:copilot", "--json"]
+    assert.equal((await ok(repo, args)).json().stored, true)
+    assert.equal((await ok(repo, args)).json().stored, false)
+    const evidence = path.join(repo, ".replica", "learning", "evidence")
+    assert.equal(readdirSync(evidence).length, 1)
+
+    const deleted = (
+      await ok(repo, [
+        "delete",
+        memory.id,
+        "--by",
+        "github:ana-designer",
+        "--reason",
+        "No longer wanted.",
+        "--json",
+      ])
+    ).json()
+    assert.equal(deleted.records.screenshots, 1)
+    assert.deepEqual(readdirSync(evidence), [])
+    assert.equal((await ok(repo, ["verify", "--json"])).json().ok, true)
+  })
+
   it("refuses an identity with control or invisible formatting characters", async () => {
     const repo = checkout("hidden-identity")
     const grant = ["grants", "add", "--purpose", "review", "--basis", "Test."]
