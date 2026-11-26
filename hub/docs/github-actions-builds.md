@@ -93,7 +93,7 @@ dist/index.html after the build
 
 For an earlier team build, only the configured static output folder and its `index.html` are required.
 
-The action rejects symbolic links and file paths that are unsafe or behave differently across supported filesystems.
+The action rejects symbolic links and file paths that are unsafe or behave differently across supported filesystems. It also rejects paths that Hub cannot store: a `.replica-internal` segment, which Hub reserves, or a path longer than 992 bytes. Hub stores each file under `builds/{Build ID}/dist/` within a 1,024-byte storage-name limit, so these paths would otherwise fail only when Hub imports the package.
 
 Controls are optional. A prototype can place version-1 definitions in `public/controls.replica.json` or its build tool's equivalent assets directory. The action validates the actual `dist/controls.replica.json` with the shared contract when present; Hub validates the same retained asset before storage. Invalid/unsupported definitions reject publication, while a missing document is allowed. This document is separate from `.github/replica.json` and `.prototype`.
 
@@ -105,6 +105,7 @@ Before each screenshot, the existing Chromium driver injects that adapter and wa
 | --------------------- | ----------- |
 | Files and directories | 2,000       |
 | Path depth            | 20 segments |
+| Path length           | 992 bytes   |
 | One file              | 25 MiB      |
 
 ## Uploaded artifact

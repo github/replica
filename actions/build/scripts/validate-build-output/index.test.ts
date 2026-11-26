@@ -129,6 +129,38 @@ describe("validateBuildOutput()", () => {
     )
   })
 
+  it("rejects the path name Hub reserves for its storage", async () => {
+    const root = await temporaryDirectory()
+    await mkdir(path.join(root, "dist", "assets", ".replica-internal"), { recursive: true })
+    await writeFile(path.join(root, "dist", "index.html"), "<!doctype html>")
+    await writeFile(path.join(root, "dist", "assets", ".replica-internal", "app.js"), "app")
+
+    await expect(validateBuildOutput(root)).rejects.toThrow(
+      new Error(
+        "Build output path must not use .replica-internal, which Hub reserves for its storage: assets/.replica-internal",
+      ),
+    )
+  })
+
+  it("accepts paths up to the length Hub can store and rejects longer paths", async () => {
+    const root = await temporaryDirectory()
+    const directory = path.posix.join(..."abc".split("").map((letter) => letter.repeat(247)))
+    await mkdir(path.join(root, "dist", directory), { recursive: true })
+    await writeFile(path.join(root, "dist", "index.html"), "<!doctype html>")
+    const longest = `${directory}/${"d".repeat(248)}`
+    await writeFile(path.join(root, "dist", longest), "fits")
+
+    expect((await validateBuildOutput(root)).files).toContainEqual({ path: longest, bytes: 4 })
+
+    const tooLong = `${directory}/${"e".repeat(249)}`
+    await writeFile(path.join(root, "dist", tooLong), "too long")
+    await expect(validateBuildOutput(root)).rejects.toThrow(
+      new Error(
+        `Build output path must be at most 992 bytes for Hub storage: ${tooLong} has 993 bytes.`,
+      ),
+    )
+  })
+
   it("enforces all configured build output limits", async () => {
     const entryRoot = await temporaryDirectory()
     await mkdir(path.join(entryRoot, "dist", "assets"), { recursive: true })

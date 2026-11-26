@@ -1,3 +1,4 @@
+import { MAX_PATH_BYTES } from "../constants.ts"
 import { unsupportedPathSegment } from "../unsupported-path-segment/index.ts"
 
 /** Checks one dist path and records it for duplicate-name checks. */
@@ -25,6 +26,19 @@ export function validateOutputPath(
   if (parts.some((part) => unsupportedPathSegment(part))) {
     throw new Error(
       `Build output path must use printable ASCII names that work on Windows and Unix: ${relativePath}`,
+    )
+  }
+
+  // Hub refuses these paths when it stores the package, after the workflow has succeeded.
+  if (parts.includes(".replica-internal")) {
+    throw new Error(
+      `Build output path must not use .replica-internal, which Hub reserves for its storage: ${relativePath}`,
+    )
+  }
+
+  if (relativePath.length > MAX_PATH_BYTES) {
+    throw new Error(
+      `Build output path must be at most ${MAX_PATH_BYTES} bytes for Hub storage: ${relativePath} has ${relativePath.length} bytes.`,
     )
   }
 
