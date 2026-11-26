@@ -90,6 +90,8 @@ export interface LearningHistoryResponse {
 /** How one use of a learning was scored, with the Build it judged. */
 export interface LearningOutcomeResponse {
   id: string
+  /** Whether a reviewer confirmed the work before it was scored. */
+  source: "automated" | "reviewer_confirmed"
   /** 4 is best. 1 and 2 come with an issue. */
   efficiency: number
   followed: "followed" | "not_followed" | "unclear"

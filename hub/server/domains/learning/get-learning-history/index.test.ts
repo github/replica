@@ -138,10 +138,18 @@ describe("getLearningHistory()", () => {
       })
       .mockResolvedValueOnce({
         outcomes: [
-          { ...outcome, id: "score_old", version: 1 },
           {
             ...outcome,
+            id: "score_old",
+            usedLearningId: "use_1",
+            version: 1,
+            inputs: ["build_diff"],
+          },
+          {
+            ...outcome,
+            usedLearningId: "use_2",
             version: 2,
+            inputs: ["build_diff", "screenshots"],
             after: { sha256: `sha256:${digest}`, route: "/checkout", consentGrantId: "grant-1" },
           },
         ],
@@ -161,8 +169,48 @@ describe("getLearningHistory()", () => {
     expect(result.outcomes).toEqual([
       {
         ...outcome,
+        source: "automated",
         after: { sha256: digest, route: "/checkout", consentGrantId: "grant-1" },
       },
+    ])
+  })
+
+  it("shows a reviewer-confirmed score in place of the earlier score for the same use", async () => {
+    const outcome = {
+      usedLearningId: "use_1",
+      version: 1,
+      commitSha: "a".repeat(40),
+      efficiency: 3,
+      followed: "followed",
+      reasoning: "The form kept its labels.",
+      scoredAt: "2026-11-05T00:00:00.000Z",
+    }
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce({
+        withheld: false,
+        record: {},
+        versions: [{ version: 1, state: "accepted", contentDigest: "wording" }],
+      })
+      .mockResolvedValueOnce({
+        outcomes: [
+          { ...outcome, id: "score_automated", inputs: ["build_diff"] },
+          { ...outcome, id: "score_confirmed", inputs: ["build_diff", "reviewer_verification"] },
+        ],
+      })
+
+    const result = await getLearningHistory({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      learningId: "mem_1",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+
+    expect(result.outcomes.map(({ id, source }) => [id, source])).toEqual([
+      ["score_confirmed", "reviewer_confirmed"],
     ])
   })
 

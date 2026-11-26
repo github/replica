@@ -85,7 +85,9 @@ const outcomesSchema = z
       z
         .object({
           id: z.string().min(1),
+          usedLearningId: z.string().min(1),
           version: z.number().int().positive(),
+          inputs: z.array(z.string()),
           commitSha: z.string().regex(/^[0-9a-f]{40}$/),
           prototypeId: z.string().optional(),
           efficiency: z.number().int().min(1).max(4),
@@ -345,10 +347,17 @@ function currentOutcomes(
   const current = new Set(
     versions.filter((entry) => entry.contentDigest === wording).map((entry) => entry.version),
   )
-  return outcomes
-    .filter((outcome) => current.has(outcome.version))
+  const matching = outcomes.filter((outcome) => current.has(outcome.version))
+  // A reviewer's confirmation scores the same use again. The newer score replaces the
+  // earlier one so the use isn't counted twice.
+  const last = new Map(matching.map((outcome, index) => [outcome.usedLearningId, index]))
+  return matching
+    .filter((outcome, index) => last.get(outcome.usedLearningId) === index)
     .map((outcome) => ({
       id: outcome.id,
+      source: outcome.inputs.includes("reviewer_verification")
+        ? ("reviewer_confirmed" as const)
+        : ("automated" as const),
       commitSha: outcome.commitSha,
       prototypeId: outcome.prototypeId ?? null,
       efficiency: outcome.efficiency,

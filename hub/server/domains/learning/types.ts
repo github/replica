@@ -108,6 +108,8 @@ export type LearningOutcome = Omit<
 /** How one use of a learning was scored, as the package recorded it. */
 export interface ReportedLearningOutcome {
   id: string
+  /** Whether a reviewer confirmed the work before it was scored. */
+  source: "automated" | "reviewer_confirmed"
   commitSha: string
   prototypeId: string | null
   /** 4 is best. 1 and 2 come with an issue. */

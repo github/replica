@@ -147,6 +147,7 @@ export const learningHistoryResponseSchema = z
       z
         .object({
           id: z.string().min(1),
+          source: z.enum(["automated", "reviewer_confirmed"]),
           efficiency: z.number().int().min(1).max(4),
           followed: z.enum(["followed", "not_followed", "unclear"]),
           reasoning: z.string(),

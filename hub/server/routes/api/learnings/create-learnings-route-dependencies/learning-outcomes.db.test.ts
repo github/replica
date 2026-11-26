@@ -69,6 +69,7 @@ describe("learning outcomes", () => {
       })
     }
     const score = {
+      source: "automated" as const,
       efficiency: 3,
       followed: "followed" as const,
       reasoning: "The form kept its labels.",
@@ -135,6 +136,7 @@ describe("learning outcomes", () => {
       outcomes: [
         {
           id: "score_with_screenshot",
+          source: "automated",
           commitSha,
           prototypeId: prototype.id,
           efficiency: 2,
