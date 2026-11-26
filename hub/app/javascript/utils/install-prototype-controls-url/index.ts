@@ -7,6 +7,7 @@ export function installControlsUrl(
   onNavigate: (query: string) => void,
   currentValues: () => ControlValues,
   onError: (message: string) => void,
+  filterValues: (values: ControlValues) => ControlValues = (values) => values,
 ) {
   const push = window.history.pushState.bind(window.history)
   const replace = window.history.replaceState.bind(window.history)
@@ -24,7 +25,9 @@ export function installControlsUrl(
   ).toString()
   function effectiveQuery() {
     try {
-      const encoded = encodeControlValues({ ...readControlQuery(query).scopes, ...currentValues() })
+      const encoded = encodeControlValues(
+        filterValues({ ...readControlQuery(query).scopes, ...currentValues() }),
+      )
       onError("")
       return encoded
     } catch (error) {
@@ -86,7 +89,7 @@ export function installControlsUrl(
     set(next: string) {
       const parsed = readControlQuery(next)
       if (parsed.notice) throw new Error(parsed.notice)
-      query = encodeControlValues(parsed.scopes)
+      query = encodeControlValues(filterValues(parsed.scopes))
       initialized = true
       refresh()
     },

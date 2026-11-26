@@ -24,6 +24,16 @@ export function validControlsState(value: unknown): value is ControlsState {
     return false
   try {
     const scopes = new Set<string>()
+    if (state.inactiveDeclarations !== undefined) {
+      if (!Array.isArray(state.inactiveDeclarations) || state.inactiveDeclarations.length > 100)
+        return false
+      for (const declaration of state.inactiveDeclarations) {
+        validateControls(declaration)
+        if (scopes.has(declaration.scope)) return false
+        scopes.add(declaration.scope)
+      }
+    }
+    if (state.scopes.length + scopes.size > 100) return false
     for (const scope of state.scopes) {
       validateControls(scope.declaration)
       if (scopes.has(scope.declaration.scope)) return false

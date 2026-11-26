@@ -120,6 +120,54 @@ it("validates shared/page sets, independent IDs and strictly bounded pixel width
   )
 })
 
+it("accepts app initialization only on readable API value bindings in version 1", () => {
+  const control = {
+    id: "page",
+    label: "Page",
+    type: "text",
+    default: "/",
+    binding: {
+      type: "api",
+      object: "routing",
+      read: "read",
+      write: "write",
+      pollMs: 250,
+      initial: "app",
+    },
+  }
+  const document = { version: 1, scope: "routing", controls: [control] }
+  assert.equal(validateControlsDocument(document), document)
+
+  for (const binding of [
+    { ...control.binding, read: undefined },
+    { ...control.binding, initial: "default" },
+    { type: "field", selector: "#page", initial: "app" },
+    { type: "style", selector: "#page", property: "--page", initial: "app" },
+    { type: "query", key: "page", mode: "in-place", initial: "app" },
+    { type: "hash", mode: "in-place", initial: "app" },
+  ]) {
+    assert.throws(
+      () => validateControlsDocument({ ...document, controls: [{ ...control, binding }] }),
+      ControlsValidationError,
+    )
+  }
+  assert.throws(
+    () =>
+      validateControlsDocument({
+        ...document,
+        controls: [
+          {
+            id: "navigate",
+            label: "Navigate",
+            type: "button",
+            binding: { type: "api", object: "routing", action: "navigate", initial: "app" },
+          },
+        ],
+      }),
+    ControlsValidationError,
+  )
+})
+
 function clone() {
   return structuredClone(fixture)
 }

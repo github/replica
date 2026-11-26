@@ -12,6 +12,7 @@ export function useShareControlSettings(
     revision?: string
     onChange: (included: boolean) => Promise<void>
   },
+  availabilityError?: string,
 ) {
   const remoteIncluded = remote?.included
   const remoteError = remote?.error
@@ -45,8 +46,8 @@ export function useShareControlSettings(
       ? preference
       : initialPreference
   let query = ""
-  let queryError = ""
-  if (current.included) {
+  let queryError = current.included ? (availabilityError ?? "") : ""
+  if (current.included && !queryError) {
     try {
       query = encodeControlValues(values)
     } catch (error) {

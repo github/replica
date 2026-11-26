@@ -10,7 +10,8 @@ import {
 import { scopeProjection } from "@utils/prototype-controls-protocol/scope-projection"
 import { validControlsValues } from "@utils/prototype-controls-protocol/valid-values"
 import { installControlsUrl } from "@utils/install-prototype-controls-url"
-import { nonDefaultValues } from "@utils/prototype-controls-url/non-default-values"
+import { savedValues } from "@utils/prototype-controls-url/saved-values"
+import { excludeAppOwnedValues } from "@utils/prototype-controls-url/exclude-app-owned-values"
 import { controlsStatus } from "@utils/prototype-controls-status"
 
 export function installControlsBridge(parentOrigin: string) {
@@ -40,7 +41,7 @@ export function installControlsBridge(parentOrigin: string) {
           .filter((controller) => restoredScopes.has(controller.declaration.scope))
           .map((controller) => [
             controller.declaration.scope,
-            nonDefaultValues(scopeProjection(controller)),
+            savedValues(scopeProjection(controller)),
           ]),
       ),
     (message) => {
@@ -48,6 +49,11 @@ export function installControlsBridge(parentOrigin: string) {
       urlError = message
       send("snapshot", "event")
     },
+    (values) =>
+      excludeAppOwnedValues(
+        values,
+        (runtime?.list() ?? []).map((controller) => controller.declaration),
+      ),
   )
   async function load() {
     try {
@@ -133,8 +139,18 @@ export function installControlsBridge(parentOrigin: string) {
     }
   }
   function state(): ControlsState {
+    const inactiveDeclarations = (runtime?.list() ?? [])
+      .filter(
+        (controller) =>
+          controller.mountedCount === 0 &&
+          controller.declaration.controls.some(
+            (control) => control.binding?.type === "api" && control.binding.initial === "app",
+          ),
+      )
+      .map((controller) => controller.declaration)
     return {
       ...runtimeState(),
+      ...(inactiveDeclarations.length ? { inactiveDeclarations } : {}),
       scopeErrors: [],
       reconnectRequired,
       ...(reconnectRequired ? { error: "Reconnect controls before sending more commands." } : {}),
@@ -252,9 +268,10 @@ export function installControlsBridge(parentOrigin: string) {
       seen.clear()
       reconnectRequired = false
       restoredScopes.clear()
+      if (!loaded) await ready
+      if (disposed || epoch !== data.epoch) return
       const fromFrameUrl = data.fromFrameUrl && controlsUrl?.managed()
       controlsUrl?.set(fromFrameUrl ? controlsUrl.current() : (data.controlQuery ?? ""))
-      if (!loaded) await ready
       send("reply", data.requestId, undefined, fromFrameUrl ? controlsUrl?.current() : undefined)
       return
     }
@@ -330,7 +347,17 @@ export function installControlsBridge(parentOrigin: string) {
           throw new Error("Controls changed. The stale command was not applied.")
         if (command.operation === "restore") {
           if (!validControlsValues(command.values)) throw new Error("Invalid saved controls.")
-          await bindings?.restore(controller, command.values, guard)
+          const appOwned = new Set(
+            controller.declaration.controls
+              .filter(
+                (control) => control.binding?.type === "api" && control.binding.initial === "app",
+              )
+              .map((control) => control.id),
+          )
+          const overrides = Object.fromEntries(
+            Object.entries(command.values).filter(([id]) => !appOwned.has(id)),
+          )
+          await bindings?.restore(controller, overrides, guard)
           restoredScopes.add(controller.declaration.scope)
           controlsUrl?.refresh()
         } else if (command.operation === "reset") {

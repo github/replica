@@ -5,7 +5,7 @@ import {
   valueIssue,
 } from "./controls.mjs"
 import { targetIssue } from "./dom-target.mjs"
-import { controlOrder } from "./controls-validation.mjs"
+import { conditionReferences, controlOrder } from "./controls-validation.mjs"
 
 export const CONTROLS_DOCUMENT_BYTES = 256_000
 
@@ -225,6 +225,7 @@ export function installBindings(input) {
           object: undefined,
           cleanup: undefined,
           initialized: false,
+          pendingReset: false,
           lastRead: 0,
           reading: false,
         },
@@ -405,7 +406,18 @@ export function installBindings(input) {
       if (!record.initialized) {
         // A failed value write is not replayed on each polling tick.
         record.initialized = true
-        await apply(set, record, set.controller.getSnapshot().values[control.id])
+        if (
+          control.binding.type === "api" &&
+          control.binding.initial === "app" &&
+          !record.pendingReset &&
+          set.controller.getSnapshot().visible[control.id]
+        ) {
+          await readback(set, record, object, route())
+          set.controller.bindingStatus(control.id, "", false, true)
+        } else {
+          record.pendingReset = false
+          await apply(set, record, set.controller.getSnapshot().values[control.id])
+        }
       } else {
         const interval = control.binding.type === "api" ? control.binding.pollMs : 250
         if (record.lastRead === 0 || (interval && Date.now() - record.lastRead >= interval)) {
@@ -475,9 +487,24 @@ export function installBindings(input) {
                 set.release = set.controller.mount(() => handlers)
               }
               if (containerError) return
-              await Promise.all(
-                [...set.records.values()].map((record) => refreshRecord(set, record)),
+              const groups = new Map(
+                (set.controller.declaration.groups ?? []).map((group) => [group.id, group]),
               )
+              const tasks = new Map()
+              for (const id of controlOrder(set.controller.declaration)) {
+                const record = set.records.get(id)
+                const dependencies = [
+                  ...conditionReferences(record.control.when),
+                  ...conditionReferences(groups.get(record.control.group)?.when),
+                ]
+                tasks.set(
+                  id,
+                  Promise.all(dependencies.map((dependency) => tasks.get(dependency))).then(() =>
+                    refreshRecord(set, record),
+                  ),
+                )
+              }
+              await Promise.all(tasks.values())
             }),
           )
         } finally {
@@ -582,7 +609,20 @@ export function installBindings(input) {
     },
     settled: () => refreshQueue,
     restore: (controller, overrides, guard) =>
-      run(() => values(controller, overrides, guard), guard),
+      run(
+        () =>
+          values(
+            controller,
+            Object.fromEntries(
+              Object.entries(overrides).filter(([id]) => {
+                const binding = setFor(controller).records.get(id)?.control.binding
+                return binding?.type !== "api" || binding.initial !== "app"
+              }),
+            ),
+            guard,
+          ),
+        guard,
+      ),
     update: (controller, id, value, guard) =>
       run(() => {
         const control = controller.declaration.controls.find((control) => control.id === id)
@@ -617,6 +657,10 @@ export function installBindings(input) {
           )
           if (!set.release) {
             set.controller.reset()
+            for (const record of set.records.values()) {
+              const binding = record.control.binding
+              if (binding.type === "api" && binding.initial === "app") record.pendingReset = true
+            }
             continue
           }
           try {

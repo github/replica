@@ -217,6 +217,7 @@ export function App({ config }: Props) {
       revision: shareContext?.target,
       onChange: sharing.setControlPreference,
     },
+    controls.connection?.getControlValuesError(),
   )
 
   useLayoutEffect(() => {
