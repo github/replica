@@ -7,8 +7,7 @@
 }
 
 .learnings-page__status,
-.learnings-page__section,
-.learnings-page__form {
+.learnings-page__section {
   display: grid;
   gap: 1rem;
 }
@@ -18,84 +17,10 @@
   margin: 0;
 }
 
-.learnings-page__section-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.learnings-page__card {
-  display: grid;
-  gap: 0.75rem;
-  padding: 1.25rem;
-  border: 1px solid var(--hub-border-default);
-  border-radius: 0.75rem;
-  background: var(--hub-canvas-default);
-}
-
-.learnings-page__content {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.learnings-page__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.learnings-page__replacements {
-  display: grid;
-  gap: 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.learnings-page__replacement {
-  overflow-wrap: anywhere;
-}
-
-.learnings-page__evidence summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.learnings-page__evidence summary:focus-visible,
 .learnings-page__recall:focus-visible,
 .learnings-page__runs:focus-visible {
   outline: 2px solid var(--hub-focus);
   outline-offset: 2px;
-}
-
-.learnings-page__evidence ul {
-  display: grid;
-  gap: 0.75rem;
-  margin: 0.75rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.learnings-page__comment {
-  display: grid;
-  gap: 0.25rem;
-  padding-inline-start: 0.75rem;
-  border-inline-start: 2px solid var(--hub-border-default);
-  overflow-wrap: anywhere;
-}
-
-.learnings-page__comment p {
-  white-space: pre-wrap;
-}
-
-.learnings-page__comment-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem;
-  color: var(--hub-fg-muted);
-  font-size: 0.875rem;
 }
 
 .learnings-page__recall {

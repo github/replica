@@ -1,21 +1,20 @@
-import { type ReactNode, type RefObject, useRef, useState } from "react"
-import { Button, FormControl, Heading, Text, Textarea } from "@primer/react-brand"
+import { Button, Heading, Text } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"
-import { HubCounter } from "@components/hub-counter"
 import { HubToast } from "@components/hub-toast"
-import { HubUserAvatar } from "@components/hub-user-avatar"
 import { DecisionModelPanel } from "@features/decision-model-panel"
+import { LearningsLibrary } from "@features/learnings-library"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 import { ReviewRelativeTime } from "@features/review-relative-time"
 
-import type { AcceptedLearning, LearningSuggestion, LearningsPageData } from "./types"
+import type { LearningsPageData } from "./types"
 import "./styles.css"
 
-type Copy = Extract<LearningsPageData, { accessDenied: false }>["copy"]
-
-/** Shows what Hub suggests and what agents get, so a repository administrator decides both. */
+/**
+ * Shows a repository's learnings and what agents get. Members browse; repository
+ * administrators also decide which learnings agents get.
+ */
 export function LearningsPage({
   data,
   decisionModelActionRevision = 0,
@@ -53,6 +52,17 @@ function LearningsContent({
   decisionModelTrainingSubmitting: boolean
 }) {
   const copy = data.copy
+
+  // A selected learning replaces the overview so its decisions have the page's focus.
+  if (data.library.selected) {
+    return (
+      <div className="learnings-page">
+        {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
+        {data.notice ? <HubToast title={data.notice} /> : null}
+        <LearningsLibrary data={data.library} authenticityToken={data.authenticityToken} />
+      </div>
+    )
+  }
 
   return (
     <div className="learnings-page">
@@ -94,49 +104,7 @@ function LearningsContent({
         ) : null}
       </div>
 
-      <section className="learnings-page__section" aria-labelledby="learnings-suggestions">
-        <div className="learnings-page__section-header">
-          <Heading as="h2" size="5" id="learnings-suggestions">
-            {copy.suggestionsHeading}
-          </Heading>
-          <HubCounter>{data.suggestions.length}</HubCounter>
-        </div>
-        {data.suggestions.length ? (
-          data.suggestions.map((suggestion) => (
-            <Suggestion
-              key={`${suggestion.id}:${suggestion.digest}`}
-              suggestion={suggestion}
-              copy={copy}
-              authenticityToken={data.authenticityToken}
-              canDecide={data.canDecide}
-            />
-          ))
-        ) : (
-          <Text as="p">{copy.suggestionsEmpty}</Text>
-        )}
-      </section>
-
-      <section className="learnings-page__section" aria-labelledby="learnings-accepted">
-        <div className="learnings-page__section-header">
-          <Heading as="h2" size="5" id="learnings-accepted">
-            {copy.acceptedHeading}
-          </Heading>
-          <HubCounter>{data.learnings.length}</HubCounter>
-        </div>
-        {data.learnings.length ? (
-          data.learnings.map((learning) => (
-            <Learning
-              key={learning.id}
-              learning={learning}
-              copy={copy}
-              authenticityToken={data.authenticityToken}
-              canDecide={data.canDecide}
-            />
-          ))
-        ) : (
-          <Text as="p">{copy.acceptedEmpty}</Text>
-        )}
-      </section>
+      <LearningsLibrary data={data.library} authenticityToken={data.authenticityToken} />
 
       <section className="learnings-page__section" aria-labelledby="learnings-recall">
         <Heading as="h2" size="5" id="learnings-recall">
@@ -223,264 +191,5 @@ function LearningsContent({
         trainingSubmitting={decisionModelTrainingSubmitting}
       />
     </div>
-  )
-}
-
-/** One suggestion, the comments behind it, and the decision forms beside it. */
-function Suggestion({
-  suggestion,
-  copy,
-  authenticityToken,
-  canDecide,
-}: {
-  suggestion: LearningSuggestion
-  copy: Copy
-  authenticityToken: string
-  canDecide: boolean
-}) {
-  const [mode, setMode] = useState<"choose" | "edit" | "reject">("choose")
-  const editButton = useRef<HTMLButtonElement>(null)
-  const rejectButton = useRef<HTMLButtonElement>(null)
-  const contentId = `suggestion-${suggestion.id}`
-
-  // The button that opened the form mounts again only after this render, so read its ref then.
-  function cancel(returnTo: RefObject<HTMLButtonElement | null>) {
-    setMode("choose")
-    window.requestAnimationFrame(() => returnTo.current?.focus())
-  }
-
-  return (
-    <article className="learnings-page__card" aria-labelledby={contentId}>
-      <Text as="p" id={contentId} className="learnings-page__content">
-        {suggestion.content}
-      </Text>
-      {suggestion.support ? (
-        <Text as="p" size="200" variant="muted">
-          {suggestion.support}
-        </Text>
-      ) : null}
-      {suggestion.replaces.length ? (
-        <>
-          <HubAlert title={copy.replacementHeading} variant="info" />
-          <ul className="learnings-page__replacements" aria-label={copy.replacementHeading}>
-            {suggestion.replaces.map((target) => (
-              <li key={target.id} className="learnings-page__replacement">
-                <code>{target.id}</code>
-                <Text as="p">{target.content}</Text>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-
-      {[
-        {
-          heading: copy.evidenceHeading,
-          evidence: suggestion.evidence,
-          otherEvidence: suggestion.otherEvidence,
-        },
-        {
-          heading: copy.contradictionsHeading,
-          evidence: suggestion.contradictions,
-          otherEvidence: suggestion.otherContradictions,
-        },
-      ].map((group) =>
-        group.evidence.length || group.otherEvidence ? (
-          <details key={group.heading} className="learnings-page__evidence">
-            <summary>{group.heading}</summary>
-            <ul>
-              {group.evidence.map((item) => (
-                <li key={item.eventId} className="learnings-page__comment">
-                  <div className="learnings-page__comment-meta">
-                    <HubUserAvatar src={item.authorAvatarUrl} size={20} />
-                    <span>@{item.authorLogin}</span>
-                    <span aria-hidden="true">·</span>
-                    <a href={item.prototypePath}>{item.prototypeName}</a>
-                    <span aria-hidden="true">·</span>
-                    <ReviewRelativeTime value={item.createdAt} />
-                  </div>
-                  <Text as="p" variant={item.body === null ? "muted" : "default"}>
-                    {item.body ?? copy.deletedComment}
-                  </Text>
-                </li>
-              ))}
-            </ul>
-            {group.otherEvidence ? (
-              <Text as="p" size="200" variant="muted">
-                {group.otherEvidence}
-              </Text>
-            ) : null}
-          </details>
-        ) : null,
-      )}
-
-      {!canDecide ? null : mode === "choose" ? (
-        <div className="learnings-page__actions">
-          <DecisionForm
-            path={suggestion.decisionPath}
-            decision="accept"
-            digest={suggestion.digest}
-            authenticityToken={authenticityToken}
-          >
-            <Button type="submit" variant="primary">
-              {copy.accept}
-            </Button>
-          </DecisionForm>
-          <Button
-            ref={editButton}
-            type="button"
-            variant="secondary"
-            onClick={() => setMode("edit")}
-          >
-            {copy.edit}
-          </Button>
-          <Button
-            ref={rejectButton}
-            type="button"
-            variant="secondary"
-            onClick={() => setMode("reject")}
-          >
-            {copy.reject}
-          </Button>
-        </div>
-      ) : (
-        <DecisionForm
-          path={suggestion.decisionPath}
-          decision={mode === "edit" ? "accept" : "reject"}
-          digest={suggestion.digest}
-          authenticityToken={authenticityToken}
-        >
-          <FormControl id={`${contentId}-${mode}`} fullWidth required>
-            <FormControl.Label>
-              {mode === "edit" ? copy.contentLabel : copy.rejectReason}
-            </FormControl.Label>
-            <Textarea
-              name={mode === "edit" ? "content" : "reason"}
-              defaultValue={mode === "edit" ? suggestion.content : ""}
-              maxLength={mode === "edit" ? 2000 : 500}
-              rows={3}
-              fullWidth
-              resize="vertical"
-              required
-              autoFocus
-            />
-          </FormControl>
-          <div className="learnings-page__actions">
-            <Button type="submit" variant={mode === "edit" ? "primary" : "secondary"}>
-              {mode === "edit" ? copy.acceptEdited : copy.confirmReject}
-            </Button>
-            <Button
-              type="button"
-              variant="subtle"
-              onClick={() => cancel(mode === "edit" ? editButton : rejectButton)}
-            >
-              {copy.cancel}
-            </Button>
-          </div>
-        </DecisionForm>
-      )}
-    </article>
-  )
-}
-
-/** One accepted learning, whether agents get it, and a way to retire it. */
-function Learning({
-  learning,
-  copy,
-  authenticityToken,
-  canDecide,
-}: {
-  learning: AcceptedLearning
-  copy: Copy
-  authenticityToken: string
-  canDecide: boolean
-}) {
-  const [retiring, setRetiring] = useState(false)
-  const retireButton = useRef<HTMLButtonElement>(null)
-  const contentId = `learning-${learning.id}`
-
-  return (
-    <article className="learnings-page__card" aria-labelledby={contentId}>
-      <Text as="p" id={contentId} className="learnings-page__content">
-        {learning.content}
-      </Text>
-      {learning.accepted ? (
-        <Text as="p" size="200" variant="muted">
-          {learning.accepted}
-        </Text>
-      ) : null}
-      <Text as="p" size="200" variant={learning.recalled ? "default" : "muted"}>
-        {learning.status}
-      </Text>
-      {!canDecide ? null : retiring ? (
-        <DecisionForm
-          path={learning.decisionPath}
-          decision="retire"
-          authenticityToken={authenticityToken}
-        >
-          <FormControl id={`${contentId}-retire`} fullWidth required>
-            <FormControl.Label>{copy.retireReason}</FormControl.Label>
-            <Textarea
-              name="reason"
-              maxLength={500}
-              rows={2}
-              fullWidth
-              resize="vertical"
-              required
-              autoFocus
-            />
-          </FormControl>
-          <div className="learnings-page__actions">
-            <Button type="submit" variant="secondary">
-              {copy.confirmRetire}
-            </Button>
-            <Button
-              type="button"
-              variant="subtle"
-              onClick={() => {
-                setRetiring(false)
-                window.requestAnimationFrame(() => retireButton.current?.focus())
-              }}
-            >
-              {copy.cancel}
-            </Button>
-          </div>
-        </DecisionForm>
-      ) : (
-        <div className="learnings-page__actions">
-          <Button
-            ref={retireButton}
-            type="button"
-            variant="secondary"
-            onClick={() => setRetiring(true)}
-          >
-            {copy.retire}
-          </Button>
-        </div>
-      )}
-    </article>
-  )
-}
-
-function DecisionForm({
-  path,
-  decision,
-  digest,
-  authenticityToken,
-  children,
-}: {
-  path: string
-  decision: "accept" | "reject" | "retire"
-  digest?: string
-  authenticityToken: string
-  children: ReactNode
-}) {
-  return (
-    <form action={path} method="post" className="learnings-page__form">
-      <input type="hidden" name="authenticity_token" value={authenticityToken} />
-      <input type="hidden" name="decision" value={decision} />
-      {digest ? <input type="hidden" name="digest" value={digest} /> : null}
-      {children}
-    </form>
   )
 }

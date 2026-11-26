@@ -1,39 +1,6 @@
 import type { RepositoryWorkspaceData } from "@features/repository-workspace/types"
 import type { DecisionModelPanelData } from "@features/decision-model-panel/types"
-
-/** A review comment behind a suggestion, from this repository's prototypes. */
-export interface LearningEvidence {
-  eventId: string
-  commentId: number
-  body: string | null
-  authorLogin: string
-  authorAvatarUrl: string | null
-  prototypeName: string
-  prototypePath: string
-  createdAt: string
-}
-
-export interface LearningSuggestion {
-  id: string
-  content: string
-  digest: string
-  decisionPath: string
-  support: string | null
-  replaces: Array<{ id: string; content: string }>
-  evidence: LearningEvidence[]
-  otherEvidence: string | null
-  contradictions: LearningEvidence[]
-  otherContradictions: string | null
-}
-
-export interface AcceptedLearning {
-  id: string
-  content: string
-  decisionPath: string
-  accepted: string | null
-  recalled: boolean
-  status: string
-}
+import type { LearningsLibraryData } from "@features/learnings-library/types"
 
 export interface LearningRun {
   id: number
@@ -56,30 +23,10 @@ export type LearningsPageData =
   | (SharedLearningsPageData & { accessDenied: true })
   | (SharedLearningsPageData & {
       accessDenied: false
-      canDecide: boolean
       copy: Record<
         | "heading"
         | "description"
         | "runLabel"
-        | "suggestionsHeading"
-        | "suggestionsEmpty"
-        | "evidenceHeading"
-        | "contradictionsHeading"
-        | "replacementHeading"
-        | "deletedComment"
-        | "accept"
-        | "edit"
-        | "contentLabel"
-        | "acceptEdited"
-        | "reject"
-        | "rejectReason"
-        | "confirmReject"
-        | "cancel"
-        | "acceptedHeading"
-        | "acceptedEmpty"
-        | "retire"
-        | "retireReason"
-        | "confirmRetire"
         | "recallHeading"
         | "recallDescription"
         | "recallEmpty"
@@ -96,8 +43,7 @@ export type LearningsPageData =
       run: { path: string; available: boolean }
       loadError: string | null
       identityNotice: string | null
-      suggestions: LearningSuggestion[]
-      learnings: AcceptedLearning[]
+      library: LearningsLibraryData
       recall: { text: string; count: number }
       /** Null when the viewer cannot see run history, so it is hidden, not empty. */
       runs: LearningRun[] | null

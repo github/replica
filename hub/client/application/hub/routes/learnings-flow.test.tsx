@@ -130,6 +130,24 @@ function learningsResponse() {
   }
 }
 
+function emptyHistory() {
+  return http.get("/api/repositories/2001/learnings/:learningId/history", () =>
+    Response.json({ decisions: [], evidence: [], otherEvidenceCount: 0 }),
+  )
+}
+
+async function submitDialog(open: string, fields: Record<string, string>, submit: string) {
+  fireEvent.click(await screen.findByRole("button", { name: open }))
+  for (const [name, value] of Object.entries(fields)) {
+    fireEvent.change(screen.getByRole("textbox", { name }), { target: { value } })
+  }
+  const form = within(screen.getByRole("dialog"))
+    .getByRole("button", { name: submit })
+    .closest("form")
+  if (!form) throw new Error("The learning decision control must belong to a form.")
+  return form
+}
+
 function decisionModelOverview(evaluated: boolean) {
   const build = {
     id: "77777777-8888-4999-8aaa-bbbbbbbbbbbb",
@@ -264,47 +282,79 @@ describe("Learnings frontend integration", () => {
     expect(meta({})).toEqual([{ title: "Replica Hub" }])
   })
 
-  it("loads the dedicated contract and presents the complete repository learning history", async () => {
+  it("lists suggestions first with recall and runs, without loading any history", async () => {
     const server = stubHubFetch(...learningsWorkspace())
     server.use(
       http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
     )
     await renderHubFlow(server, "/repositories/2001/learnings")
 
-    expect(await screen.findByText("Raised by 2 reviewers on 2 prototypes")).toBeVisible()
-    expect(screen.getByText("The email field needs a visible label.")).toBeInTheDocument()
     expect(
-      screen.getByText("The existing visible labels already explain these fields."),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText("2 more opposing comments that Hub cannot show here"),
-    ).toBeInTheDocument()
-    expect(screen.getByText("This learning's wording is not available for review.")).toBeVisible()
-    expect(screen.getByText(/Accepted by @octocat .* with edits/)).toBeVisible()
-    expect(
-      within(
-        screen.getByRole("article", {
-          name: /wording is unavailable because its stored record failed integrity checks/,
-        }),
-      ).getByText(/agents do not get it/),
-    ).toBeVisible()
+      await screen.findByRole("link", { name: "Show a visible label above every form field." }),
+    ).toHaveAttribute(
+      "href",
+      "/repositories/2001/learnings?status=suggested&learning=mem_suggestion",
+    )
+    expect(screen.getByRole("link", { name: /Active\s*2/ })).toBeVisible()
     const recall = screen
       .getAllByRole("region", { name: "What an agent gets" })
       .find((region) => region.textContent?.includes("Approved team learnings"))
     if (!recall) throw new Error("The agent recall preview must be available.")
     expect(recall).toHaveTextContent("Use one primary button per form.")
     expect(screen.getByRole("cell", { name: /4 new comments, 2 labeled/ })).toBeVisible()
-    expect(screen.getByRole("cell", { name: "0.021 AI credits in 1 request" })).toBeVisible()
     expect(screen.getByRole("cell", { name: /Copilot did not return a result/ })).toBeVisible()
     expect(screen.queryByRole("button", { name: /connect copilot/i })).not.toBeInTheDocument()
-    expect(
-      screen.getByText("Hub looks for learnings when you choose Find learnings now."),
-    ).toBeVisible()
     expect(
       server.requests
         .map(({ method, url }) => `${method} ${new URL(url).pathname}`)
         .filter((request) => request.includes("/learnings")),
     ).toEqual(["GET /api/repositories/2001/learnings"])
+  })
+
+  it("opens a learning with its evidence, replacements, and decision history", async () => {
+    const server = stubHubFetch(...learningsWorkspace())
+    server.use(
+      http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
+      http.get("/api/repositories/2001/learnings/mem_accepted/history", () =>
+        Response.json({
+          decisions: [
+            {
+              version: 1,
+              state: "accepted",
+              change: "accepted",
+              by: "octocat",
+              at: "2026-11-08T20:00:00.000Z",
+              reason: null,
+            },
+          ],
+          evidence: [],
+          otherEvidenceCount: 3,
+        }),
+      ),
+      emptyHistory(),
+    )
+    const router = await renderHubFlow(
+      server,
+      "/repositories/2001/learnings?learning=mem_suggestion",
+    )
+
+    expect(await screen.findByText("Raised by 2 reviewers on 2 prototypes")).toBeVisible()
+    expect(screen.getByText("The email field needs a visible label.")).toBeVisible()
+    expect(screen.getByRole("region", { name: "What reviewers disagreed with" })).toHaveTextContent(
+      "2 more opposing comments that Hub cannot show here",
+    )
+    expect(screen.getByRole("region", { name: "Accepting this replaces" })).toHaveTextContent(
+      "This learning's wording is not available for review.",
+    )
+    expect(screen.queryByRole("cell", { name: /4 new comments/ })).not.toBeInTheDocument()
+
+    await router.settle(() => router.navigate("/repositories/2001/learnings?learning=mem_accepted"))
+
+    expect(await screen.findByText(/Accepted by @octocat .* with edits/)).toBeVisible()
+    expect(screen.getByRole("region", { name: "Decision history" })).toHaveTextContent(
+      "Accepted by @octocat",
+    )
+    expect(screen.getByText("3 more comments that Hub cannot show here")).toBeVisible()
   })
 
   it("reports daily checks only when automatic runs are enabled", async () => {
@@ -642,7 +692,7 @@ describe("Learnings frontend integration", () => {
     )
   })
 
-  it("accepts a learning through the repository endpoint and refreshes recall", async () => {
+  it("accepts a suggestion and keeps it open as an active learning", async () => {
     const original = learningsResponse()
     const suggestionRecord = original.suggestions[0]!
     const decision = vi.fn()
@@ -668,11 +718,11 @@ describe("Learnings frontend integration", () => {
                     status: "recalled",
                   },
                 ],
-                recall: { text: `Approved team learnings\n${suggestionRecord.content}`, count: 1 },
               }
             : original,
         ),
       ),
+      emptyHistory(),
       http.post(
         `/api/repositories/2001/learnings/${suggestionRecord.id}/decision`,
         async ({ request }) => {
@@ -682,30 +732,22 @@ describe("Learnings frontend integration", () => {
         },
       ),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/learnings")
-    const suggestion = await screen.findByRole("article", {
-      name: /Show a visible label above every form field/,
-    })
-
-    const accept = within(suggestion).getByRole("button", { name: "Accept" })
-    const acceptForm = accept.closest("form")
+    const router = await renderHubFlow(
+      server,
+      `/repositories/2001/learnings?learning=${suggestionRecord.id}`,
+    )
+    const acceptForm = (await screen.findByRole("button", { name: "Accept learning" })).closest(
+      "form",
+    )
     if (!acceptForm) throw new Error("The acceptance control must belong to a form.")
     await router.settle(() => fireEvent.submit(acceptForm))
 
     expect(decision).toHaveBeenCalledExactlyOnceWith({ decision: "accept", digest })
-    expect(
-      await screen.findByRole("article", {
-        name: /Show a visible label above every form field/,
-      }),
-    ).toHaveTextContent("Accepted by @octocat")
-    const recall = screen
-      .getAllByRole("region", { name: "What an agent gets" })
-      .find((region) => region.textContent?.includes("Approved team learnings"))
-    if (!recall) throw new Error("The accepted learning must enter the agent recall preview.")
-    expect(recall).toHaveTextContent("Show a visible label above every form field")
+    expect(await screen.findByText("Agents get this learning.")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Edit learning" })).toBeVisible()
   })
 
-  it("refreshes a changed suggestion after a stale-digest response", async () => {
+  it("shows a changed suggestion's current wording after a stale-digest response", async () => {
     const server = stubHubFetch(...learningsWorkspace())
     const original = learningsResponse()
     let changed = false
@@ -724,6 +766,7 @@ describe("Learnings frontend integration", () => {
             : original,
         ),
       ),
+      emptyHistory(),
       http.post(`/api/repositories/2001/learnings/:learningId/decision`, () => {
         changed = true
         return Response.json(
@@ -732,92 +775,128 @@ describe("Learnings frontend integration", () => {
         )
       }),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/learnings")
-    const suggestion = await screen.findByRole("article", {
-      name: "Show a visible label above every form field.",
-    })
-    fireEvent.click(within(suggestion).getByRole("button", { name: "Edit and accept" }))
-    const wording = within(suggestion).getByRole("textbox", { name: "Wording agents get" })
-    fireEvent.change(wording, { target: { value: "My stale draft." } })
-
-    await router.settle(() =>
-      fireEvent.click(within(suggestion).getByRole("button", { name: "Accept with this wording" })),
+    const router = await renderHubFlow(
+      server,
+      "/repositories/2001/learnings?learning=mem_suggestion",
     )
+    const form = await submitDialog(
+      "Reject suggestion",
+      { "Why reject it?": "My stale reason." },
+      "Reject suggestion",
+    )
+    await router.settle(() => fireEvent.submit(form))
 
     expect(
-      await screen.findByRole("article", {
+      await screen.findByText("This suggestion changed. Review its current wording and evidence."),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("heading", {
         name: "Show a persistent visible label above every form field.",
       }),
     ).toBeVisible()
-    expect(screen.queryByDisplayValue("My stale draft.")).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue("My stale reason.")).not.toBeInTheDocument()
   })
 
-  it.each([
-    {
-      label: "edited acceptance",
-      article: "Show a visible label above every form field.",
-      open: "Edit and accept",
-      textbox: "Wording agents get",
-      value: "Use a visible label on every field.",
-      submit: "Accept with this wording",
-      expected: { decision: "accept", digest, content: "Use a visible label on every field." },
-      error: "This suggestion changed. Review its current wording and evidence.",
-      status: 409,
-    },
-    {
-      label: "rejection",
-      article: "Show a visible label above every form field.",
-      open: "Reject",
-      textbox: "Why reject this suggestion?",
-      value: "The design system already covers this.",
-      submit: "Reject suggestion",
-      expected: {
-        decision: "reject",
-        digest,
-        reason: "The design system already covers this.",
+  it("sends the exact edit and keeps it visible when the save fails", async () => {
+    const server = stubHubFetch(...learningsWorkspace())
+    const bodies: unknown[] = []
+    server.use(
+      http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
+      emptyHistory(),
+      http.post(`/api/repositories/2001/learnings/:learningId/decision`, async ({ request }) => {
+        bodies.push(await request.json())
+        return Response.json({ error: "Decisions are temporarily unavailable." }, { status: 503 })
+      }),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings?learning=mem_accepted")
+    const form = await submitDialog(
+      "Edit learning",
+      {
+        Title: "One primary button",
+        Guidance: "Use one primary button per form, named for its action.",
+        "Why change it?": "Say what to name it.",
       },
-      error: "Decisions are temporarily unavailable.",
-      status: 503,
-    },
-    {
-      label: "retirement",
-      article: "Use one primary button per form.",
-      open: "Retire",
-      textbox: "Why retire this learning?",
-      value: "This guidance no longer applies.",
-      submit: "Retire learning",
-      expected: { decision: "retire", reason: "This guidance no longer applies." },
-      error: "Decisions are temporarily unavailable.",
-      status: 503,
-    },
-  ])(
-    "sends the exact $label input and keeps it visible when the save fails",
-    async ({ article, open, textbox, value, submit, expected, error, status }) => {
-      const server = stubHubFetch(...learningsWorkspace())
-      const bodies: unknown[] = []
-      server.use(
-        http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
-        http.post(`/api/repositories/2001/learnings/:learningId/decision`, async ({ request }) => {
-          bodies.push(await request.json())
-          return Response.json({ error }, { status })
+      "Save changes",
+    )
+    await router.settle(() => fireEvent.submit(form))
+
+    expect(await screen.findByText("Decisions are temporarily unavailable.")).toBeVisible()
+    expect(screen.getByRole("textbox", { name: "Why change it?" })).toHaveValue(
+      "Say what to name it.",
+    )
+    expect(bodies).toEqual([
+      {
+        decision: "edit",
+        digest,
+        title: "One primary button",
+        content: "Use one primary button per form, named for its action.",
+        reason: "Say what to name it.",
+      },
+    ])
+  })
+
+  it("sends the exact rejection of an active learning without a digest", async () => {
+    const server = stubHubFetch(...learningsWorkspace())
+    const bodies: unknown[] = []
+    server.use(
+      http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
+      emptyHistory(),
+      http.post(`/api/repositories/2001/learnings/:learningId/decision`, async ({ request }) => {
+        bodies.push(await request.json())
+        return Response.json({ error: "Decisions are temporarily unavailable." }, { status: 503 })
+      }),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings?learning=mem_accepted")
+    const form = await submitDialog(
+      "Reject learning",
+      { "Why reject it?": "This guidance no longer applies." },
+      "Reject learning",
+    )
+    await router.settle(() => fireEvent.submit(form))
+
+    expect(await screen.findByText("Decisions are temporarily unavailable.")).toBeVisible()
+    expect(bodies).toEqual([{ decision: "retire", reason: "This guidance no longer applies." }])
+  })
+
+  it("accepts a rejected learning again with the digest and a reason", async () => {
+    const server = stubHubFetch(...learningsWorkspace())
+    const bodies: unknown[] = []
+    server.use(
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({
+          ...learningsResponse(),
+          rejected: [
+            {
+              id: "mem_rejected",
+              title: "Open links in a new tab",
+              content: "Open every link in a new tab.",
+              digest,
+              state: "rejected",
+              decidedBy: "hubot",
+              decidedAt: "2026-11-08T20:00:00.000Z",
+              reason: "It breaks the back button.",
+            },
+          ],
         }),
-      )
-      const router = await renderHubFlow(server, "/repositories/2001/learnings")
-      const card = await screen.findByRole("article", { name: article })
-      fireEvent.click(within(card).getByRole("button", { name: open }))
-      const input = within(card).getByRole("textbox", { name: textbox })
-      fireEvent.change(input, { target: { value } })
+      ),
+      emptyHistory(),
+      http.post(`/api/repositories/2001/learnings/:learningId/decision`, async ({ request }) => {
+        bodies.push(await request.json())
+        return Response.json({ error: "Decisions are temporarily unavailable." }, { status: 503 })
+      }),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings?learning=mem_rejected")
+    expect(await screen.findByText("It breaks the back button.")).toBeVisible()
+    const form = await submitDialog(
+      "Accept learning",
+      { "Why accept it now?": "External links only." },
+      "Accept learning",
+    )
+    await router.settle(() => fireEvent.submit(form))
 
-      const submitButton = within(card).getByRole("button", { name: submit })
-      const form = submitButton.closest("form")
-      if (!form) throw new Error("The learning decision control must belong to a form.")
-      await router.settle(() => fireEvent.submit(form))
-
-      expect(await screen.findByText(error)).toBeVisible()
-      expect(input).toHaveValue(value)
-      expect(bodies).toEqual([expected])
-    },
-  )
+    expect(await screen.findByText("Decisions are temporarily unavailable.")).toBeVisible()
+    expect(bodies).toEqual([{ decision: "reinstate", digest, reason: "External links only." }])
+  })
 
   it("shows a Hub administrator without repository authority a read-only library", async () => {
     const server = stubHubFetch(
@@ -856,8 +935,7 @@ describe("Learnings frontend integration", () => {
     expect(
       await screen.findByText("You do not have permission to view this repository's learnings."),
     ).toBeVisible()
-    expect(screen.queryByRole("article")).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("navigation", { name: "Learning status" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Find learnings now" })).not.toBeInTheDocument()
   })
 
@@ -878,7 +956,9 @@ describe("Learnings frontend integration", () => {
     expect(
       await screen.findByText("Learnings stays off until a Hub administrator connects Copilot."),
     ).toBeVisible()
-    expect(screen.getByRole("button", { name: "Accept" })).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: "Show a visible label above every form field." }),
+    ).toBeVisible()
     expect(screen.queryByRole("button", { name: "Find learnings now" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /connect copilot/i })).not.toBeInTheDocument()
   })

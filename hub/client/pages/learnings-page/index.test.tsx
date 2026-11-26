@@ -1,16 +1,19 @@
 import { ThemeProvider } from "@primer/react-brand"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
 import { LearningsPage } from "."
 import story, {
+  ActiveDetail,
   CopilotRefused,
+  EmptyStatus,
   FirstVisit,
   IdentityRevalidation,
-  MissingMetadata,
-  OpposingEvidence,
-  ReplacingGuidance,
+  MemberDetail,
+  RejectedDetail,
   Running,
+  SuggestionDetail,
+  SuggestionWithOpposingEvidence,
 } from "./stories"
 import type { LearningsPageData } from "./types"
 
@@ -23,10 +26,40 @@ function renderPage(data: LearningsPageData) {
 }
 
 describe("LearningsPage()", () => {
-  it("accepts a suggestion as written with the digest the person saw", () => {
+  it("links each status, search, and learning to an address people can share", () => {
     renderPage(story.args.data)
-    const suggestion = screen.getByRole("article", { name: /Show a visible label/ })
-    const form = within(suggestion).getByRole("button", { name: "Accept" }).closest("form")
+    const filters = screen.getByRole("navigation", { name: "Learning status" })
+    const search = screen.getByRole("search")
+
+    expect(within(filters).getByRole("link", { name: /Suggested/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    )
+    expect(within(filters).getByRole("link", { name: /Rejected/ })).toHaveAttribute(
+      "href",
+      "/repositories/2001/learnings?status=rejected",
+    )
+    expect(search).toHaveAttribute("action", "/repositories/2001/learnings")
+    expect(search.querySelector('[name="status"]')).toHaveValue("suggested")
+    expect(screen.getByRole("link", { name: /Show a visible label/ })).toHaveAttribute(
+      "href",
+      "/repositories/2001/learnings?status=suggested&learning=mem_7eb35ba21bbe6c45a9a296b4",
+    )
+  })
+
+  it("explains an empty status and an empty repository", () => {
+    renderPage(EmptyStatus.args!.data!)
+    expect(screen.getByText("No rejected learnings")).toBeVisible()
+
+    renderPage(FirstVisit.args!.data!)
+    expect(screen.getByText("No active learnings")).toBeVisible()
+    expect(screen.getByText(/Agents get nothing yet/)).toBeInTheDocument()
+    expect(screen.getByText(/Hub has not looked for learnings/)).toBeInTheDocument()
+  })
+
+  it("accepts a suggestion as written with the digest the person saw", () => {
+    renderPage(SuggestionDetail.args!.data!)
+    const form = screen.getByRole("button", { name: "Accept learning" }).closest("form")
 
     expect(form).toHaveAttribute(
       "action",
@@ -35,120 +68,92 @@ describe("LearningsPage()", () => {
     expect(form?.querySelector('[name="decision"]')).toHaveValue("accept")
     expect(form?.querySelector('[name="digest"]')).toHaveValue(`sha256:${"a".repeat(64)}`)
     expect(form?.querySelector('[name="authenticity_token"]')).toHaveValue("storybook-token")
-    expect(within(suggestion).getByText("Raised by 2 reviewers on 2 prototypes")).toBeVisible()
+    expect(screen.getByRole("link", { name: "Back to learnings" })).toHaveAttribute(
+      "href",
+      "/repositories/2001/learnings?status=suggested",
+    )
+    expect(screen.queryByRole("heading", { name: "Recent runs" })).not.toBeInTheDocument()
   })
 
-  it("asks for the wording before accepting with edits, and returns focus on cancel", async () => {
-    renderPage(story.args.data)
-    const suggestion = screen.getByRole("article", { name: /Show a visible label/ })
-    const edit = within(suggestion).getByRole("button", { name: "Edit and accept" })
+  it("requires a reason before rejecting a suggestion", () => {
+    renderPage(SuggestionDetail.args!.data!)
+    fireEvent.click(screen.getByRole("button", { name: "Reject suggestion" }))
+    const reason = screen.getByRole("textbox", { name: "Why reject it?" })
 
-    fireEvent.click(edit)
-    const wording = within(suggestion).getByRole("textbox", { name: "Wording agents get" })
-    expect(wording).toBeRequired()
-    expect(wording).toHaveValue(
-      "Show a visible label above every form field; never use placeholder text as the only label.",
-    )
-    expect(wording.closest("form")?.querySelector('[name="decision"]')).toHaveValue("accept")
-
-    fireEvent.click(within(suggestion).getByRole("button", { name: "Cancel" }))
-    expect(within(suggestion).queryByRole("textbox")).not.toBeInTheDocument()
-    await waitFor(() =>
-      expect(within(suggestion).getByRole("button", { name: "Edit and accept" })).toHaveFocus(),
-    )
-  })
-
-  it("requires a reason to reject a suggestion or retire a learning", () => {
-    renderPage(story.args.data)
-    const suggestion = screen.getByRole("article", { name: /Show a visible label/ })
-    fireEvent.click(within(suggestion).getByRole("button", { name: "Reject" }))
-    const reason = within(suggestion).getByRole("textbox", { name: "Why reject this suggestion?" })
     expect(reason).toBeRequired()
     expect(reason.closest("form")?.querySelector('[name="decision"]')).toHaveValue("reject")
-
-    const learning = screen.getByRole("article", { name: /one primary button/ })
-    fireEvent.click(within(learning).getByRole("button", { name: "Retire" }))
-    const retireReason = within(learning).getByRole("textbox", {
-      name: "Why retire this learning?",
-    })
-    expect(retireReason).toBeRequired()
-    expect(retireReason.closest("form")?.querySelector('[name="decision"]')).toHaveValue("retire")
-    expect(retireReason.closest("form")?.querySelector('[name="digest"]')).toBeNull()
-  })
-
-  it("shows the comments behind a suggestion and what an agent gets", () => {
-    renderPage(story.args.data)
-    expect(screen.getByText(/only placeholder text that disappears/)).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Checkout" })).toHaveAttribute(
-      "href",
-      "/repositories/2001/prototypes/17",
+    expect(reason.closest("form")?.querySelector('[name="digest"]')).toHaveValue(
+      `sha256:${"a".repeat(64)}`,
     )
-    const preview = screen.getByText(/Approved team learnings/)
-    expect(preview).toHaveAttribute("role", "region")
-    expect(preview).toHaveAttribute("tabindex", "0")
-    expect(preview).toHaveAccessibleName("What an agent gets")
-    expect(screen.getByRole("cell", { name: "0.0735 AI credits in 1 request" })).toBeInTheDocument()
   })
 
-  it("explains an empty repository instead of showing empty lists", () => {
-    renderPage(FirstVisit.args!.data!)
-    expect(screen.getByText(/No suggestions yet/)).toBeInTheDocument()
-    expect(screen.getByText("No accepted learnings yet.")).toBeInTheDocument()
-    expect(screen.getByText(/Agents get nothing yet/)).toBeInTheDocument()
-    expect(screen.getByText(/Hub has not looked for learnings/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Find learnings now" })).toBeInTheDocument()
+  it("edits an active learning from its stored wording with a reason", () => {
+    renderPage(ActiveDetail.args!.data!)
+    fireEvent.click(screen.getByRole("button", { name: "Edit learning" }))
+    const content = screen.getByRole("textbox", { name: "Guidance" })
+    const form = content.closest("form")
+
+    expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue(
+      "Use one primary button per form",
+    )
+    expect(content).toHaveValue(
+      "Use one primary button per form, labeled with the action it takes.",
+    )
+    expect(screen.getByRole("textbox", { name: "Why change it?" })).toBeRequired()
+    expect(form?.querySelector('[name="decision"]')).toHaveValue("edit")
+    expect(form?.querySelector('[name="digest"]')).toHaveValue(`sha256:${"b".repeat(64)}`)
   })
 
-  it("separates opposing comments and reports opposing evidence Hub cannot show", () => {
-    renderPage(OpposingEvidence.args!.data!)
-    const support = screen.getByText("What reviewers said").closest("details")
-    const dissent = screen.getByText("What reviewers disagreed with").closest("details")
+  it("rejects an active learning without needing its digest", () => {
+    renderPage(ActiveDetail.args!.data!)
+    fireEvent.click(screen.getByRole("button", { name: "Reject learning" }))
+    const retire = screen.getByRole("textbox", { name: "Why reject it?" }).closest("form")
+    expect(retire?.querySelector('[name="decision"]')).toHaveValue("retire")
+    expect(retire?.querySelector('[name="digest"]')).toBeNull()
+  })
 
-    expect(support).not.toBe(dissent)
+  it("shows why a learning was rejected and accepts it again with a reason", () => {
+    renderPage(RejectedDetail.args!.data!)
+    expect(
+      screen.getByText(/would break the back button/, { selector: ".learning-library__reason p" }),
+    ).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Accept learning" }))
+    const reinstate = screen.getByRole("textbox", { name: "Why accept it now?" }).closest("form")
+    expect(reinstate?.querySelector('[name="decision"]')).toHaveValue("reinstate")
+  })
+
+  it("shows members the history and evidence without decision controls", () => {
+    renderPage(MemberDetail.args!.data!)
+    const history = screen.getByRole("region", { name: "Decision history" })
+
+    expect(within(history).getByText("Edited")).toBeVisible()
+    expect(history).toHaveTextContent("Name the action so the rule is easier to apply.")
+    expect(screen.getByText("1 more comment that Hub cannot show here")).toBeVisible()
+    expect(screen.queryByRole("button", { name: /learning/ })).not.toBeInTheDocument()
+  })
+
+  it("separates opposing comments and lists the guidance a suggestion replaces", () => {
+    renderPage(SuggestionWithOpposingEvidence.args!.data!)
+    const support = screen.getByRole("region", { name: "Review comments" })
+    const dissent = screen.getByRole("region", { name: "What reviewers disagreed with" })
+
     expect(dissent).toHaveTextContent("The existing visible labels already explain these fields.")
     expect(dissent).toHaveTextContent("1 more opposing comment that Hub cannot show here")
     expect(support).not.toHaveTextContent("The existing visible labels")
-    expect(screen.getByText(/preview's count or text limit leaves it out/)).toBeInTheDocument()
+    expect(support).toHaveTextContent("The user deleted this comment.")
+    expect(screen.getByRole("region", { name: "Accepting this replaces" })).toHaveTextContent(
+      "Use one primary button per form",
+    )
   })
 
-  it("keeps decisions without optional counts and omits damaged learning attribution", () => {
-    renderPage(MissingMetadata.args!.data!)
-
-    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument()
-    expect(screen.getByText(/only placeholder text that disappears/)).toBeInTheDocument()
-    expect(screen.queryByText(/Raised by/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Accepted by/)).not.toBeInTheDocument()
-    expect(screen.getByText(/wording is unavailable because its stored record/)).toBeInTheDocument()
-    expect(
-      screen.getByText(/This learning failed the store's integrity checks/),
-    ).toBeInTheDocument()
-  })
-
-  it("explains identity revalidation without calling it corruption or losing the prior approval", () => {
+  it("explains identity revalidation without calling it corruption", () => {
     renderPage(IdentityRevalidation.args!.data!)
 
     expect(
       screen.getByText(/Earlier suggestions or accepted learnings need identity revalidation/),
     ).toBeVisible()
-    expect(screen.getByText(/wording is withheld until its reviewer identities/)).toBeVisible()
-    expect(screen.getByText(/Accepted by @mona/)).toBeVisible()
-    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /wording is withheld/ })).toBeVisible()
     expect(screen.queryByText(/failed the store's integrity checks/)).not.toBeInTheDocument()
-  })
-
-  it("shows every replacement target and its permitted wording beside the acceptance controls", () => {
-    renderPage(ReplacingGuidance.args!.data!)
-    const suggestion = screen.getByRole("article", { name: /Make every form readable/ })
-    const targets = within(suggestion).getByRole("list", {
-      name: "Accepting this replaces the guidance listed below.",
-    })
-
-    expect(within(targets).getAllByRole("listitem")).toHaveLength(2)
-    expect(targets).toHaveTextContent("mem_1d9f0c2b7a4e5f6a8b9c0d1e")
-    expect(targets).toHaveTextContent("Use one primary button per form")
-    expect(targets).toHaveTextContent("mem_2d9f0c2b7a4e5f6a8b9c0d1e")
-    expect(targets).toHaveTextContent("This learning's wording is not available for review.")
-    expect(within(suggestion).getByRole("button", { name: "Accept" })).toBeVisible()
   })
 
   it("offers no new run while one runs or Copilot refused the token", () => {
@@ -163,7 +168,7 @@ describe("LearningsPage()", () => {
       screen.getByText(/Copilot refused Hub's Copilot token on October 9, 2026/),
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Find learnings now" })).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /Show a visible label/ })).toBeInTheDocument()
   })
 
   it("resets decision-model drafts and confirmations when the repository changes", () => {

@@ -145,6 +145,9 @@ describe("Hub primary route names", () => {
             : [],
         }),
       ),
+      http.get(`/api${path}/:learningId/history`, () =>
+        Response.json({ decisions: [], evidence: [], otherEvidenceCount: 0 }),
+      ),
       http.post(`/api${path}/runs`, () => {
         ran = true
         return Response.json({ notice: "Learning run requested." })
@@ -159,8 +162,10 @@ describe("Hub primary route names", () => {
     const run = screen.getByRole("button", { name: "Find learnings now" })
     expect(new URL(run.closest("form")!.action).pathname).toBe(`${path}/runs`)
     await router.settle(() => fireEvent.click(run))
-    const article = await screen.findByRole("article", { name: suggestion.content })
-    const accept = within(article).getByRole("button", { name: "Accept" })
+    await router.settle(async () =>
+      fireEvent.click(await screen.findByRole("link", { name: suggestion.content })),
+    )
+    const accept = await screen.findByRole("button", { name: "Accept learning" })
     expect(new URL(accept.closest("form")!.action).pathname).toBe(
       `${path}/${suggestion.id}/decision`,
     )
@@ -170,7 +175,7 @@ describe("Hub primary route names", () => {
       decision: "accept",
       digest: suggestion.reviewDigest,
     })
-    expect(await screen.findByRole("button", { name: "Retire" })).toBeEnabled()
+    expect(await screen.findByRole("button", { name: "Edit learning" })).toBeEnabled()
     expect(router.state.location.pathname).toBe(path)
   })
 

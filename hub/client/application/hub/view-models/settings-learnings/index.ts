@@ -2,8 +2,12 @@ import type { LearningsPageData } from "@pages/learnings-page/types"
 import type { DecisionModelPanelData } from "@features/decision-model-panel/types"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import type { DecisionModelAvailability } from "@application/hub/decision-model-contracts/types"
-import type { LearningsResponse } from "@application/hub/learnings-contracts/types"
+import type {
+  LearningHistoryResponse,
+  LearningsResponse,
+} from "@application/hub/learnings-contracts/types"
 
+import { learningsLibrary } from "../learnings-library"
 import { repositoryWorkspace } from "../repository-workspace"
 
 function formatCredits(value: string) {
@@ -253,6 +257,8 @@ export function settingsLearnings(
   workspace: WorkspaceResponse,
   state: LearningsResponse,
   decisionModel: DecisionModelAvailability | null,
+  location: { pathname: string; search: string },
+  history: LearningHistoryResponse | null,
 ): LearningsPageData {
   const repository = state.repository
   const repositoryId = state.repository.id
@@ -296,32 +302,11 @@ export function settingsLearnings(
   return {
     ...shared,
     accessDenied: false,
-    canDecide: state.permissions.decide,
     copy: {
       heading: "Learnings",
       description:
         "Hub reads this repository's prototype review comments, asks Copilot which points keep coming up, and suggests learnings. Agents that build prototypes here get the learnings you accept.",
       runLabel: "Find learnings now",
-      suggestionsHeading: "Suggestions",
-      suggestionsEmpty:
-        "No suggestions yet. Hub suggests a learning when the same point comes up in at least two review threads.",
-      evidenceHeading: "What reviewers said",
-      contradictionsHeading: "What reviewers disagreed with",
-      replacementHeading: "Accepting this replaces the guidance listed below.",
-      deletedComment: "The author deleted this comment.",
-      accept: "Accept",
-      edit: "Edit and accept",
-      contentLabel: "Wording agents get",
-      acceptEdited: "Accept with this wording",
-      reject: "Reject",
-      rejectReason: "Why reject this suggestion?",
-      confirmReject: "Reject suggestion",
-      cancel: "Cancel",
-      acceptedHeading: "Accepted learnings",
-      acceptedEmpty: "No accepted learnings yet.",
-      retire: "Retire",
-      retireReason: "Why retire this learning?",
-      confirmRetire: "Retire learning",
       recallHeading: "What an agent gets",
       recallDescription:
         "This preview shows the default learnings within the count and text limits. An agent's task can change their order and which ones fit.",
@@ -358,74 +343,7 @@ export function settingsLearnings(
       state.identityReviewCount > 0
         ? "Earlier suggestions or accepted learnings need identity revalidation. Hub keeps their history, but agents cannot use those versions. Find learnings again, then review any rebuilt suggestions."
         : null,
-    suggestions: state.suggestions.map((entry) => ({
-      id: entry.id,
-      content: entry.content,
-      digest: entry.reviewDigest,
-      decisionPath: `/repositories/${repositoryId}/learnings/${encodeURIComponent(entry.id)}/decision`,
-      support: entry.support
-        ? `Raised by ${formatCount(entry.support.reviewers, "reviewer")} on ${formatCount(
-            entry.support.prototypes,
-            "prototype",
-          )}`
-        : null,
-      replaces: entry.replaces.map((target) => ({
-        id: target.id,
-        content: target.content ?? "This learning's wording is not available for review.",
-      })),
-      evidence: entry.evidence.map((item) => ({
-        ...item,
-        prototypePath: `/repositories/${repositoryId}/prototypes/${item.prototypeId}`,
-      })),
-      otherEvidence:
-        entry.otherEvidenceCount > 0
-          ? `${formatCount(entry.otherEvidenceCount, "more comment")} that Hub cannot show here`
-          : null,
-      contradictions: entry.contradictions.map((item) => ({
-        ...item,
-        prototypePath: `/repositories/${repositoryId}/prototypes/${item.prototypeId}`,
-      })),
-      otherContradictions:
-        entry.otherContradictionsCount > 0
-          ? `${formatCount(entry.otherContradictionsCount, "more opposing comment")} that Hub cannot show here`
-          : null,
-    })),
-    learnings: state.learnings.map((entry) => ({
-      id: entry.id,
-      content:
-        entry.content ??
-        (entry.status === "damaged"
-          ? "This learning's wording is unavailable because its stored record failed integrity checks."
-          : entry.status === "identity-review"
-            ? "This version's wording is withheld until its reviewer identities are revalidated."
-            : "This learning's wording is not available for review."),
-      decisionPath: `/repositories/${repositoryId}/learnings/${encodeURIComponent(entry.id)}/decision`,
-      accepted:
-        entry.acceptedBy && entry.acceptedAt
-          ? `${
-              entry.lastDecision === "edited"
-                ? "Edited"
-                : entry.lastDecision === "reinstated"
-                  ? "Reinstated"
-                  : "Accepted"
-            } by @${entry.acceptedBy} on ${new Intl.DateTimeFormat("en-US", {
-              dateStyle: "long",
-            }).format(new Date(entry.acceptedAt))}${
-              entry.lastDecision === "accepted" && entry.edited ? ", with edits" : ""
-            }`
-          : null,
-      recalled: entry.status === "recalled",
-      status:
-        entry.status === "recalled"
-          ? "This learning is included in the preview below."
-          : entry.status === "budget-excluded"
-            ? "This learning is eligible, but the preview's count or text limit leaves it out. An agent's task can change which learnings fit."
-            : entry.status === "damaged"
-              ? "This learning failed the store's integrity checks, so agents do not get it. An operator can run replica-learning verify."
-              : entry.status === "identity-review"
-                ? "Reviewer identities need revalidation, so agents cannot use this version until its evidence is rebuilt and reviewed."
-                : "This learning is eligible, but an agent's task can change its order and whether it fits.",
-    })),
+    library: learningsLibrary(state, location, history),
     recall: state.recall,
     // The API sends members no runs, so show none rather than an empty history.
     runs: state.capabilities.administerRepository

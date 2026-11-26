@@ -7,6 +7,7 @@ import { emptyLearnings } from "@application/hub/routes/fixtures/empty-learnings
 
 import { settingsLearnings } from "."
 
+const location = { pathname: "/repositories/2001/learnings", search: "" }
 const tasksetDigest = `sha256:${"b".repeat(64)}`
 const repository = {
   id: "2001",
@@ -225,11 +226,10 @@ describe("settingsLearnings()", () => {
       runs: [],
     }
 
-    const result = settingsLearnings(workspace, state, null)
+    const result = settingsLearnings(workspace, state, null, location, null)
 
     expect(result.accessDenied).toBe(false)
     if (result.accessDenied) throw new Error("Expected repository learning access.")
-    expect(result.canDecide).toBe(true)
     expect(result.run.available).toBe(true)
     expect(result.administrationLinks).toEqual([])
     expect(result.decisionModel.state).toBe("repository-learning-only")
@@ -279,11 +279,11 @@ describe("settingsLearnings()", () => {
       capabilities: { administerHub: true, administerRepository: false },
     }
 
-    const result = settingsLearnings(workspace, state, null)
+    const result = settingsLearnings(workspace, state, null, location, null)
 
     expect(result.accessDenied).toBe(true)
     expect(result.administrationLinks).not.toEqual([])
-    expect(result).not.toHaveProperty("canDecide")
+    expect(result).not.toHaveProperty("library")
     expect(result).not.toHaveProperty("run")
   })
 
@@ -293,6 +293,8 @@ describe("settingsLearnings()", () => {
       repositoryAdministrator.workspace,
       repositoryAdministrator.learnings,
       available(),
+      location,
+      null,
     )
 
     expect(repositoryData.accessDenied).toBe(false)
@@ -300,9 +302,13 @@ describe("settingsLearnings()", () => {
     expect(repositoryData.decisionModel.state).toBe("repository-learning-only")
 
     const hubAdministrator = mockState(true)
-    const hubData = settingsLearnings(hubAdministrator.workspace, hubAdministrator.learnings, {
-      state: "not-configured",
-    })
+    const hubData = settingsLearnings(
+      hubAdministrator.workspace,
+      hubAdministrator.learnings,
+      { state: "not-configured" },
+      location,
+      null,
+    )
     expect(hubData.accessDenied).toBe(false)
     if (hubData.accessDenied) throw new Error("The Hub administrator must receive Learnings.")
     expect(hubData.decisionModel.state).toBe("not-configured")
@@ -310,7 +316,13 @@ describe("settingsLearnings()", () => {
 
   it("maps authoritative evidence, privacy, and deletion state", () => {
     const administrator = mockState(true)
-    const data = settingsLearnings(administrator.workspace, administrator.learnings, available())
+    const data = settingsLearnings(
+      administrator.workspace,
+      administrator.learnings,
+      available(),
+      location,
+      null,
+    )
 
     expect(data.accessDenied).toBe(false)
     if (data.accessDenied || data.decisionModel.state !== "available") {

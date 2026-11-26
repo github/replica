@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { data, useFetcher, useOutletContext, useRevalidator } from "react-router"
+import { data, useFetcher, useLocation, useOutletContext, useRevalidator } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { LearningsPage } from "@pages/learnings-page"
@@ -16,8 +16,13 @@ import {
 } from "@application/hub/decision-model-contracts"
 import type { DecisionModelAvailability } from "@application/hub/decision-model-contracts/types"
 import type { DecisionTrainingJobResponse } from "@application/hub/decision-model-contracts/types"
+import type {
+  LearningHistoryResponse,
+  LearningsResponse,
+} from "@application/hub/learnings-contracts/types"
 import {
   learningDecisionInputSchema,
+  learningHistoryResponseSchema,
   learningMutationResponseSchema,
   learningsResponseSchema,
 } from "@application/hub/learnings-contracts"
@@ -84,7 +89,31 @@ export async function clientLoader({ request, params }: LoaderFunctionArgs) {
       }
     }
   }
-  return { ...response, decisionModel }
+  return { ...response, decisionModel, history: await learningHistory(request, response) }
+}
+
+// Only a selected learning needs its history, so the list stays one request.
+async function learningHistory(
+  request: Request,
+  response: LearningsResponse,
+): Promise<LearningHistoryResponse | null> {
+  const learningId = new URL(request.url).searchParams.get("learning")
+  if (response.accessDenied || !learningId) return null
+  const known = [...response.suggestions, ...response.learnings, ...response.rejected].some(
+    (entry) => entry.id === learningId,
+  )
+  if (!known) return null
+  try {
+    return await requestProductJson(
+      request,
+      `/api/repositories/${response.repository.id}/learnings/${encodeURIComponent(learningId)}/history`,
+      learningHistoryResponseSchema,
+    )
+  } catch (error) {
+    // A learning can disappear between the two requests; show the list instead.
+    if (error instanceof ApiRequestError && error.status === 404) return null
+    throw error
+  }
 }
 
 export async function clientAction({ request, params }: ActionFunctionArgs) {
@@ -281,6 +310,7 @@ function submitDecision(
     throw new Response("Invalid learning identifier.", { status: 400 })
   }
   const decision = form.get("decision")
+  const title = form.get("title")
   const input =
     decision === "accept"
       ? {
@@ -292,7 +322,18 @@ function submitDecision(
         ? { decision, digest: form.get("digest"), reason: form.get("reason") }
         : decision === "retire"
           ? { decision, reason: form.get("reason") }
-          : { decision }
+          : decision === "edit"
+            ? {
+                decision,
+                digest: form.get("digest"),
+                // A blank title keeps the stored one, which may be missing on older learnings.
+                ...(typeof title === "string" && title.trim() ? { title } : {}),
+                content: form.get("content"),
+                reason: form.get("reason"),
+              }
+            : decision === "reinstate"
+              ? { decision, digest: form.get("digest"), reason: form.get("reason") }
+              : { decision }
   const parsed = learningDecisionInputSchema.safeParse(input)
   if (!parsed.success) {
     throw new Response(parsed.error.issues.map(({ message }) => message).join(" "), { status: 422 })
@@ -329,6 +370,7 @@ function SettingsLearningsContent({
   loaderData: Awaited<ReturnType<typeof clientLoader>>
 }) {
   const workspace = workspaceResponseSchema.parse(useOutletContext<unknown>())
+  const location = useLocation()
   const fetcher = useFetcher<LearningActionResult>()
   const revalidator = useRevalidator()
   const revalidateRef = useRef(revalidator.revalidate)
@@ -462,7 +504,7 @@ function SettingsLearningsContent({
       }}
     >
       <LearningsPage
-        data={settingsLearnings(workspace, loaderData, decisionModel)}
+        data={settingsLearnings(workspace, loaderData, decisionModel, location, loaderData.history)}
         decisionModelActionRevision={decisionModelActionRevision}
         decisionModelTrainingSubmitting={trainingSubmitting}
       />

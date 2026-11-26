@@ -4,6 +4,12 @@ import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-head
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { keepFormsLocal } from "@/storybook/keep-forms-local"
 import type { DecisionModelPanelData } from "@features/decision-model-panel/types"
+import type {
+  LearningDetail,
+  LearningEvidence,
+  LearningsLibraryData,
+  LibraryLearning,
+} from "@features/learnings-library/types"
 
 import { LearningsPage } from "."
 import type { LearningsPageData } from "./types"
@@ -126,6 +132,152 @@ const decisionModel: Extract<DecisionModelPanelData, { state: "available" }> = {
   deletions: [],
 }
 
+const learningsPath = "/repositories/2001/learnings"
+const suggestionId = "mem_7eb35ba21bbe6c45a9a296b4"
+const activeId = "mem_1d9f0c2b7a4e5f6a8b9c0d1e"
+const rejectedId = "mem_3c8e1a0b9d7f6e5d4c3b2a19"
+
+function decisionPath(id: string) {
+  return `${learningsPath}/${id}/decision`
+}
+
+const signupEvidence: LearningEvidence = {
+  eventId: "ev_support_signup",
+  commentId: 104,
+  body: "The email field has no label, only placeholder text that disappears when I type.",
+  authorLogin: "mona",
+  authorAvatarUrl: null,
+  prototypeName: "Signup flow",
+  prototypePath: "/repositories/2001/prototypes/13",
+  createdAt: "2026-10-02T14:00:00Z",
+}
+
+const checkoutEvidence: LearningEvidence = {
+  eventId: "ev_support_checkout",
+  commentId: 131,
+  body: "Screen readers announce this card number input as an unnamed edit field.",
+  authorLogin: "hubot",
+  authorAvatarUrl: null,
+  prototypeName: "Checkout",
+  prototypePath: "/repositories/2001/prototypes/17",
+  createdAt: "2026-10-03T09:30:00Z",
+}
+
+const suggestion: LibraryLearning = {
+  id: suggestionId,
+  status: "suggested",
+  title: "Show a visible label above every form field",
+  guidance:
+    "Show a visible label above every form field; never use placeholder text as the only label.",
+  updatedAt: null,
+  detailPath: `${learningsPath}?status=suggested&learning=${suggestionId}`,
+}
+
+const suggestionDetail: LearningDetail = {
+  id: suggestionId,
+  status: "suggested",
+  title: suggestion.title,
+  guidance: suggestion.guidance,
+  facts: ["Raised by 2 reviewers on 2 prototypes"],
+  reason: null,
+  replaces: [],
+  evidence: [signupEvidence, checkoutEvidence],
+  otherEvidence: null,
+  contradictions: [],
+  otherContradictions: null,
+  history: [{ label: "Suggested", at: "2026-10-09T04:07:00Z", by: null, reason: null }],
+  decision: {
+    path: decisionPath(suggestionId),
+    digest: `sha256:${"a".repeat(64)}`,
+    title: "",
+    content: "",
+  },
+}
+
+const activeDetail: LearningDetail = {
+  id: activeId,
+  status: "active",
+  title: "Use one primary button per form",
+  guidance: "Use one primary button per form, labeled with the action it takes.",
+  facts: ["Accepted by @mona on October 6, 2026, with edits", "Agents get this learning."],
+  reason: null,
+  replaces: [],
+  evidence: [checkoutEvidence],
+  otherEvidence: "1 more comment that Hub cannot show here",
+  contradictions: [],
+  otherContradictions: null,
+  history: [
+    { label: "Suggested", at: "2026-10-05T04:07:00Z", by: null, reason: null },
+    { label: "Accepted", at: "2026-10-06T15:00:00Z", by: "mona", reason: null },
+    {
+      label: "Edited",
+      at: "2026-10-06T15:05:00Z",
+      by: "mona",
+      reason: "Name the action so the rule is easier to apply.",
+    },
+  ],
+  decision: {
+    path: decisionPath(activeId),
+    digest: `sha256:${"b".repeat(64)}`,
+    title: "Use one primary button per form",
+    content: "Use one primary button per form, labeled with the action it takes.",
+  },
+}
+
+const rejectedDetail: LearningDetail = {
+  id: rejectedId,
+  status: "rejected",
+  title: "Always open links in a new tab",
+  guidance: "Always open links in a new tab so people keep their place.",
+  facts: ["Rejected by @hubot on October 8, 2026"],
+  reason: {
+    heading: "Why it was rejected",
+    text: "Only external links should open a new tab. This rule would break the back button.",
+  },
+  replaces: [],
+  evidence: [],
+  otherEvidence: null,
+  contradictions: [],
+  otherContradictions: null,
+  history: [
+    { label: "Suggested", at: "2026-10-07T04:07:00Z", by: null, reason: null },
+    {
+      label: "Rejected",
+      at: "2026-10-08T11:00:00Z",
+      by: "hubot",
+      reason: "Only external links should open a new tab. This rule would break the back button.",
+    },
+  ],
+  decision: {
+    path: decisionPath(rejectedId),
+    digest: `sha256:${"c".repeat(64)}`,
+    title: "Always open links in a new tab",
+    content: "Always open links in a new tab so people keep their place.",
+  },
+}
+
+const library: LearningsLibraryData = {
+  status: "suggested",
+  counts: { suggested: 1, active: 1, rejected: 1 },
+  statusPaths: {
+    suggested: `${learningsPath}?status=suggested`,
+    active: `${learningsPath}?status=active`,
+    rejected: `${learningsPath}?status=rejected`,
+  },
+  query: "",
+  listPath: `${learningsPath}?status=suggested`,
+  returnPath: `${learningsPath}?status=suggested`,
+  page: 1,
+  pageCount: 1,
+  learnings: [suggestion],
+  selected: null,
+}
+
+function showing(selected: LearningDetail): LearningsLibraryData {
+  const listPath = library.statusPaths[selected.status]
+  return { ...library, status: selected.status, listPath, returnPath: listPath, selected }
+}
+
 const data: LearningsPageData = {
   ...authenticatedHeaderData,
   analyticsLabel: "Analytics",
@@ -138,7 +290,6 @@ const data: LearningsPageData = {
   notice: null,
   accessDenied: false,
   accessDeniedLabel: "You do not have permission to view this repository's learnings.",
-  canDecide: true,
   collapseNavigationLabel: "Collapse sidebar",
   expandNavigationLabel: "Expand sidebar",
   navigationLabel: "Repository navigation",
@@ -157,26 +308,6 @@ const data: LearningsPageData = {
     description:
       "Hub reads this repository's prototype review comments, asks Copilot which points keep coming up, and suggests learnings. Agents that build prototypes here get the learnings you accept.",
     runLabel: "Find learnings now",
-    suggestionsHeading: "Suggestions",
-    suggestionsEmpty:
-      "No suggestions yet. Hub suggests a learning when the same point comes up in at least two review threads.",
-    evidenceHeading: "What reviewers said",
-    contradictionsHeading: "What reviewers disagreed with",
-    replacementHeading: "Accepting this replaces the guidance listed below.",
-    deletedComment: "The author deleted this comment.",
-    accept: "Accept",
-    edit: "Edit and accept",
-    contentLabel: "Wording agents get",
-    acceptEdited: "Accept with this wording",
-    reject: "Reject",
-    rejectReason: "Why reject this suggestion?",
-    confirmReject: "Reject suggestion",
-    cancel: "Cancel",
-    acceptedHeading: "Accepted learnings",
-    acceptedEmpty: "No accepted learnings yet.",
-    retire: "Retire",
-    retireReason: "Why retire this learning?",
-    confirmRetire: "Retire learning",
     recallHeading: "What an agent gets",
     recallDescription:
       "This preview shows the default learnings within the count and text limits. An agent's task can change their order and which ones fit.",
@@ -199,52 +330,7 @@ const data: LearningsPageData = {
   run: { path: "/repositories/2001/learnings/runs", available: true },
   loadError: null,
   identityNotice: null,
-  suggestions: [
-    {
-      id: "mem_7eb35ba21bbe6c45a9a296b4",
-      content:
-        "Show a visible label above every form field; never use placeholder text as the only label.",
-      digest: `sha256:${"a".repeat(64)}`,
-      decisionPath: "/repositories/2001/learnings/mem_7eb35ba21bbe6c45a9a296b4/decision",
-      support: "Raised by 2 reviewers on 2 prototypes",
-      replaces: [],
-      evidence: [
-        {
-          eventId: "ev_support_signup",
-          commentId: 104,
-          body: "The email field has no label, only placeholder text that disappears when I type.",
-          authorLogin: "mona",
-          authorAvatarUrl: null,
-          prototypeName: "Signup flow",
-          prototypePath: "/repositories/2001/prototypes/13",
-          createdAt: "2026-10-02T14:00:00Z",
-        },
-        {
-          eventId: "ev_support_checkout",
-          commentId: 131,
-          body: "Screen readers announce this card number input as an unnamed edit field.",
-          authorLogin: "hubot",
-          authorAvatarUrl: null,
-          prototypePath: "/repositories/2001/prototypes/17",
-          prototypeName: "Checkout",
-          createdAt: "2026-10-03T09:30:00Z",
-        },
-      ],
-      otherEvidence: null,
-      contradictions: [],
-      otherContradictions: null,
-    },
-  ],
-  learnings: [
-    {
-      id: "mem_1d9f0c2b7a4e5f6a8b9c0d1e",
-      content: "Use one primary button per form, labeled with the action it takes.",
-      decisionPath: "/repositories/2001/learnings/mem_1d9f0c2b7a4e5f6a8b9c0d1e/decision",
-      accepted: "Accepted by @mona on October 6, 2026, with edits",
-      recalled: true,
-      status: "This learning is included in the preview below.",
-    },
-  ],
+  library,
   recall: { text: recallText, count: 1 },
   runs: [
     {
@@ -668,12 +754,96 @@ export const RuntimeDeletionPending: Story = {
   },
 }
 
-export const OpposingEvidence: Story = {
+export const ManyLearnings: Story = {
   args: {
     data: {
       ...data,
-      suggestions: data.suggestions.map((suggestion) => ({
-        ...suggestion,
+      library: {
+        ...library,
+        status: "active",
+        counts: { suggested: 1, active: 60, rejected: 1 },
+        listPath: library.statusPaths.active,
+        returnPath: `${library.statusPaths.active}&page=2`,
+        page: 2,
+        pageCount: 3,
+        learnings: Array.from({ length: 25 }, (_, index) => ({
+          id: `mem_active_${index + 26}`,
+          status: "active" as const,
+          title: `Learning ${index + 26}: keep related settings on one page`,
+          guidance: "Keep related settings on one page so people can compare them.",
+          updatedAt: "2026-10-06T15:00:00Z",
+          detailPath: `${library.statusPaths.active}&page=2&learning=mem_active_${index + 26}`,
+        })),
+      },
+    },
+  },
+}
+
+export const EmptyStatus: Story = {
+  args: {
+    data: {
+      ...data,
+      library: {
+        ...library,
+        status: "rejected",
+        counts: { suggested: 1, active: 1, rejected: 0 },
+        listPath: library.statusPaths.rejected,
+        returnPath: library.statusPaths.rejected,
+        learnings: [],
+      },
+    },
+  },
+}
+
+export const NoSearchResults: Story = {
+  args: {
+    data: {
+      ...data,
+      library: {
+        ...library,
+        query: "color contrast",
+        listPath: `${library.statusPaths.suggested}&q=color+contrast`,
+        returnPath: `${library.statusPaths.suggested}&q=color+contrast`,
+        learnings: [],
+      },
+    },
+  },
+}
+
+export const FirstVisit: Story = {
+  args: {
+    data: {
+      ...data,
+      library: {
+        ...library,
+        status: "active",
+        counts: { suggested: 0, active: 0, rejected: 0 },
+        learnings: [],
+      },
+      recall: { text: "", count: 0 },
+      runs: [],
+    },
+  },
+}
+
+export const SuggestionDetail: Story = {
+  args: { data: { ...data, library: showing(suggestionDetail) } },
+}
+
+export const SuggestionWithOpposingEvidence: Story = {
+  args: {
+    data: {
+      ...data,
+      library: showing({
+        ...suggestionDetail,
+        guidance: "Make every form readable and give it a single primary action.",
+        replaces: [
+          {
+            id: activeId,
+            content: "Use one primary button per form, labeled with the action it takes.",
+          },
+        ],
+        evidence: [{ ...signupEvidence, body: null }, checkoutEvidence],
         contradictions: [
           {
             eventId: "ev_opposing_labels",
@@ -687,38 +857,42 @@ export const OpposingEvidence: Story = {
           },
         ],
         otherContradictions: "1 more opposing comment that Hub cannot show here",
-      })),
-      learnings: data.learnings.map((learning) => ({
-        ...learning,
-        recalled: false,
-        status:
-          "This learning is eligible, but the preview's count or text limit leaves it out. An agent's task can change which learnings fit.",
-      })),
-      recall: { text: "", count: 0 },
+      }),
     },
   },
 }
 
-export const FirstVisit: Story = {
-  args: {
-    data: { ...data, suggestions: [], learnings: [], recall: { text: "", count: 0 }, runs: [] },
+export const ActiveDetail: Story = {
+  args: { data: { ...data, library: showing(activeDetail) } },
+}
+
+export const EditingLearning: Story = {
+  args: { data: { ...data, library: showing(activeDetail) } },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Edit learning" }))
   },
 }
 
-export const MissingMetadata: Story = {
+export const RejectedDetail: Story = {
+  args: { data: { ...data, library: showing(rejectedDetail) } },
+}
+
+export const MemberDetail: Story = {
+  args: { data: { ...data, library: showing({ ...activeDetail, decision: null }) } },
+}
+
+export const UnavailableWording: Story = {
   args: {
     data: {
       ...data,
-      suggestions: data.suggestions.map((suggestion) => ({ ...suggestion, support: null })),
-      learnings: data.learnings.map((learning) => ({
-        ...learning,
-        content:
+      library: showing({
+        ...activeDetail,
+        title: "This learning's wording is unavailable because its stored record failed...",
+        guidance:
           "This learning's wording is unavailable because its stored record failed integrity checks.",
-        accepted: null,
-        recalled: false,
-        status:
-          "This learning failed the store's integrity checks, so agents do not get it. An operator can run replica-learning verify.",
-      })),
+        facts: ["Agents do not get this learning because it failed integrity checks."],
+        decision: null,
+      }),
       recall: { text: "", count: 0 },
     },
   },
@@ -730,38 +904,25 @@ export const IdentityRevalidation: Story = {
       ...data,
       identityNotice:
         "Earlier suggestions or accepted learnings need identity revalidation. Hub keeps their history, but agents cannot use those versions. Find learnings again, then review any rebuilt suggestions.",
-      suggestions: [],
-      learnings: data.learnings.map((learning) => ({
-        ...learning,
-        content:
-          "This version's wording is withheld until its reviewer identities are revalidated.",
-        recalled: false,
-        status:
-          "Reviewer identities need revalidation, so agents cannot use this version until its evidence is rebuilt and reviewed.",
-      })),
-      recall: { text: "", count: 0 },
-    },
-  },
-}
-
-export const ReplacingGuidance: Story = {
-  args: {
-    data: {
-      ...data,
-      suggestions: data.suggestions.map((suggestion) => ({
-        ...suggestion,
-        content: "Make every form readable and give it a single primary action.",
-        replaces: [
+      library: {
+        ...library,
+        status: "active",
+        counts: { suggested: 0, active: 1, rejected: 0 },
+        listPath: library.statusPaths.active,
+        returnPath: library.statusPaths.active,
+        learnings: [
           {
-            id: "mem_1d9f0c2b7a4e5f6a8b9c0d1e",
-            content: "Use one primary button per form, labeled with the action it takes.",
-          },
-          {
-            id: "mem_2d9f0c2b7a4e5f6a8b9c0d1e",
-            content: "This learning's wording is not available for review.",
+            id: activeId,
+            status: "active",
+            title: "This version's wording is withheld until its reviewer identities are...",
+            guidance:
+              "This version's wording is withheld until its reviewer identities are revalidated.",
+            updatedAt: "2026-10-06T15:00:00Z",
+            detailPath: `${library.statusPaths.active}&learning=${activeId}`,
           },
         ],
-      })),
+      },
+      recall: { text: "", count: 0 },
     },
   },
 }
@@ -861,8 +1022,12 @@ export const LoadError: Story = {
   args: {
     data: {
       ...data,
-      suggestions: [],
-      learnings: [],
+      library: {
+        ...library,
+        status: "active",
+        counts: { suggested: 0, active: 0, rejected: 0 },
+        learnings: [],
+      },
       recall: { text: "", count: 0 },
       loadError:
         "Hub could not read this repository's learnings: The learning store failed its integrity checks; run verify.",
