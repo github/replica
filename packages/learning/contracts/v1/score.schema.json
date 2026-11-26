@@ -80,9 +80,9 @@
     "inputs": {
       "description": "What the model saw besides the learning and the usage report.",
       "type": "array",
-      "maxItems": 2,
+      "maxItems": 3,
       "items": {
-        "enum": ["screenshots", "build_diff"]
+        "enum": ["screenshots", "build_diff", "reviewer_verification"]
       }
     },
     "route": {

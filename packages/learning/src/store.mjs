@@ -79,7 +79,7 @@ const COMMIT_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/
 const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const EFFICIENCY_RUBRIC = "replica.efficiency-rubric/v1"
 const FOLLOWED = ["followed", "not_followed", "unclear"]
-const SCORE_INPUTS = ["screenshots", "build_diff"]
+const SCORE_INPUTS = ["screenshots", "build_diff", "reviewer_verification"]
 /** The grant source a person names to allow evaluating agent screenshots. */
 const SCREENSHOT_SOURCE = "agent_screenshots"
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -3703,7 +3703,7 @@ class LearningStore {
     if (!FOLLOWED.includes(followed))
       throw new LearningError("invalid_input", `followed is one of ${FOLLOWED.join(", ")}.`)
     if (!Array.isArray(inputs) || inputs.some((input) => !SCORE_INPUTS.includes(input)))
-      throw new LearningError("invalid_input", `Score inputs are ${SCORE_INPUTS.join(" or ")}.`)
+      throw new LearningError("invalid_input", `Score inputs are ${SCORE_INPUTS.join(", ")}.`)
     const [used] = await this.#read("usedLearnings", context, { ids: [usedLearningId] })
     if (!used)
       throw new LearningError("not_found", `No used learning ${usedLearningId} in this repository.`)

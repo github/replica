@@ -365,7 +365,7 @@ export interface ScoreRecord {
   reasoning: string
   /** Present for an efficiency of 1 or 2. */
   issue?: string
-  inputs: Array<"screenshots" | "build_diff">
+  inputs: Array<"screenshots" | "build_diff" | "reviewer_verification">
   route: ScoreRoute
   scoredBy: Actor
   scoredAt: Timestamp
@@ -1185,7 +1185,7 @@ export interface LearningStore {
       followed: "followed" | "not_followed" | "unclear"
       reasoning: string
       issue?: string
-      inputs: Array<"screenshots" | "build_diff">
+      inputs: Array<"screenshots" | "build_diff" | "reviewer_verification">
       scoredAt: string
       before?: { sha256: string; route: string; consentGrantId?: string }
       after?: { sha256: string; route: string; consentGrantId?: string }
@@ -1210,7 +1210,7 @@ export interface LearningStore {
       reasoning: string
       /** Required for an efficiency of 1 or 2. */
       issue?: string
-      inputs?: Array<"screenshots" | "build_diff">
+      inputs?: Array<"screenshots" | "build_diff" | "reviewer_verification">
       route: ScoreRoute
     },
   ): Promise<{ id: string; stored: boolean; score: ScoreRecord }>

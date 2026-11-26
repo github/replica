@@ -153,6 +153,46 @@ describe("scoreUsedLearning()", () => {
     assert.equal(result.score.efficiency, 4)
   })
 
+  it("tells the evaluator a reviewer confirmed the work and keeps that as an input", async () => {
+    const recorded = []
+    const store = {
+      async scoreFor() {
+        return null
+      },
+      async evaluationInputs() {
+        return { learning: {}, report: {}, screenshots: [] }
+      },
+      async recordScore(context, request) {
+        recorded.push(request)
+        return { stored: true, score: { ...request, id: "score_2" } }
+      },
+    }
+    const asked = []
+    const evaluator = {
+      async evaluate(request) {
+        asked.push(request)
+        return { result: ANSWER, route: { kind: "fusion", fusionTier: "max" }, usage: [] }
+      },
+    }
+
+    await scoreUsedLearning(
+      store,
+      {},
+      {
+        evaluator,
+        usedLearningId: "used_12345678",
+        operationId: "44444444-4444-4444-8444-444444444444",
+        reviewerVerifiedAt: "2026-10-10T12:00:00.000000Z",
+      },
+    )
+
+    assert.match(
+      asked[0].prompt,
+      /"reviewerVerification":\{"verifiedAt":"2026-10-10T12:00:00.000000Z"\}/,
+    )
+    assert.deepEqual(recorded[0].inputs, ["reviewer_verification"])
+  })
+
   it("keeps no score when the evaluator gives a low score without naming the issue", async () => {
     const store = {
       async scoreFor() {

@@ -126,11 +126,13 @@ Use
   usage --commit <sha>            List what agents reported using for one commit
   outcomes <memory-id>            List how agents' uses of one learning were scored
   score <used-learning-id> --operation-id <uuid> [--diff-file <file>]
-        [--screenshots <dir>]
+        [--screenshots <dir>] [--reviewer-verified-at <time>]
                                   Score how well one used learning helped, with
                                   Copilot Fusion or else Auto; --screenshots names
                                   a directory of PNGs named by their sha256 hex for
-                                  a store that does not keep them
+                                  a store that does not keep them;
+                                  --reviewer-verified-at says when a reviewer
+                                  confirmed the work addressed their feedback
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
   mcp [--actor <agent:name>] [--grant <grant-id>]...
                                   Serve the learning tools to a coding agent over
@@ -211,6 +213,7 @@ const OPTIONS = {
   "session-label": { type: "string" },
   commit: { type: "string" },
   "diff-file": { type: "string" },
+  "reviewer-verified-at": { type: "string" },
   screenshots: { type: "string" },
   days: { type: "string" },
   confirm: { type: "string" },
@@ -1454,6 +1457,7 @@ async function score(session) {
   const { store } = await open(session)
   const evaluator = createCopilotEvaluator({ token: session.env.COPILOT_GITHUB_TOKEN || undefined })
   let result
+  const verifiedAt = time(session, session.values["reviewer-verified-at"], "--reviewer-verified-at")
   try {
     result = await scoreUsedLearning(
       store,
@@ -1464,6 +1468,7 @@ async function score(session) {
         operationId,
         diff,
         ...(kept ? { readScreenshot: (sha256) => kept.read(sha256) } : {}),
+        ...(verifiedAt !== undefined ? { reviewerVerifiedAt: verifiedAt } : {}),
       },
     )
   } catch (error) {
