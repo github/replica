@@ -277,6 +277,7 @@ function PublicationDemo({
             anchor: REVIEW_ANCHOR_SCHEMA.optional(),
             body: z.string().optional(),
             id: z.number().optional(),
+            noteIds: z.array(z.object({ id: z.number(), revision: z.number() })).optional(),
           })
           .parse(JSON.parse(typeof init?.body === "string" ? init.body : "{}"))
         if (path.endsWith("/capture"))
@@ -299,7 +300,15 @@ function PublicationDemo({
           }
           if (path.endsWith("/fix")) {
             for (const note of savedNotes.notes) {
-              if (note.status !== "open" || (input.id && note.id !== input.id)) continue
+              if (
+                note.status !== "open" ||
+                (input.id && note.id !== input.id) ||
+                (input.noteIds &&
+                  !input.noteIds.some(
+                    ({ id, revision }) => id === note.id && revision === note.revision,
+                  ))
+              )
+                continue
               note.status = "sent"
               note.thread.originalStatus = "sent"
               note.revision++

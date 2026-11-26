@@ -204,6 +204,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }
 
   function closeComposer() {
+    if (submitting) return
     if (draft !== "") {
       setDiscarding(true)
       return
@@ -232,8 +233,10 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     if (!stored) return
     setDraft("")
     setSelection(null)
-    if (fixNow) cancelPreviewSelection()
-    else void beginSelection()
+    if (fixNow) {
+      setPanelOpen(false)
+      cancelPreviewSelection()
+    } else void beginSelection()
     setMessage(copy.saved)
   }
 
@@ -319,6 +322,11 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
             status: "resolved",
           })
         }
+        onFixSelected={(threads) =>
+          saved.change("fix", {
+            noteIds: threads.map(({ id, revision }) => ({ id, revision })),
+          })
+        }
         onDelete={(thread) =>
           saved.change("delete", {
             id: thread.id,
@@ -378,6 +386,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
                 value={draft}
                 maxLength={10000}
                 rows={4}
+                readOnly={submitting}
                 placeholder={copy.placeholder}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {

@@ -13,11 +13,23 @@ type SavedNotes = {
   profileError?: string | null
 }
 
-function openWork(value: SavedNotes) {
-  return value.notes
-    .filter((note) => note.status === "open")
-    .map((note) => `${note.id}:${note.revision}`)
-    .sort()
+type SelectedNote = { id: number; revision: number }
+
+function selectedNote(value: unknown): SelectedNote | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("id" in value) ||
+    !("revision" in value) ||
+    typeof value.id !== "number" ||
+    typeof value.revision !== "number"
+  )
+    return null
+  return { id: value.id, revision: value.revision }
+}
+
+function noteKey(note: SelectedNote) {
+  return `${note.id}:${note.revision}`
 }
 
 export function useSavedNotes(token: string | undefined) {
@@ -29,6 +41,7 @@ export function useSavedNotes(token: string | undefined) {
   const pending = useRef(false)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
   const queued = useRef(0)
+  const capturedFixes = useRef(new Set<string>())
   const backgroundSync = useRef<Promise<void> | null>(null)
   const mounted = useRef(false)
   const generation = useRef(0)
@@ -97,6 +110,7 @@ export function useSavedNotes(token: string | undefined) {
 
   // Mutations run one at a time in click order so a fix requested during another request queues.
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    if (!queued.current) capturedFixes.current.clear()
     queued.current++
     pending.current = true
     generation.current++
@@ -120,7 +134,20 @@ export function useSavedNotes(token: string | undefined) {
   ) {
     if (!token || !current.current) return Promise.resolve({ changed: false, fixStarted: false })
     const identity = current.current.identity
-    const requestedWork = openWork(current.current)
+    const selected = Array.isArray(input.noteIds) ? input.noteIds.map(selectedNote) : null
+    if (operation === "fix" && selected?.some((note) => note === null)) {
+      setError(copy.workChanged)
+      return Promise.resolve({ changed: false, fixStarted: false })
+    }
+    const requestedWork =
+      operation !== "fix"
+        ? []
+        : selected
+          ? selected.filter((note): note is SelectedNote => note !== null)
+          : current.current.notes
+              .filter((note) => note.status === "open")
+              .map(({ id, revision }) => ({ id, revision }))
+    setError("")
     return enqueue(() => runChange(operation, input, fixCreated, identity, requestedWork))
   }
 
@@ -129,22 +156,37 @@ export function useSavedNotes(token: string | undefined) {
     input: Record<string, unknown>,
     fixCreated: boolean,
     identity: string,
-    requestedWork: string[],
+    requestedWork: SelectedNote[],
   ) {
     let changed = false
     if (!token || !mounted.current) return { changed, fixStarted: false }
-    setError("")
     try {
       await backgroundSync.current
       if (!mounted.current) return { changed, fixStarted: false }
       if (!current.current || current.current.identity !== identity)
         throw new Error(copy.branchChanged)
+      let fixInput = input
       if (operation === "fix") {
-        const open = openWork(current.current)
-        const remaining = requestedWork.filter((work) => open.includes(work))
-        // An earlier queued fix already captured everything this click selected.
+        const remaining = requestedWork.filter((note) => !capturedFixes.current.has(noteKey(note)))
         if (requestedWork.length && !remaining.length) return { changed, fixStarted: false }
-        if (open.join(",") !== remaining.join(",")) throw new Error(copy.workChanged)
+        if (
+          !remaining.length ||
+          remaining.some(
+            (selected) =>
+              !current.current!.notes.some(
+                (note) =>
+                  note.id === selected.id &&
+                  note.revision === selected.revision &&
+                  note.status === "open",
+              ),
+          )
+        )
+          throw new Error(copy.workChanged)
+        fixInput = {
+          ...input,
+          noteIds: remaining,
+          scope: Array.isArray(input.noteIds) ? "selected" : "all",
+        }
       }
       const previousIds = new Set(current.current.notes.map((note) => note.id))
       const value = await prototypeCanvasRequest<SavedNotes>(
@@ -156,12 +198,14 @@ export function useSavedNotes(token: string | undefined) {
             identity: current.current.identity,
             revision: current.current.revision,
             operation,
-            ...input,
+            ...fixInput,
           }),
         },
       )
       accept(value)
       changed = true
+      if (operation === "fix")
+        requestedWork.forEach((note) => capturedFixes.current.add(noteKey(note)))
       if (fixCreated) {
         const created = value.notes.filter((note) => !previousIds.has(note.id))
         if (created.length !== 1) throw new Error(copy.createdNoteUnavailable)
@@ -174,8 +218,7 @@ export function useSavedNotes(token: string | undefined) {
             body: JSON.stringify({
               identity: value.identity,
               revision: value.revision,
-              id: note.id,
-              expectedNoteRevision: note.revision,
+              noteIds: [{ id: note.id, revision: note.revision }],
             }),
           },
         )
@@ -183,7 +226,14 @@ export function useSavedNotes(token: string | undefined) {
       }
       return { changed, fixStarted: fixCreated }
     } catch (problem) {
-      if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
+      const message = problem instanceof Error ? problem.message : String(problem)
+      if (mounted.current)
+        setError(
+          (operation === "fix" || fixCreated) &&
+            message === "These notes changed in another panel. Reload before making changes."
+            ? copy.workChanged
+            : message,
+        )
       return { changed, fixStarted: false }
     }
   }

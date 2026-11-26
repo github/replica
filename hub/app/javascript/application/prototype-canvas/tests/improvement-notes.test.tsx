@@ -91,16 +91,17 @@ function savedNotesFixture(captureFails = false) {
           input.revision !== saved.revision
         )
           return Response.json({ error: "The notes changed." }, { status: 409 })
-        const scoped = "id" in input || "expectedNoteRevision" in input
+        const ids = "noteIds" in input && Array.isArray(input.noteIds) ? input.noteIds : null
         const selected = saved.notes.filter(
-          (note) => note.status === "open" && (!scoped || ("id" in input && note.id === input.id)),
+          (note) =>
+            note.status === "open" &&
+            (ids === null ||
+              ids.some(
+                (entry: { id: number; revision: number }) =>
+                  entry.id === note.id && entry.revision === note.revision,
+              )),
         )
-        if (
-          scoped &&
-          (selected.length !== 1 ||
-            !("expectedNoteRevision" in input) ||
-            selected[0]?.revision !== input.expectedNoteRevision)
-        )
+        if (ids !== null && selected.length !== ids.length)
           return Response.json({ error: "This note changed while it was open." }, { status: 409 })
         saved.activeBatch ??= "batch"
         selected.forEach((note) => {
@@ -725,6 +726,139 @@ describe("App()", () => {
     )
   })
 
+  it.each([copy.save, "Fix now"])("does not lose edits made while %s is saving", async (action) => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture()
+    let releaseSave: (() => void) | undefined
+    const pendingSave = new Promise<void>((resolve) => {
+      releaseSave = resolve
+    })
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation(async (path, options) => {
+      if (path === "/api/improvement-notes" && options?.method === "POST") await pendingSave
+      return original(path, options)
+    })
+    render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    fireEvent.click(picker)
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+    const textbox = composer.getByRole("textbox", { name: copy.label })
+    fireEvent.change(textbox, { target: { value: "Submitted draft" } })
+    fireEvent.click(composer.getByRole("button", { name: action }))
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.filter(
+          ([path, options]) => path === "/api/improvement-notes" && options?.method === "POST",
+        ),
+      ).toHaveLength(1),
+    )
+    const locked =
+      textbox.hasAttribute("disabled") ||
+      textbox.hasAttribute("readonly") ||
+      textbox.getAttribute("aria-disabled") === "true"
+    if (!locked) fireEvent.change(textbox, { target: { value: "Edited while saving" } })
+    await act(async () => {
+      releaseSave?.()
+      await pendingSave
+    })
+    await waitFor(() => {
+      expect(saved.notes).toHaveLength(1)
+      if (action === "Fix now")
+        expect(fetch.mock.calls.filter(([path]) => path.endsWith("/fix"))).toHaveLength(1)
+    })
+    expect(saved.notes[0]?.body).toBe("Submitted draft")
+    if (!locked) {
+      await waitFor(() =>
+        expect(screen.getByRole("textbox", { name: copy.label })).toHaveValue(
+          "Edited while saving",
+        ),
+      )
+      await waitFor(() => expect(screen.getByRole("button", { name: copy.save })).toBeEnabled())
+    }
+  })
+
+  it("does not discard a later composer draft when an earlier save finishes", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture()
+    let releaseSave: (() => void) | undefined
+    const pendingSave = new Promise<void>((resolve) => {
+      releaseSave = resolve
+    })
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation(async (path, options) => {
+      if (path === "/api/improvement-notes" && options?.method === "POST") await pendingSave
+      return original(path, options)
+    })
+    render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    fireEvent.click(picker)
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Earlier draft" },
+    })
+    fireEvent.click(composer.getByRole("button", { name: copy.save }))
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.filter(
+          ([path, options]) => path === "/api/improvement-notes" && options?.method === "POST",
+        ),
+      ).toHaveLength(1),
+    )
+    const close = composer.getByRole("button", { name: copy.closeComposer })
+    if (close.hasAttribute("disabled") || close.getAttribute("aria-disabled") === "true") {
+      act(() => releaseSave?.())
+      await waitFor(() => expect(saved.notes).toHaveLength(1))
+      return
+    }
+    fireEvent.click(close)
+    if (!screen.queryByRole("button", { name: copy.discard })) {
+      expect(screen.getByRole("textbox", { name: copy.label })).toHaveValue("Earlier draft")
+      act(() => releaseSave?.())
+      await waitFor(() => expect(saved.notes).toHaveLength(1))
+      return
+    }
+    fireEvent.click(screen.getByRole("button", { name: copy.discard }))
+    fireEvent.click(picker)
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    const later = within(await screen.findByRole("dialog", { name: copy.add }))
+    fireEvent.change(later.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Later draft" },
+    })
+    await act(async () => {
+      releaseSave?.()
+      await pendingSave
+    })
+    await waitFor(() => expect(saved.notes).toHaveLength(1))
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: copy.label })).toHaveValue("Later draft"),
+    )
+    expect(screen.getByRole("button", { name: copy.save })).toBeEnabled()
+  })
+
   it("keeps saved pins and their protected conversation available in selection mode without a sidebar", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { saved, fetch } = savedNotesFixture()
@@ -1165,8 +1299,10 @@ describe("App()", () => {
     const fix = fetch.mock.calls.find(([path]) => path.endsWith("/fix"))
     const body = fix?.[1]?.body
     if (typeof body !== "string") throw new Error("Expected a serialized Fix all request.")
-    expect(JSON.parse(body)).not.toHaveProperty("id")
-    expect(JSON.parse(body)).not.toHaveProperty("expectedNoteRevision")
+    expect(JSON.parse(body)).toMatchObject({
+      scope: "all",
+      noteIds: [{ id: 1, revision: 1 }],
+    })
     expect(saved.notes[0]?.thread.messages.filter((entry) => entry.status === "open")).toEqual([])
   })
 
@@ -1234,10 +1370,10 @@ describe("App()", () => {
     const sent = mutations().slice(1)
     expect(sent).toHaveLength(3)
     expect(sent[0]?.[0]).toMatch(/\/fix$/)
-    expect(sent[0]?.[1]).not.toHaveProperty("id")
+    expect(sent[0]?.[1]).toMatchObject({ scope: "all", noteIds: [{ id: 1, revision: 1 }] })
     expect(sent[1]?.[1]).toMatchObject({ body: "Queued request" })
     expect(sent[2]?.[0]).toMatch(/\/fix$/)
-    expect(sent[2]?.[1]).toMatchObject({ id: 2, expectedNoteRevision: 1 })
+    expect(sent[2]?.[1]).toMatchObject({ noteIds: [{ id: 2, revision: 1 }] })
     expect(saved.notes[0]?.status).toBe("sent")
   })
 
@@ -1297,8 +1433,7 @@ describe("App()", () => {
       if (typeof body !== "string") throw new Error("Expected a serialized scoped fix.")
       expect(JSON.parse(body)).toMatchObject({
         identity: saved.identity,
-        id: 2,
-        expectedNoteRevision: 1,
+        noteIds: [{ id: 2, revision: 1 }],
       })
       if (fixFails) {
         const notifications = await screen.findByRole("region", { name: "Comment notifications" })
