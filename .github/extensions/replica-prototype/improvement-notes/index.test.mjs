@@ -821,8 +821,10 @@ it("captures an immutable cross-screen batch while follow-ups wait for the next 
     assert.match(messages[0].prompt, /\/replica-pick-and-polish\b/)
     assert.doesNotMatch(messages[0].prompt, /fallback procedure/i)
     assert.doesNotMatch(messages[0].prompt, /"body"|"anchor"|"notes"/)
-    assert.match(messages[0].prompt, /"noteCount":2/)
     const batch = await store.batch({ batchId: state.activeBatch })
+    const metadata = JSON.parse(messages[0].prompt.split("\n\n").at(-1))
+    assert.deepEqual(metadata, { batchId: batch.id, noteCount: 2 })
+    assert.doesNotMatch(messages[0].prompt, /"checkout"|"branch"|prototype\/demo/)
     assert.equal(batch.notes.length, 2)
     state = await store.save({
       ...state,
@@ -1367,7 +1369,7 @@ for (const { label, skills } of [
       assert.equal(discoveries, 1)
       assert.match(prompt, /\/replica-pick-and-polish\b/)
       assert.equal(prompt.includes(root), false)
-      assert.ok(prompt.includes(JSON.stringify("prototype/demo")))
+      assert.doesNotMatch(prompt, /"checkout"|"branch"|prototype\/demo/)
       assert.doesNotMatch(prompt, /fallback procedure/i)
       const data = prompt.split("\n\n").flatMap((paragraph) => {
         try {
@@ -1379,8 +1381,6 @@ for (const { label, skills } of [
       })
       assert.equal(data.length, 1)
       assert.deepEqual(data[0], {
-        checkout: path.basename(root),
-        branch: "prototype/demo",
         batchId: result.activeBatch,
         noteCount: 1,
       })
