@@ -85,3 +85,61 @@ it("uses the per-prototype sharing decision rather than repository or edit acces
     prototypeShowData(workspace, data("2", false), new URLSearchParams()).shareLinksPath,
   ).toBeUndefined()
 })
+
+it("lists the learnings agents applied in the selected Build", () => {
+  const repository = { id: "2001", nameWithOwner: "example/repository", defaultBranch: "main" }
+  const workspace: WorkspaceResponse = {
+    viewer: { id: "123", login: "octocat", name: null, provider: "github", avatarUrl: null },
+    repositories: [repository],
+  }
+  const build = {
+    number: 3,
+    repositoryId: repository.id,
+    prototypeId: "1",
+    state: "successful",
+    commitSha: "a".repeat(40),
+    commitAuthorLogin: null,
+    createdAt: "2026-12-20T12:00:00Z",
+    startedAt: null,
+    finishedAt: null,
+    previewUrl: "https://preview.example.com/",
+    desktopScreenshotUrl: null,
+    narrowScreenshotUrl: null,
+    failureSummary: null,
+  }
+  const response = prototypeResponseSchema.parse({
+    repository,
+    prototype: {
+      id: "1",
+      repositoryId: repository.id,
+      name: "Prototype",
+      branchName: "prototype/welcome",
+      authorLogin: null,
+      canEdit: false,
+      description: null,
+      builds: [build],
+    },
+    selectedBuild: build,
+  })
+  const sha256 = "b".repeat(64)
+
+  const result = prototypeShowData(workspace, response, new URLSearchParams("build=3"), [
+    { id: "mem_1", title: "Label every field", version: 2, after: { sha256, route: "/" } },
+  ])
+
+  expect(result.agentReportedUseLabel).toBe("Applied learnings")
+  expect(result.agentReportedUse).toMatchObject({
+    buildNumber: 3,
+    learnings: [
+      {
+        id: "mem_1",
+        label: "Label every field · v2",
+        afterScreenshot: {
+          url: `/api/repositories/2001/learnings/screenshots/${sha256}`,
+          label: "View after screenshot for Label every field",
+        },
+      },
+    ],
+  })
+  expect(result.agentReportedUse?.learnings[0]?.beforeScreenshot).toBeUndefined()
+})

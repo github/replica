@@ -59,6 +59,18 @@ export interface RejectedLearningResponse {
   shared: boolean
 }
 
+export interface AppliedLearningResponse {
+  id: string
+  title: string | null
+  version: number | null
+  before?: { sha256: string; route: string }
+  after?: { sha256: string; route: string }
+}
+
+export interface AppliedLearningsResponse {
+  learnings: AppliedLearningResponse[]
+}
+
 export interface LearningHistoryResponse {
   decisions: Array<{
     version: number

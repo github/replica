@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { http, stubHubFetch } from "@/test/stub-hub-fetch"
+
+import { previewRecords } from "../fixtures/preview-records"
 import { clientAction, clientLoader } from "."
 
 describe("prototype route", () => {
@@ -15,6 +17,35 @@ describe("prototype route", () => {
       clientLoader({ request, params: { repositoryId: "2001", prototypeId: "bad" } }),
     ).rejects.toMatchObject({ status: 400 })
     expect(send).not.toHaveBeenCalled()
+  })
+
+  it("still loads the prototype when applied learnings cannot be read", async () => {
+    const { historical, path, repository, prototype } = previewRecords()
+    const readApplied = vi.fn(() =>
+      Response.json(
+        { code: "learnings_unavailable", error: "Learnings are off." },
+        { status: 503 },
+      ),
+    )
+    stubHubFetch(
+      http.get(`${window.location.origin}/api${path}`, () =>
+        Response.json({ repository, prototype, selectedBuild: historical }),
+      ),
+      http.get(
+        `${window.location.origin}/api/repositories/${repository.id}/learnings/applied`,
+        readApplied,
+      ),
+    )
+    const request = new Request(new URL(`${path}?build=1`, window.location.origin))
+
+    const result = await clientLoader({
+      request,
+      params: { repositoryId: repository.id, prototypeId: prototype.id },
+    })
+
+    expect(readApplied).toHaveBeenCalledOnce()
+    expect(result.selectedBuild?.number).toBe(1)
+    expect(result.appliedLearnings).toEqual([])
   })
 
   it("does not confirm a save when the API returns an invalid success response", async () => {

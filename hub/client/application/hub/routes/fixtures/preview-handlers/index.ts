@@ -27,6 +27,9 @@ export function previewHandlers(data: ReturnType<typeof previewRecords>) {
         canBranch,
       })
     }),
+    http.get(`/api/repositories/${repository.id}/learnings/applied`, () =>
+      Response.json({ learnings: [] }),
+    ),
     http.get(`/api${path}/builds`, () =>
       Response.json({
         repository,

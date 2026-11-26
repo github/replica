@@ -4,6 +4,7 @@ import { recordIdentifierSchema, repositorySchema } from "@application/hub/contr
 
 import type {
   AcceptedLearningResponse,
+  AppliedLearningsResponse,
   EvaluationSettingsResponse,
   LearningActivityDayResponse,
   LearningDecisionInput,
@@ -103,6 +104,26 @@ export const rejectedLearningResponseSchema = z
     shared: z.boolean(),
   })
   .strict() satisfies z.ZodType<RejectedLearningResponse>
+
+const appliedScreenshotSchema = z
+  .object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), route: z.string() })
+  .strict()
+
+export const appliedLearningsResponseSchema = z
+  .object({
+    learnings: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          title: z.string().nullable(),
+          version: identifier.nullable(),
+          before: appliedScreenshotSchema.optional(),
+          after: appliedScreenshotSchema.optional(),
+        })
+        .strict(),
+    ),
+  })
+  .strict() satisfies z.ZodType<AppliedLearningsResponse>
 
 export const learningHistoryResponseSchema = z
   .object({

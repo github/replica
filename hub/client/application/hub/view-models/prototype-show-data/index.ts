@@ -1,6 +1,7 @@
 import type { PrototypesShowPageData } from "@pages/prototypes-show-page/types"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 import type { PrototypeResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import type { AppliedLearningResponse } from "@application/hub/learnings-contracts/types"
 
 import { buildStateLabel } from "../build-state-label"
 import { productContinuation } from "../product-continuation"
@@ -10,6 +11,7 @@ export function prototypeShowData(
   workspace: WorkspaceResponse,
   data: PrototypeResponse,
   search: URLSearchParams,
+  appliedLearnings: AppliedLearningResponse[] = [],
 ): PrototypesShowPageData {
   const selectedBuild = data.selectedBuild
   const previewBuild =
@@ -106,6 +108,16 @@ export function prototypeShowData(
       selectedBuild && !previewBuild
         ? `Build ${selectedBuild.number} · ${buildStateLabel(selectedBuild.state)}`
         : "Choose build",
+    ...(previewBuild && appliedLearnings.length > 0
+      ? {
+          agentReportedUseLabel: "Applied learnings",
+          agentReportedUse: agentReportedUse(
+            data.repository.id,
+            previewBuild.number,
+            appliedLearnings,
+          ),
+        }
+      : {}),
     selectedBuild: previewBuild?.previewUrl
       ? {
           number: previewBuild.number,
@@ -113,5 +125,47 @@ export function prototypeShowData(
           previewUrl: previewBuild.previewUrl,
         }
       : undefined,
+  }
+}
+
+/**
+ * Shows what agents said they applied in a Build. Screenshots are served by Hub, which
+ * stops serving them once the repository withdraws screenshot consent.
+ */
+function agentReportedUse(
+  repositoryId: string,
+  buildNumber: number,
+  learnings: AppliedLearningResponse[],
+): NonNullable<PrototypesShowPageData["agentReportedUse"]> {
+  function screenshot(name: string, kind: string, value?: { sha256: string }) {
+    return value
+      ? {
+          url: `/api/repositories/${repositoryId}/learnings/screenshots/${value.sha256}`,
+          label: `View ${kind} screenshot for ${name}`,
+        }
+      : undefined
+  }
+  return {
+    buildNumber,
+    copy: {
+      heading: `Applied learnings for Build ${buildNumber}`,
+      caption: "Reported by the agent; not independently verified.",
+      learningLabel: "Learning",
+      beforeLabel: "Before",
+      afterLabel: "After",
+      viewLabel: "View",
+      notAttachedLabel: "Not attached",
+    },
+    learnings: learnings.map((learning) => {
+      const name = learning.title ?? "Untitled learning"
+      const beforeScreenshot = screenshot(name, "before", learning.before)
+      const afterScreenshot = screenshot(name, "after", learning.after)
+      return {
+        id: learning.id,
+        label: learning.version === null ? name : `${name} · v${learning.version}`,
+        ...(beforeScreenshot ? { beforeScreenshot } : {}),
+        ...(afterScreenshot ? { afterScreenshot } : {}),
+      }
+    }),
   }
 }

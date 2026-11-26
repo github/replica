@@ -8,6 +8,7 @@ import { MentionProvider } from "@components/mention-provider"
 import { PrototypesShowPage } from "@pages/prototypes-show-page"
 import type { PrototypeDetailsInput } from "@pages/prototypes-show-page/types"
 import type { PrototypeResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import type { AppliedLearningResponse } from "@application/hub/learnings-contracts/types"
 import { prototypeShowData } from "@application/hub/view-models/prototype-show-data"
 import { createReviewTransport } from "@application/hub/create-review-transport"
 import { readReviewQuery } from "@application/hub/read-review-query"
@@ -23,6 +24,7 @@ import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 export function PrototypeScreen({
   workspace,
   data,
+  appliedLearnings,
   onSaveDetails,
   savingDetails,
   detailsError,
@@ -30,6 +32,7 @@ export function PrototypeScreen({
 }: {
   workspace: WorkspaceResponse
   data: PrototypeResponse
+  appliedLearnings?: AppliedLearningResponse[]
   onSaveDetails: (details: PrototypeDetailsInput) => void
   savingDetails: boolean
   detailsError: string | null
@@ -43,7 +46,12 @@ export function PrototypeScreen({
   const repositoryCapabilities = workspace.repositories.find(
     ({ id }) => id === data.repository.id,
   )?.capabilities
-  const pageData = prototypeShowData(workspace, data, new URLSearchParams(location.search))
+  const pageData = prototypeShowData(
+    workspace,
+    data,
+    new URLSearchParams(location.search),
+    appliedLearnings,
+  )
   pageData.reviewReadOnly = !repositoryCapabilities?.reviewPrototypes
   if (pageData.reviewReadOnly) {
     pageData.reviewComments = {
