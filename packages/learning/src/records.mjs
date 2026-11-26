@@ -20,6 +20,8 @@ export const SCHEMA_VERSIONS = Object.freeze({
   usedLearning: "replica.used-learning/v1",
   screenshot: "replica.screenshot/v1",
   score: "replica.score/v1",
+  updateProposal: "replica.update-proposal/v1",
+  updateDecision: "replica.update-decision/v1",
 })
 
 /**

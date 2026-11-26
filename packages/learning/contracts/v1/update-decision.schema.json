@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/learning/v1/update-decision.schema.json",
+  "title": "Replica update decision v1",
+  "description": "A person's decision on one update proposal: applied as a new version of the learning, or dismissed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "scope",
+    "proposalId",
+    "memoryId",
+    "decision",
+    "reason",
+    "decidedBy",
+    "decidedAt",
+    "digest"
+  ],
+  "if": {
+    "properties": { "decision": { "const": "applied" } }
+  },
+  "then": {
+    "required": ["appliedVersion"]
+  },
+  "properties": {
+    "schemaVersion": {
+      "const": "replica.update-decision/v1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/scope"
+    },
+    "proposalId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "memoryId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "decision": {
+      "enum": ["applied", "dismissed"]
+    },
+    "appliedVersion": {
+      "description": "The learning version the applied wording became.",
+      "type": "integer",
+      "minimum": 2
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "decidedBy": {
+      "$ref": "common.schema.json#/$defs/humanActor"
+    },
+    "decidedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "digest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    }
+  }
+}

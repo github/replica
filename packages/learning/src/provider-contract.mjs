@@ -100,6 +100,8 @@ export const STREAMS = Object.freeze({
   usedLearnings: "reportedAt",
   screenshots: "capturedAt",
   scores: "scoredAt",
+  updateProposals: "proposedAt",
+  updateDecisions: "decidedAt",
 })
 
 /** Streams whose contents can change whether evidence or a learning may be used. */

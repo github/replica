@@ -42,6 +42,8 @@
         "memory.delete",
         "usage.report",
         "usage.score",
+        "update.propose",
+        "update.decide",
         "guidance.expire",
         "export.create"
       ]
@@ -70,7 +72,9 @@
               "usage_report",
               "used_learning",
               "screenshot",
-              "score"
+              "score",
+              "update_proposal",
+              "update_decision"
             ]
           },
           "id": { "$ref": "common.schema.json#/$defs/id" },

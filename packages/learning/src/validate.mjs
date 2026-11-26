@@ -23,6 +23,8 @@ const SEALED_KINDS = new Set([
   "usedLearning",
   "screenshot",
   "score",
+  "updateProposal",
+  "updateDecision",
 ])
 
 /**
