@@ -104,6 +104,7 @@ const ASSET_PATHS = new Map<string, Asset>([
     "renderer-rolldown-runtime.js",
     "renderer-styles.js",
     "renderer-improvement-notes-prototype.js",
+    "renderer-prototype-canvas-improvement-notes.js",
     "renderer-improvement-notes-vendor.js",
     "renderer-prototype-canvas-thread-sample.js",
     "renderer-prototype-canvas-improvement-threads.js",
