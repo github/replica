@@ -53,6 +53,8 @@ export interface LearningActivityDay {
 
 export interface EvaluationSettings {
   monthlyBudgetCredits: string
+  /** What scoring has spent this calendar month in UTC, across every repository. */
+  usedCredits: string
   enabled: boolean
   screenshots: { allowed: boolean; changedBy: string | null; changedAt: string | null }
 }

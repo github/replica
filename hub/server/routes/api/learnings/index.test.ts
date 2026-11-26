@@ -68,6 +68,7 @@ function dependencies(
     share: vi.fn().mockResolvedValue({ notice: "Shared across Hub." }),
     getEvaluationSettings: vi.fn().mockResolvedValue({
       monthlyBudgetCredits: "0",
+      usedCredits: "0",
       enabled: false,
       screenshots: { allowed: false, changedBy: null, changedAt: null },
     }),

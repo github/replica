@@ -21,6 +21,7 @@ import { readLearningConfiguration } from "../../../../domains/learning/read-lea
 import { changeEvaluationConsent } from "../../../../domains/learning/change-evaluation-consent/index.ts"
 import { deleteAgentScreenshotsJob } from "../../../../domains/learning/jobs/delete-agent-screenshots.ts"
 import { getRepositoryEvaluationSetting } from "../../../../repositories/evaluation-settings/get-repository-evaluation-setting/index.ts"
+import { sumLearningEvaluationCredits } from "../../../../repositories/learning-evaluation-runs/sum-learning-evaluation-credits/index.ts"
 import { initializeEvaluationSetting } from "../../../../repositories/evaluation-settings/initialize-evaluation-setting/index.ts"
 import { saveRepositoryEvaluationSetting } from "../../../../repositories/evaluation-settings/save-repository-evaluation-setting/index.ts"
 import { updateEvaluationBudget } from "../../../../repositories/evaluation-settings/update-evaluation-budget/index.ts"
@@ -52,6 +53,7 @@ import type { resolveRepositoryScope } from "../../product/resolve-repository-sc
 import { LearningsError } from "../errors.ts"
 import { isDefinitiveDecisionRejection } from "../is-definitive-decision-rejection/index.ts"
 import { runWithBoundedRetries } from "../../../../domains/identity/run-with-bounded-retries/index.ts"
+import { startOfUtcMonth } from "../../../../utils/start-of-utc-month/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import type { LearningsRouteDependencies } from "../types.ts"
 
@@ -602,9 +604,11 @@ export async function createLearningsRouteDependencies(
     getEvaluationSettings: async (repositoryId) => {
       const budget = await initializeEvaluationSetting(prisma)
       const setting = await getRepositoryEvaluationSetting(prisma, repositoryId)
+      const used = await sumLearningEvaluationCredits(prisma, startOfUtcMonth(new Date()))
       return {
         // toFixed keeps tiny budgets in plain digits instead of forms like 1e-9.
         monthlyBudgetCredits: budget.monthlyBudgetCredits.toFixed(),
+        usedCredits: used?.toFixed() ?? "0",
         enabled: setting?.enabled ?? false,
         screenshots: {
           allowed: Boolean(setting?.screenshotGrantId),

@@ -55,8 +55,6 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
       }
       response.json({
         repository,
-        // Usage is counted once evaluations run against Builds.
-        usedCredits: "0",
         ...settings,
         permissions: { changeBudget, changeRepository },
       })
