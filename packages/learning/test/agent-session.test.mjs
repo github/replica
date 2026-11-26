@@ -42,7 +42,7 @@ describe("agent sessions", () => {
     assert.deepEqual([result.addedEpisodes, result.addedEvents, result.skippedMessages], [1, 3, 1])
     const { episodes, events } = await store.queryObservations(designer(), { purpose: "review" })
     assert.deepEqual(episodes[0].source, { kind: "agent_session", sessionId: "session-one" })
-    assert.equal(episodes[0].task.prompt, "Build the checkout form.")
+    assert.equal(episodes[0].task, undefined)
     assert.deepEqual(
       events.map((event) => event.type),
       ["user_message", "agent_message", "session_outcome"],
@@ -106,40 +106,7 @@ describe("agent sessions", () => {
     assert.equal(outcome.supersedes, before.events[2].id)
   })
 
-  it("refuses a session sent again with a different task and stores nothing", async () => {
-    const store = await createLearningStore({
-      provider: createInMemoryProvider(),
-      clock: () => Date.parse("2026-10-09T12:00:00Z"),
-    })
-    const grant = await store.addGrant(designer(), {
-      purposes: ["review"],
-      sources: ["agent_session"],
-      basis: "The team agreed to learn from agent sessions.",
-    })
-    const messages = [{ role: "user", text: "Make the buttons bigger." }]
-    await store.importAgentSession(
-      COPILOT,
-      { sessionId: "session-one", task: "Build the checkout form.", messages },
-      { grantIds: [grant.id] },
-    )
-    const before = await store.queryObservations(designer(), { purpose: "review" })
-
-    await assert.rejects(
-      store.importAgentSession(
-        COPILOT,
-        {
-          sessionId: "session-one",
-          task: "Build the settings page.",
-          messages: [...messages, { role: "user", text: "Add a dark theme." }],
-        },
-        { grantIds: [grant.id] },
-      ),
-      { code: "conflict" },
-    )
-    assert.deepEqual(await store.queryObservations(designer(), { purpose: "review" }), before)
-  })
-
-  it("removes every version of a session message when a person asks", async () => {
+  it("removes every version of a session message and keeps it out when the session is sent again", async () => {
     const provider = createInMemoryProvider()
     const store = await createLearningStore({
       provider,
@@ -176,6 +143,17 @@ describe("agent sessions", () => {
     const latest = events.find((event) => event.payload.text.endsWith("please use it."))
 
     await store.redactComment(designer(), latest.id, { reason: "The user shared a password." })
+    await store.importAgentSession(
+      COPILOT,
+      {
+        sessionId: "session-one",
+        messages: [
+          { role: "user", text: "My password is hunter2, please use it." },
+          { role: "agent", text: "I will not store it." },
+        ],
+      },
+      { grantIds: [grant.id] },
+    )
 
     const after = await store.queryObservations(designer(), { purpose: "review" })
     assert.deepEqual(
@@ -270,9 +248,9 @@ describe("agent sessions", () => {
     assert.equal(run.proposals[0].themeKey, "visible-form-labels")
     assert.deepEqual(run.proposals[0].support, {
       distinctEpisodes: 2,
-      distinctPrototypes: 2,
+      distinctPrototypes: 0,
       distinctReviewers: 1,
-      distinctBuilds: 2,
+      distinctBuilds: 0,
     })
   })
 })

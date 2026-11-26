@@ -44,7 +44,7 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `redact <event-id>` | Removes a review comment's or agent session event's text when a person asks: every version and its labels |
 | `redact --comment <hub-comment-id>` | Removes the same text for a Hub comment named by its Hub ID. It imports and labels nothing and needs no active grant. `--reason` defaults to the comment being deleted at its source. `removed` in the `--json` output counts the events whose text it removed, 0 when none was left. Run it only while no import or labeling of the same store is in progress |
 | `import hub-comments <log.json>` | Imports a logged snapshot from the canvas comment actions. `--redact-deleted` also removes the text of comments the snapshot shows as deleted |
-| `import agent-session <session.json>` | Stores one coding agent session as evidence: its task, the user and agent messages in order, and its outcome. It skips tool calls and tool output, removes well-known secrets such as tokens and private keys, and keeps at most 10,000 characters of each message. Sending the same `sessionId` again adds new messages and updates changed ones. Needs `--actor agent:<name>` and a grant that names `agent_session` |
+| `import agent-session <session.json>` | Stores one coding agent session as evidence: the user and agent messages in order, and its outcome. It skips the task, tool calls, and tool output, removes well-known secrets such as tokens and private keys, and keeps at most 10,000 characters of each message. Sending the same `sessionId` again adds new messages and updates changed ones, but never restores a removed message. Needs `--actor agent:<name>` and a grant that names `agent_session` |
 | `label` | Labels, with Copilot or the configured labeler, each comment it has not been asked about, and reports what it cost. `--since` skips older comments, and `--max-requests` stops after that many labeler requests |
 | `label <labels.json>` | Records theme labels someone else wrote |
 | `copilot status` | Shows whether Copilot answers here, as whom, and with which models |
@@ -60,7 +60,7 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 
 Add `--json` to any command for machine output.
 
-An agent session file for `import agent-session` looks like this. Only `sessionId` and `messages` are required. Each message's `role` is `user`, `agent`, or `tool`, and `outcome.status` is `success`, `failure`, `partial`, or `unknown`.
+An agent session file for `import agent-session` looks like this. Only `sessionId` and `messages` are required. Each message's `role` is `user`, `agent`, or `tool`, and `outcome.status` is `success`, `failure`, `partial`, or `unknown`. `task` is checked but not stored, because it can't be removed like a message; send it as the first user message when it should count. A message is identified by its place in `messages`, counting tool messages, so keep earlier messages in place when sending a session again. A resent message must keep its `user` and `at`.
 
 ```json
 {

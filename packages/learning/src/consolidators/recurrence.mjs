@@ -27,7 +27,8 @@ const OBSERVATIONS = ["observed", "preference", "question", "praise", "other"]
  * Proposes a learning for each labeled theme that recurs across distinct threads, prototypes,
  * and reviewers within the window. It is deterministic: the same evidence and labels always
  * give the same proposals. Review comments and a person's messages to an agent count the same
- * way; each agent session counts as one thread.
+ * way; each agent session counts as one thread but no prototype or Build. A theme seen only in
+ * sessions needs no prototypes.
  *
  * By default two threads are enough, even from one reviewer on one prototype, so a person
  * working alone still gets learnings. Raise the thresholds for a larger team.
@@ -168,9 +169,12 @@ export function createRecurrenceConsolidator(options = {}) {
           supporting.map((item) => item.target),
           episodes,
         )
+        // Agent sessions name no prototype, so a theme seen only in sessions skips that check.
         const short = [
           ["threads", support.distinctEpisodes, settings.minEpisodes],
-          ["prototypes", support.distinctPrototypes, settings.minPrototypes],
+          ...(support.distinctPrototypes
+            ? [["prototypes", support.distinctPrototypes, settings.minPrototypes]]
+            : []),
           ["reviewers", support.distinctReviewers, settings.minReviewers],
         ].filter(([, have, need]) => have < need)
         if (short.length) {
@@ -297,15 +301,11 @@ function supportOf(targets, episodes) {
   for (const target of targets) {
     const source = episodes.get(target.episodeId)?.source ?? {}
     episodeIds.add(threadKey(episodes.get(target.episodeId)) ?? target.episodeId)
-    prototypes.add(
-      source.prototypeId === undefined
-        ? `episode:${target.episodeId}`
-        : `${source.hubOrigin}#${source.prototypeId}`,
-    )
     reviewers.add(target.actor.id)
-    builds.add(
-      `${source.hubOrigin}#${source.prototypeId}#${source.buildNumber ?? target.episodeId}`,
-    )
+    // A session is not a prototype or a Build, so it adds a thread but neither of those.
+    if (source.prototypeId === undefined) continue
+    prototypes.add(`${source.hubOrigin}#${source.prototypeId}`)
+    builds.add(`${source.hubOrigin}#${source.prototypeId}#${source.buildNumber}`)
   }
   return {
     distinctEpisodes: episodeIds.size,

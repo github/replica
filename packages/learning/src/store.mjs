@@ -846,6 +846,20 @@ class LearningStore {
     const copies = new Map()
     const commentVersions = new Map()
     const evidenceGrants = new Map()
+    // A session message's versions are linked by supersedes, so each joins its first version.
+    const sessionVersions = new Map()
+    for (const event of events) {
+      if (event.type !== "user_message" && event.type !== "agent_message") continue
+      let root = event
+      for (const seen = new Set(); root.supersedes && !seen.has(root.id);) {
+        seen.add(root.id)
+        const previous = byId.get(root.supersedes)
+        if (!previous || previous.episodeId !== event.episodeId) break
+        root = previous
+      }
+      if (!sessionVersions.has(root.id)) sessionVersions.set(root.id, [])
+      sessionVersions.get(root.id).push(event)
+    }
     for (const event of events) {
       if (event.type !== "human_comment") continue
       const thread = hubThreadKey(episodesById.get(event.episodeId))
@@ -935,6 +949,14 @@ class LearningStore {
       if (versions.some((event) => event.at === latest && eventsById.has(event.id))) continue
       for (const event of versions)
         if (event.at < latest && eventsById.has(event.id)) hiddenEdits.add(event.id)
+    }
+    // A resent message may keep its time, so its newest version is the one nothing replaces.
+    for (const versions of sessionVersions.values()) {
+      const replaced = new Set(versions.map((event) => event.supersedes))
+      const newest = versions.filter((event) => !replaced.has(event.id))
+      if (newest.some((event) => eventsById.has(event.id))) continue
+      for (const event of versions)
+        if (replaced.has(event.id) && eventsById.has(event.id)) hiddenEdits.add(event.id)
     }
     const episodeIds = new Set(kept.map((event) => event.episodeId))
     return {
@@ -1915,10 +1937,12 @@ class LearningStore {
   }
 
   /**
-   * Store an agent session as one episode: its task, its user and agent messages in order, and
-   * its outcome. Tool calls and tool output are dropped, secrets are scrubbed, and long text is
-   * capped. Sending the same session ID again updates that episode: new messages are appended,
-   * changed messages and outcomes supersede their earlier versions, and the first task stays.
+   * Store an agent session as one episode: its user and agent messages in order, and its
+   * outcome. Tool calls, tool output, and the task are dropped, secrets are scrubbed, and long
+   * text is capped. Sending the same session ID again updates that episode: new messages are
+   * appended, and changed messages and outcomes supersede their earlier versions. Text a person
+   * removed stays removed, and two imports that change the same message at once leave one
+   * change and refuse the other as a conflict.
    *
    * The grant must name agent_session and currently permit review, so a person decides whether
    * sessions may become learning evidence, separately from review comments.
@@ -1953,13 +1977,13 @@ class LearningStore {
           `Grant ${grantId} does not currently permit review.`,
         )
     }
-    const episodeId = sessionEpisodeId(context.scope, session.sessionId)
-    const [stored] = await this.#read("episodes", context, { ids: [episodeId] })
-    if (stored && (stored.task?.prompt ?? "") !== (session.task ?? ""))
-      throw new LearningError(
-        "conflict",
-        `Session ${session.sessionId} was first sent with a different task. Send it with the same task.`,
-      )
+    // A migration keeps episode IDs, so a session first sent before it has its old ID.
+    const { legacyScopes } = await this.#migrationContext(context.scope)
+    const candidates = [context.scope, ...legacyScopes].map((scope) =>
+      sessionEpisodeId(scope, session.sessionId),
+    )
+    const [stored] = await this.#read("episodes", context, { ids: candidates })
+    const episodeId = stored?.id ?? candidates[0]
     const episodes = stored
       ? []
       : [

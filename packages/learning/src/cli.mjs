@@ -1058,7 +1058,11 @@ async function show(session) {
     "Evidence:",
     ...record.evidence.map((reference) => {
       const pin = reference.source ?? {}
-      return `  - ${reference.eventIds.join(", ")} in ${reference.episodeId}: prototype ${pin.prototypeId ?? "?"} Build ${pin.buildNumber ?? "?"} comment ${pin.commentId ?? "?"} by ${reference.author?.id ?? "?"}`
+      const where =
+        pin.sessionId === undefined
+          ? `prototype ${pin.prototypeId ?? "?"} Build ${pin.buildNumber ?? "?"} comment ${pin.commentId ?? "?"}`
+          : `session ${pin.sessionId}`
+      return `  - ${reference.eventIds.join(", ")} in ${reference.episodeId}: ${where} by ${reference.author?.id ?? "?"}`
     }),
     ...(record.contradictions?.length
       ? [

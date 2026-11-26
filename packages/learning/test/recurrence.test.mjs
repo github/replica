@@ -116,6 +116,24 @@ describe("recurrence consolidator", () => {
     assert.match(proposal.rationale.recurrence, /3 threads on 2 prototypes by 2 reviewers/)
   })
 
+  it("proposes a theme one reviewer raised twice on one prototype by default", async () => {
+    const result = await run(
+      {},
+      view([
+        { by: "ana-designer", prototype: 1 },
+        { by: "ana-designer", prototype: 1 },
+      ]),
+    )
+
+    assert.equal(result.proposals.length, 1)
+    assert.deepEqual(result.proposals[0].support, {
+      distinctEpisodes: 2,
+      distinctPrototypes: 1,
+      distinctReviewers: 1,
+      distinctBuilds: 1,
+    })
+  })
+
   it("holds back a theme below any threshold and says which", async () => {
     const result = await run(
       { minReviewers: 2 },

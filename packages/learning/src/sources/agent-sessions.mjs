@@ -7,7 +7,7 @@ import { normalizeTimestamp } from "../time.mjs"
 /** The source kind of agent sessions, used by episodes, evidence, and consent grants. */
 export const SESSION_SOURCE = "agent_session"
 
-/** The longest message, task, or outcome summary kept, matching the contract limits. */
+/** The longest message or outcome summary kept, matching the contract limits. */
 const MESSAGE_CHARS = 10_000
 const SUMMARY_CHARS = 2_000
 const MESSAGES = 5_000
@@ -20,14 +20,15 @@ const SECRET = "[redacted secret]"
 // Well-known credential shapes. Sessions often echo tokens from terminals and config files,
 // and a stored token stays usable until someone rotates it.
 const SECRETS = [
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  // A pasted key may be cut off, so the end of the text also ends the block.
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
   /\bgh[pousr]_[A-Za-z0-9]{36,255}\b/g,
   /\bgithub_pat_[A-Za-z0-9_]{22,255}\b/g,
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
   /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}/g,
   /\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}/g,
-  /\bAIza[0-9A-Za-z_-]{35}\b/g,
+  /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
 ]
 
@@ -35,19 +36,25 @@ const SECRETS = [
 export function scrubSecrets(text) {
   let scrubbed = text
   for (const pattern of SECRETS) scrubbed = scrubbed.replace(pattern, SECRET)
-  return scrubbed
-    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/-]{20,}=*/g, `$1${SECRET}`)
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, `$1${SECRET}@`)
+  return scrubbed.replace(/\b(bearer\s+)[A-Za-z0-9._~+/-]{20,}=*/gi, `$1${SECRET}`).replace(
+    // A scheme starts where a run of scheme characters starts, and user details are
+    // bounded, so a long message is scanned in linear time.
+    /(?<![a-z0-9+.-])([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/:@]{1,256}:[^\s/@]{1,256}@/gi,
+    `$1${SECRET}@`,
+  )
 }
 
 /**
- * Check a session someone submits and keep only what learning may use: the task, the user and
- * agent messages in order, and the outcome. Tool calls and tool output are dropped because they
- * hold file contents and command output, not feedback. Text is scrubbed of secrets and capped.
+ * Check a session someone submits and keep only what learning may use: the user and agent
+ * messages in order, and the outcome. Tool calls and tool output are dropped because they hold
+ * file contents and command output, not feedback. The task is checked but not kept: it cannot
+ * be redacted or dated like a message, so send it as the first user message when it matters.
+ * Text is scrubbed of secrets and capped.
  *
  * The input is { sessionId, task?, user?, startedAt?, messages: [{ role, text, at? }],
  * outcome?: { status, summary? } }. role is user, agent, or tool. user names the person, such as
- * github:octocat.
+ * github:octocat. Each kept message keeps its position in the list as sent, counting dropped
+ * ones, so filling in or emptying one message never changes which message another one is.
  *
  * @param {unknown} input
  */
@@ -79,7 +86,7 @@ export function readAgentSession(input) {
     kept.push({
       role: message.role,
       text,
-      sequence: kept.length + 1,
+      sequence: index + 1,
       ...(message.at === undefined ? {} : { at: timestamp(message.at, `Message ${index + 1}`) }),
     })
   }
@@ -90,11 +97,9 @@ export function readAgentSession(input) {
       invalid("outcome.summary must be a string.")
   }
   if (task !== undefined && typeof task !== "string") invalid("task must be a string.")
-  const prompt = task === undefined ? "" : clean(task, MESSAGE_CHARS)
   const summary = outcome?.summary === undefined ? "" : clean(outcome.summary, SUMMARY_CHARS)
   return {
     sessionId,
-    ...(prompt ? { task: prompt } : {}),
     user: {
       kind: "human",
       id: user ?? "human:session-user",
@@ -108,12 +113,18 @@ export function readAgentSession(input) {
   }
 }
 
-/** The episode ID of a session, so sending the same session again updates one episode. */
+/**
+ * The episode ID of a session in a scope, so sending the same session again updates one
+ * episode. A store also checks the scopes the repository had before a migration.
+ */
 export function sessionEpisodeId(scope, sessionId) {
   return derivedId("ep", { scope, source: SESSION_SOURCE, sessionId })
 }
 
-/** The episode that holds a session. Its header is fixed when the session is first sent. */
+/**
+ * The episode that holds a session. Its header is fixed when the session is first sent and holds
+ * no session text, so redacting a message removes all of that message's text.
+ */
 export function sessionEpisode({ session, scope, grantIds, principal, importedAt }) {
   const first = session.messages.find((message) => message.at)?.at
   return {
@@ -121,7 +132,6 @@ export function sessionEpisode({ session, scope, grantIds, principal, importedAt
     id: sessionEpisodeId(scope, session.sessionId),
     scope,
     source: { kind: SESSION_SOURCE, sessionId: session.sessionId },
-    ...(session.task ? { task: { prompt: session.task } } : {}),
     actors: [session.user, principal],
     grants: [...grantIds],
     contentTrust: { untrusted: true, treatAs: "data", source: SESSION_SOURCE },
@@ -137,64 +147,85 @@ export function sessionEpisode({ session, scope, grantIds, principal, importedAt
 
 /**
  * The events a session adds to its episode, given the events already stored. Nothing is
- * rewritten: a message whose text changed adds a version that supersedes the last one, and a
- * changed outcome does the same. Messages already stored unchanged add nothing.
+ * rewritten: a message whose text changed adds a version that supersedes the latest one at its
+ * position, and a changed outcome does the same. Unchanged messages add nothing.
+ *
+ * An event's ID comes from its episode, its position, and the version it replaces, never its
+ * text, so the history of a position is found even after a person redacts its text. A position
+ * whose text a person removed takes no new versions, so sending the session again cannot bring
+ * the text back. Two imports that change the same position at once make the same ID with
+ * different content, and the provider refuses the second as a conflict.
+ *
+ * A resent message must keep its author and time; correcting them is refused rather than
+ * silently ignored, because evidence is dated and attributed by its first version.
  */
 export function sessionEvents({ session, scope, episodeId, principal, existing, now }) {
-  const superseded = new Set(existing.map((event) => event.supersedes).filter(Boolean))
-  const live = existing.filter((event) => !superseded.has(event.id))
+  const next = new Map(
+    existing.filter((event) => event.supersedes).map((event) => [event.supersedes, event]),
+  )
+  const byId = new Map(existing.map((event) => [event.id, event]))
+  function history(position) {
+    const versions = []
+    for (
+      let event = byId.get(eventId(episodeId, position, null));
+      event;
+      event = next.get(event.id)
+    )
+      versions.push(event)
+    return versions
+  }
   const added = []
+  function add(position, type, at, actor, payload, compare) {
+    const versions = history(position)
+    const latest = versions.at(-1)
+    if (versions.some((version) => version.payload === undefined)) return
+    if (latest && compare(latest)) return
+    added.push({
+      schemaVersion: SCHEMA_VERSIONS.event,
+      id: eventId(episodeId, position, latest?.id ?? null),
+      episodeId,
+      scope,
+      type,
+      at,
+      actor,
+      payload,
+      ...(latest ? { supersedes: latest.id } : {}),
+    })
+  }
   for (const message of session.messages) {
-    const previous = live.find(
-      (event) =>
-        ["user_message", "agent_message"].includes(event.type) &&
-        event.payload?.sequence === message.sequence,
-    )
     const type = message.role === "user" ? "user_message" : "agent_message"
-    const payload = { text: message.text, sequence: message.sequence }
-    if (previous?.type === type && previous.payload.text === message.text) continue
-    added.push(
-      event({
-        episodeId,
-        scope,
-        type,
-        at: message.at ?? now,
-        actor: message.role === "user" ? session.user : principal,
-        payload,
-        previous,
-      }),
+    const actor = message.role === "user" ? session.user : principal
+    add(
+      message.sequence,
+      type,
+      message.at ?? now,
+      actor,
+      { text: message.text, sequence: message.sequence },
+      (latest) => {
+        if (latest.type !== type || latest.payload.text !== message.text) return false
+        if (latest.actor.id !== actor.id || (message.at && message.at !== latest.at))
+          throw new LearningError(
+            "conflict",
+            `Message ${message.sequence} of session ${session.sessionId} was first sent by another author or at another time. Send it as it was first sent.`,
+          )
+        return true
+      },
     )
   }
-  if (session.outcome) {
-    const previous = live.find((item) => item.type === "session_outcome")
-    if (!previous || canonicalJson(previous.payload) !== canonicalJson(session.outcome))
-      added.push(
-        event({
-          episodeId,
-          scope,
-          type: "session_outcome",
-          at: now,
-          actor: principal,
-          payload: session.outcome,
-          previous,
-        }),
-      )
-  }
+  if (session.outcome)
+    add(
+      "outcome",
+      "session_outcome",
+      now,
+      principal,
+      session.outcome,
+      (latest) => canonicalJson(latest.payload) === canonicalJson(session.outcome),
+    )
   return added
 }
 
-function event({ episodeId, scope, type, at, actor, payload, previous }) {
-  return {
-    schemaVersion: SCHEMA_VERSIONS.event,
-    id: derivedId("ev", { episodeId, type, payload, after: previous?.id ?? null }),
-    episodeId,
-    scope,
-    type,
-    at,
-    actor,
-    payload,
-    ...(previous ? { supersedes: previous.id } : {}),
-  }
+function eventId(episodeId, position, after) {
+  return derivedId("ev", { episodeId, position, after })
 }
 
 /** Scrub, trim, and cap text without splitting a character in two. */

@@ -340,13 +340,23 @@ function threadsOf(comments, chosen) {
   return [...threads.values()]
     .filter((list) => list.some((event) => chosen.has(event.id)))
     .map((list) => ({
-      comments: list.map((event) => ({
+      comments: inOrder(list).map((event) => ({
         id: event.id,
         label: chosen.has(event.id),
         text: oneLine(feedbackText(event)).slice(0, COMMENT_CHARS),
         ...where(event.payload.context),
       })),
     }))
+}
+
+/**
+ * A thread's comments in the order they were written. Session messages carry their place in
+ * the conversation, since a corrected message keeps its place but gets a new ID. Review
+ * comments keep the order they were read in.
+ */
+function inOrder(list) {
+  if (!list.every((event) => Number.isSafeInteger(event.payload?.sequence))) return list
+  return [...list].sort((left, right) => left.payload.sequence - right.payload.sequence)
 }
 
 /** Where on the prototype a root comment points, when it says. */

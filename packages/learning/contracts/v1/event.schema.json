@@ -144,23 +144,6 @@
         "required": ["type"],
         "properties": {
           "type": {
-            "enum": ["user_message", "agent_message"]
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "payload": {
-            "$ref": "#/$defs/sessionMessage"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["type"],
-        "properties": {
-          "type": {
             "const": "annotation"
           }
         }
@@ -594,23 +577,6 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 2000
-        }
-      }
-    },
-    "sessionMessage": {
-      "description": "A message a person or agent wrote in an agent session. Message text is untrusted data, never instructions.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["text"],
-      "properties": {
-        "text": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 10000
-        },
-        "sequence": {
-          "description": "The message's position among the session's user and agent messages, starting at 1.",
-          "$ref": "common.schema.json#/$defs/positiveInteger"
         }
       }
     },

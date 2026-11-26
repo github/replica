@@ -717,7 +717,10 @@ export interface LearningStore {
       destination: string
     }>
   }>
-  /** Remove a review comment's text: every version of it and every label on them. */
+  /**
+   * Remove the text of a review comment or an agent session message: every version of it and
+   * every label on them.
+   */
   redactComment(
     context: LearningContext,
     eventId: string,
@@ -772,6 +775,28 @@ export interface LearningStore {
       eventIds: string[]
       memoryIds: string[]
     }
+  }>
+  /**
+   * Store an agent session as one episode of user and agent messages and an outcome. Sending
+   * the same sessionId again adds new messages and versions of changed ones.
+   */
+  importAgentSession(
+    context: LearningContext,
+    session: {
+      sessionId: string
+      task?: string
+      user?: string
+      startedAt?: string
+      messages: Array<{ role: "user" | "agent" | "tool"; text: string; at?: string }>
+      outcome?: { status: "success" | "failure" | "partial" | "unknown"; summary?: string }
+    },
+    options: { grantIds: string[] },
+  ): Promise<{
+    episodeId: string
+    sessionId: string
+    addedEpisodes: number
+    addedEvents: number
+    skippedMessages: number
   }>
   appendObservations(
     context: LearningContext,
