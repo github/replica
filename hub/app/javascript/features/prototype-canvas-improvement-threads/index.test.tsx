@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 
@@ -17,6 +17,335 @@ function pointerDown(
 }
 
 describe("ImprovementThreads()", () => {
+  it.each([true, false])(
+    "resolves only ready notes in order and stops on failure: %s",
+    async (success) => {
+      const thread: ImprovementThread = {
+        id: 1,
+        revision: 1,
+        author: "You",
+        body: "Keep the save action visible",
+        target: "Save",
+        path: "/projects",
+        status: "ready",
+        originalPending: false,
+        messages: [],
+      }
+      let finish: (value: boolean) => void
+      const onResolve = vi
+        .fn<(thread: ImprovementThread) => Promise<boolean>>()
+        .mockImplementationOnce(
+          () =>
+            new Promise<boolean>((resolve) => {
+              finish = resolve
+            }),
+        )
+        .mockResolvedValue(true)
+      const threads: ImprovementThread[] = [
+        thread,
+        { ...thread, id: 2, status: "open", originalPending: true },
+        { ...thread, id: 3, status: "sent" },
+        { ...thread, id: 4, status: "blocked" },
+        { ...thread, id: 5, status: "resolved" },
+        { ...thread, id: 6 },
+      ]
+      const props = {
+        threads,
+        identity: "branch",
+        open: true,
+        onOpen: vi.fn(),
+        onClose: vi.fn(),
+        onFollowUp: vi.fn().mockResolvedValue(true),
+        onResolve,
+        onDelete: vi.fn().mockResolvedValue(true),
+        onFix: vi.fn().mockResolvedValue(true),
+      }
+      const view = render(<ImprovementThreads {...props} />)
+      expect(screen.queryByRole("button", { name: copy.resolveAll })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole("button", { name: /^Filter notes:/ }))
+      fireEvent.click(screen.getByRole("menuitemradio", { name: copy.ready }))
+      const resolveAll = screen.getByRole("button", { name: copy.resolveAll })
+      expect(screen.queryByRole("button", { name: /Fix all/ })).not.toBeInTheDocument()
+      fireEvent.click(resolveAll)
+      expect(resolveAll).toBeDisabled()
+      fireEvent.click(resolveAll)
+      expect(onResolve).toHaveBeenCalledExactlyOnceWith(thread)
+      await act(async () => {
+        finish(success)
+        await Promise.resolve()
+      })
+      await waitFor(() => expect(resolveAll).toBeEnabled())
+      expect(onResolve.mock.calls.map(([item]) => item.id)).toEqual(success ? [1, 6] : [1])
+      expect(props.onFix).not.toHaveBeenCalled()
+
+      view.rerender(<ImprovementThreads {...props} threads={[]} />)
+      expect(resolveAll).toBeDisabled()
+      fireEvent.click(screen.getByRole("button", { name: /^Filter notes:/ }))
+      fireEvent.click(screen.getByRole("menuitemradio", { name: copy.resolved }))
+      expect(screen.queryByRole("button", { name: copy.resolveAll })).not.toBeInTheDocument()
+    },
+  )
+
+  it.each(["fix", "resolve"] as const)(
+    "applies %s only to selected notes eligible for that action",
+    async (action) => {
+      function makeThread(id: number, body: string, status: "open" | "ready"): ImprovementThread {
+        return {
+          id,
+          revision: 1,
+          author: "You",
+          body,
+          target: "Save",
+          path: "/projects",
+          status,
+          originalPending: status === "open",
+          messages: [],
+        }
+      }
+      const open = makeThread(1, "First open note", "open")
+      const anotherOpen = makeThread(2, "Second open note", "open")
+      const ready = makeThread(3, "First ready note", "ready")
+      const anotherReady = makeThread(4, "Second ready note", "ready")
+      const unselectedOpen = makeThread(5, "Unselected open note", "open")
+      const unselectedReady = makeThread(6, "Unselected ready note", "ready")
+      const onFixSelected = vi
+        .fn<(items: ImprovementThread[]) => Promise<boolean>>()
+        .mockResolvedValue(true)
+      const onResolve = vi
+        .fn<(item: ImprovementThread) => Promise<boolean>>()
+        .mockResolvedValue(true)
+      render(
+        <ImprovementThreads
+          threads={[open, anotherOpen, ready, anotherReady, unselectedOpen, unselectedReady]}
+          identity="branch"
+          open
+          onOpen={vi.fn()}
+          onClose={vi.fn()}
+          onFollowUp={vi.fn().mockResolvedValue(true)}
+          onResolve={onResolve}
+          onDelete={vi.fn().mockResolvedValue(true)}
+          onFixSelected={onFixSelected}
+          onFix={vi.fn().mockResolvedValue(true)}
+        />,
+      )
+
+      const openCard = screen.getByRole("button", { name: `Open note: ${open.body}` })
+      fireEvent.mouseEnter(openCard)
+      fireEvent.focus(openCard)
+      fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${open.body}` }))
+      fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${anotherOpen.body}` }))
+      fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${ready.body}` }))
+      fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${anotherReady.body}` }))
+
+      const fix = screen.getByRole("button", { name: "Fix selected 2" })
+      const resolve = screen.getByRole("button", { name: "Mark as resolved 2" })
+      expect(fix).toBeVisible()
+      expect(resolve).toBeVisible()
+      expect(screen.getByRole("button", { name: copy.clearSelection })).toBeVisible()
+
+      if (action === "fix") {
+        fireEvent.click(fix)
+        await waitFor(() =>
+          expect(onFixSelected).toHaveBeenCalledExactlyOnceWith([open, anotherOpen]),
+        )
+        expect(onResolve).not.toHaveBeenCalled()
+      } else {
+        fireEvent.click(resolve)
+        await waitFor(() =>
+          expect(onResolve.mock.calls.map(([item]) => item.id)).toEqual([
+            ready.id,
+            anotherReady.id,
+          ]),
+        )
+        expect(onFixSelected).not.toHaveBeenCalled()
+      }
+    },
+  )
+
+  it("clears note selection when the filter, sidebar, or branch changes", () => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Keep the save action visible",
+      target: "Save",
+      path: "/projects",
+      status: "open",
+      originalPending: true,
+      messages: [],
+    }
+    const props = {
+      threads: [thread],
+      identity: "first branch",
+      open: true,
+      onOpen: vi.fn(),
+      onClose: vi.fn(),
+      onFollowUp: vi.fn().mockResolvedValue(true),
+      onResolve: vi.fn().mockResolvedValue(true),
+      onDelete: vi.fn().mockResolvedValue(true),
+      onFix: vi.fn().mockResolvedValue(true),
+    }
+    const view = render(<ImprovementThreads {...props} />)
+    function selection() {
+      return screen.queryByRole("region", { name: copy.selection })
+    }
+    function selectNote() {
+      fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${thread.body}` }))
+      expect(selection()).toBeInTheDocument()
+    }
+    function chooseFilter(label: string) {
+      fireEvent.click(screen.getByRole("button", { name: /^Filter notes:/ }))
+      fireEvent.click(screen.getByRole("menuitemradio", { name: label }))
+    }
+
+    selectNote()
+    chooseFilter(copy.ready)
+    expect(selection()).not.toBeInTheDocument()
+    chooseFilter(copy.allActive)
+    expect(selection()).not.toBeInTheDocument()
+
+    selectNote()
+    view.rerender(<ImprovementThreads {...props} open={false} />)
+    expect(selection()).not.toBeInTheDocument()
+    view.rerender(<ImprovementThreads {...props} />)
+    expect(selection()).not.toBeInTheDocument()
+
+    selectNote()
+    view.rerender(<ImprovementThreads {...props} identity="second branch" />)
+    expect(selection()).not.toBeInTheDocument()
+  })
+
+  it("stops resolving selected notes when the branch changes during a save", async () => {
+    const first: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "First ready note",
+      target: "Save",
+      path: "/projects",
+      status: "ready",
+      originalPending: false,
+      messages: [],
+    }
+    const second: ImprovementThread = { ...first, id: 2, body: "Second ready note" }
+    let finish: ((success: boolean) => void) | undefined
+    const pending = new Promise<boolean>((resolve) => {
+      finish = resolve
+    })
+    const onResolve = vi
+      .fn()
+      .mockImplementationOnce(() => pending)
+      .mockResolvedValue(true)
+    const props = {
+      threads: [first, second],
+      identity: "first branch",
+      open: true,
+      onOpen: vi.fn(),
+      onClose: vi.fn(),
+      onFollowUp: vi.fn().mockResolvedValue(true),
+      onResolve,
+      onDelete: vi.fn().mockResolvedValue(true),
+      onFix: vi.fn().mockResolvedValue(true),
+    }
+    const view = render(<ImprovementThreads {...props} />)
+
+    fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${first.body}` }))
+    fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${second.body}` }))
+    fireEvent.click(screen.getByRole("button", { name: "Mark as resolved 2" }))
+    expect(onResolve).toHaveBeenCalledExactlyOnceWith(first)
+
+    view.rerender(<ImprovementThreads {...props} identity="second branch" />)
+    await act(async () => {
+      if (!finish) throw new Error("Expected the first selected note to be saving.")
+      finish(true)
+      await pending
+    })
+
+    expect(onResolve).toHaveBeenCalledExactlyOnceWith(first)
+  })
+
+  it("stops bulk resolution when the branch changes away and back while a note is saving", async () => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Keep the save action visible",
+      target: "Save",
+      path: "/projects",
+      status: "ready",
+      originalPending: false,
+      messages: [],
+    }
+    let finish: (value: boolean) => void
+    const onResolve = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const props = {
+      threads: [thread, { ...thread, id: 2 }],
+      identity: "first",
+      open: true,
+      onOpen: vi.fn(),
+      onClose: vi.fn(),
+      onFollowUp: vi.fn().mockResolvedValue(true),
+      onResolve,
+      onDelete: vi.fn().mockResolvedValue(true),
+      onFix: vi.fn().mockResolvedValue(true),
+    }
+    const view = render(<ImprovementThreads {...props} />)
+    fireEvent.click(screen.getByRole("button", { name: /^Filter notes:/ }))
+    fireEvent.click(screen.getByRole("menuitemradio", { name: copy.ready }))
+    fireEvent.click(screen.getByRole("button", { name: copy.resolveAll }))
+    view.rerender(<ImprovementThreads {...props} identity="second" />)
+    view.rerender(<ImprovementThreads {...props} identity="first" />)
+    await act(async () => {
+      finish(true)
+      await Promise.resolve()
+    })
+    expect(onResolve).toHaveBeenCalledExactlyOnceWith(thread)
+  })
+
+  it("blocks bulk resolution during saving and protects an unsaved follow-up", () => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Keep the save action visible",
+      target: "Save",
+      path: "/projects",
+      status: "ready",
+      originalPending: false,
+      messages: [],
+    }
+    const props = {
+      threads: [thread],
+      identity: "branch",
+      open: true,
+      onOpen: vi.fn(),
+      onClose: vi.fn(),
+      onFollowUp: vi.fn().mockResolvedValue(true),
+      onResolve: vi.fn().mockResolvedValue(true),
+      onDelete: vi.fn().mockResolvedValue(true),
+      onFix: vi.fn().mockResolvedValue(true),
+    }
+    const view = render(<ImprovementThreads {...props} busy />)
+    fireEvent.click(screen.getByRole("button", { name: /^Filter notes:/ }))
+    fireEvent.click(screen.getByRole("menuitemradio", { name: copy.ready }))
+    const resolveAll = screen.getByRole("button", { name: copy.resolveAll })
+    expect(resolveAll).toBeDisabled()
+    view.rerender(<ImprovementThreads {...props} />)
+    expect(resolveAll).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: `Open note: ${thread.body}` }))
+    const input = screen.getByRole("textbox", { name: copy.comments.replyLabel })
+    fireEvent.change(input, { target: { value: "Keep this follow-up" } })
+    expect(resolveAll).toBeDisabled()
+    fireEvent.click(resolveAll)
+    expect(props.onResolve).not.toHaveBeenCalled()
+    expect(input).toHaveValue("Keep this follow-up")
+  })
+
   it("names the conversation from the saved target", () => {
     const thread: ImprovementThread = {
       id: 1,

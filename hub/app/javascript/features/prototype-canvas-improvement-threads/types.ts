@@ -30,7 +30,6 @@ export type ImprovementThreadsProps = {
   active?: boolean
   controls?: boolean
   busy?: boolean
-  activeBatch?: boolean
   error?: string
   returnFocusRef?: RefObject<HTMLElement | null>
   closeRequestRef?: RefObject<(() => void) | null>
@@ -41,6 +40,7 @@ export type ImprovementThreadsProps = {
   onFollowUp: (thread: ImprovementThread, body: string) => Promise<boolean>
   onResolve: (thread: ImprovementThread) => Promise<boolean>
   onDelete: (thread: ImprovementThread) => Promise<boolean>
+  onFixSelected?: (threads: ImprovementThread[]) => Promise<boolean>
   onFix: () => Promise<boolean>
   onRetry?: (thread: ImprovementThread) => Promise<boolean>
 }
