@@ -115,7 +115,7 @@ A coding agent can read a repository's learnings from Hub and report which ones 
 { "mcpServers": { "replica": { "url": "https://hub.example.com/mcp/repositories/<repository-id>" } } }
 ```
 
-The configuration holds no credential. The first time the agent calls Hub, it gets a `401` that points to Hub's OAuth discovery document. An agent that supports [MCP authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) registers itself, opens `/agents/approve/:authorizationId` in the browser, and waits. The person signs in if needed and approves or cancels. Hub then sends the browser back to the agent with a one-time code, and the agent trades the code for tokens.
+The configuration holds no credential. The first time the agent calls Hub, it gets a `401` that points to Hub's OAuth discovery document. An agent that supports [MCP authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) registers itself, opens `/agents/approve/:authorizationId` in the browser, and waits. The person signs in if needed and approves or cancels. The page shows the address the agent asked Hub to send access to, and warns when that address is not on the person's computer. If they switch accounts in another tab before deciding, Hub asks them to review the request again. Hub then sends the browser back to the agent with a one-time code, and the agent trades the code for tokens.
 
 The agent gets the same tools and instructions as `replica-learning mcp` in the [learning package](../../packages/learning/README.md#connect-an-agent), because Hub loads them from the installed package. Hub supplies the backend:
 
@@ -123,7 +123,7 @@ The agent gets the same tools and instructions as `replica-learning mcp` in the 
 - `report_usage` records which learnings the agent applied. It refuses screenshots for now.
 - `submit_session` is refused, because Hub does not collect agent sessions yet.
 
-Every request acts for the person who approved the connection. Hub rechecks their sign-in, membership, provider, and repository access each time, so ending the person's sessions or removing their access stops the agent too. A connection works for any repository the person can read, which is why the list is kept per person. People review and revoke their agents on the same page. Approving and revoking write security audits.
+Every request acts for the person who approved the connection. Hub rechecks their sign-in, membership, provider, and repository access before and after each command, so ending the person's sessions or removing their access stops the agent too. Agent commands take the same lock as other learning work, so they run one at a time and an agent that arrives while Hub is busy is asked to try again. A connection works for any repository the person can read, which is why the list is kept per person. People review and revoke their agents on the same page, and an agent can give up its own access through `/revoke`. Approving and revoking write security audits.
 
 Tokens use the same lifetimes as Canvas connections. An approval request expires after 10 minutes. Access tokens last seven days, refresh tokens rotate on use, and a connection unused for 30 days ends. Hub stores only digests of codes and tokens. Every agent is a public OAuth client that relies on PKCE, because agents run on people's machines and cannot keep a secret.
 
@@ -134,7 +134,7 @@ The OAuth endpoints are `/.well-known/oauth-authorization-server`, `/.well-known
 - `GET /api/agent-connections`
 - `DELETE /api/agent-connections/:connectionId`
 
-The MCP endpoint accepts `POST` only and needs `HUB_APPLICATION_ORIGIN` and the learning package. Local repositories are not supported, because learnings belong to GitHub repositories.
+The MCP endpoint accepts `POST` only and needs `HUB_APPLICATION_ORIGIN` and the learning package. Local repositories are not supported, because learnings belong to GitHub repositories, so their Learnings page offers no agent setup.
 
 ## Configuration
 
