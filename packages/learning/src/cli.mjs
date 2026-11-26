@@ -114,7 +114,8 @@ Review (a person decides; --by github:<login>)
                --operation-id <uuid> [--title-file <file>] [--content-file <file>]
                                   Make the suggested wording, or your edit of it,
                                   the learning's next version
-  dismiss-update <proposal-id> --by <id> (--reason <text> | --reason-file <file>)
+  dismiss-update <proposal-id> [--operation-id <uuid>] --by <id>
+                 (--reason <text> | --reason-file <file>)
 
 Use
   recall [--task <text> | --task-file <file>] [--limit <n>] [--budget <chars>]
@@ -1595,7 +1596,10 @@ async function dismissUpdate(session) {
   const reason = await reasonOf(session)
   const principal = person(session)
   const { store } = await open(session)
-  const result = await store.dismissUpdate(context(session, principal), id, { reason })
+  const result = await store.dismissUpdate(context(session, principal), id, {
+    reason,
+    operationId: session.values["operation-id"],
+  })
   session.out(result, result.stored ? `Dismissed ${id}.` : `${id} was already dismissed.`)
 }
 

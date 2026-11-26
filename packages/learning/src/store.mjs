@@ -4004,6 +4004,7 @@ class LearningStore {
                 decidedBy: decision.decidedBy,
                 decidedAt: decision.decidedAt,
                 ...(decision.appliedVersion ? { appliedVersion: decision.appliedVersion } : {}),
+                ...(decision.operationId ? { operationId: decision.operationId } : {}),
               },
             }
           : {}),
@@ -4045,16 +4046,22 @@ class LearningStore {
   }
 
   /** Dismiss an open update proposal, so it returns only with new evidence. */
-  async dismissUpdate(context, proposalId, { reason } = {}) {
+  async dismissUpdate(context, proposalId, { reason, operationId } = {}) {
     assertContext(context)
     requireHuman(context, "dismiss an update")
     if (typeof reason !== "string" || !reason.trim() || reason.length > 2000)
       throw new LearningError("invalid_input", "Give a reason for the decision.")
+    if (operationId !== undefined && !OPERATION_ID.test(operationId))
+      throw new LearningError("invalid_input", "Name the dismissal with a UUID operation ID.")
     const { proposal, update } = await this.#update(context, proposalId)
     if (update.state === "dismissed") return { update, stored: false }
     if (update.state !== "open")
       throw new LearningError("invalid_transition", `Update ${proposalId} is ${update.state}.`)
-    const stored = await this.#decideUpdate(context, proposal, { decision: "dismissed", reason })
+    const stored = await this.#decideUpdate(context, proposal, {
+      decision: "dismissed",
+      reason,
+      operationId,
+    })
     return { update: (await this.#update(context, proposalId)).update, stored }
   }
 
@@ -4077,7 +4084,7 @@ class LearningStore {
   }
 
   /** Keep one decision per proposal; when two people decide at once, the first one stands. */
-  async #decideUpdate(context, proposal, { decision, appliedVersion, reason }) {
+  async #decideUpdate(context, proposal, { decision, appliedVersion, reason, operationId }) {
     const record = sealRecord({
       schemaVersion: SCHEMA_VERSIONS.updateDecision,
       id: derivedId("update_decision", { proposalId: proposal.id }),
@@ -4089,6 +4096,7 @@ class LearningStore {
       reason,
       decidedBy: context.principal,
       decidedAt: this.#now(),
+      ...(operationId ? { operationId } : {}),
     })
     assertValid("updateDecision", record)
     try {

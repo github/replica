@@ -1675,7 +1675,10 @@ export function memoryProviderConformance({ name, createProvider }) {
       const first = await store.proposeUpdate(agent(), update)
       const again = await store.proposeUpdate(agent(), { ...update, content: "Other wording." })
       const other = await store.proposeUpdate(agent(), { ...update, issueKey: "label-contrast" })
-      const dismissed = await store.dismissUpdate(designer(), other.id, { reason: "Not it." })
+      const dismissed = await store.dismissUpdate(designer(), other.id, {
+        reason: "Not it.",
+        operationId: "77777777-7777-4777-8777-777777777777",
+      })
       const redismissed = await store.dismissUpdate(designer(), other.id, { reason: "Not it." })
       // A newer suggestion for the same issue replaces the first one.
       const newer = await store.proposeUpdate(agent(), {
@@ -1706,6 +1709,8 @@ export function memoryProviderConformance({ name, createProvider }) {
       assert.deepEqual([first.stored, again.stored], [true, false])
       assert.equal(again.proposal.content, update.content)
       assert.deepEqual([dismissed.stored, redismissed.stored], [true, false])
+      // The host's recovery tells its own dismissal apart by this ID.
+      assert.equal(redismissed.update.decision.operationId, "77777777-7777-4777-8777-777777777777")
       assert.equal(applied.memory.version, record.version + 1)
       assert.equal(applied.memory.content, decision.content)
       assert.equal(

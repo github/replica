@@ -58,6 +58,11 @@
     "decidedAt": {
       "$ref": "common.schema.json#/$defs/timestamp"
     },
+    "operationId": {
+      "description": "The host request that dismissed the proposal, so the host can tell its own dismissal from a later one.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"
+    },
     "digest": {
       "$ref": "common.schema.json#/$defs/digest"
     }

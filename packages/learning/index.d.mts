@@ -426,7 +426,14 @@ export type LearningUpdate = {
   counter: string[]
   proposedAt: Timestamp
   state: "open" | "applied" | "dismissed" | "stale"
-  decision?: { reason: string; decidedBy: Actor; decidedAt: Timestamp; appliedVersion?: number }
+  decision?: {
+    reason: string
+    decidedBy: Actor
+    decidedAt: Timestamp
+    appliedVersion?: number
+    /** The host request that dismissed the proposal, when the host named one. */
+    operationId?: string
+  }
 } & (
   | { withheld?: never; issue: string; title?: string; content: string; reasoning: string }
   | { withheld: true }
@@ -1311,7 +1318,8 @@ export interface LearningStore {
   dismissUpdate(
     context: LearningContext,
     proposalId: string,
-    input: { reason: string },
+    /** A host names the dismissal so its recovery can tell it from a later one. */
+    input: { reason: string; operationId?: string },
   ): Promise<{ update: LearningUpdate; stored: boolean }>
   /**
    * Remove a learning for good, with its deliveries, use, screenshots, scores, and update
