@@ -4,6 +4,7 @@ model Repository {
   canvasId Int @unique @default(autoincrement()) @map("canvas_id")
 
   // Relations
+  learningActivityDays       LearningActivityDay[]
   learningRuns               LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]
   learningShares             LearningShare[]

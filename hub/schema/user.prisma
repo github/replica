@@ -5,6 +5,7 @@ model User {
 
   // Relations
   externalIdentities     ExternalIdentity[]
+  learningActivityDays   LearningActivityDay[]
   learningRuns           LearningRun[]
   membership             Membership?
   profile                UserProfile?

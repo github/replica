@@ -1,0 +1,28 @@
+model LearningActivityDay {
+  // ID columns
+  id                 String  @id @default(uuid()) @db.Uuid
+  repositoryId       String  @map("repository_id") @db.Uuid
+  lastRequestedById  String? @map("last_requested_by_id") @db.Uuid
+
+  // Relations
+  repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  lastRequestedBy User?      @relation(fields: [lastRequestedById], references: [id], onDelete: SetNull)
+
+  // Attribute columns
+  date             DateTime         @db.Date
+  runs             Int              @default(0)
+  commentsAnalyzed Int              @default(0) @map("comments_analyzed")
+  commentsTagged   Int              @default(0) @map("comments_tagged")
+  suggestions      Int              @default(0)
+  lastRunState     LearningRunState @map("last_run_state")
+  lastScheduled    Boolean          @map("last_scheduled")
+  lastStartedAt    DateTime         @map("last_started_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositoryId, date])
+  @@index([lastRequestedById])
+  @@map("learning_activity_days")
+}
