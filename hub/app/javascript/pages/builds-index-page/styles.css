@@ -16,6 +16,13 @@
   gap: var(--hub-space-4) var(--hub-space-16);
 }
 
+.build-history__heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--hub-space-4);
+}
+
 .build-history__build-link {
   width: fit-content;
   font-weight: 600;

@@ -244,6 +244,7 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
     assert_response :success
     details = JSON.parse(response.body)
     assert_equal true, details.fetch("published")
+    assert_equal true, details.fetch("supportsLatestBuildLinks")
     assert_equal 1, details.fetch("versionCount")
     assert_includes details.fetch("build").fetch("url"), "build=2"
     assert_equal "queued", details.fetch("buildState")

@@ -421,6 +421,62 @@ class GalleryTest < ActionDispatch::IntegrationTest
     assert_not data.key?("newerBuildLabel")
   end
 
+  test "resolves latest links on each open while numbered links stay fixed" do
+    repository, prototype = sign_in_and_create_prototype
+    selected = build_with_state(prototype, 1, "successful", "a", Time.current)
+    build_with_state(prototype, 2, "failed", "b", 1.minute.from_now)
+    build_with_state(prototype, 3, "running", "c", 2.minutes.from_now)
+    route = "/settings?tab=profile#details"
+    latest_path = repository_prototype_path \
+      repository.github_id,
+      prototype,
+      build: "latest",
+      return_path: route,
+      view: "minimized"
+
+    get latest_path, as: :json
+
+    assert_response :success
+    data = JSON.parse(response.body).fetch("data")
+    assert_equal selected.number, data.fetch("selectedBuild").fetch("number")
+    assert_equal false, data.fetch("buildPinned")
+    assert_equal true, data.fetch("minimizedPreview")
+    assert_equal "#{PreviewOrigin.current.url(selected.id)}#{route.delete_prefix('/')}",
+      data.fetch("selectedBuild").fetch("previewUrl")
+
+    newer = build_with_state(prototype, 4, "successful", "d", 3.minutes.from_now)
+    build_with_state(prototype, 5, "queued", "e", 4.minutes.from_now)
+    get latest_path, as: :json
+
+    assert_response :success
+    data = JSON.parse(response.body).fetch("data")
+    assert_equal newer.number, data.fetch("selectedBuild").fetch("number")
+    assert_equal false, data.fetch("buildPinned")
+
+    get repository_prototype_path(repository.github_id, prototype, build: selected.number), as: :json
+    assert_response :success
+    assert_equal selected.number, JSON.parse(response.body).fetch("data").fetch("selectedBuild").fetch("number")
+  end
+
+  test "opens a latest link without a successful Build and keeps repository authorization" do
+    repository, prototype = sign_in_and_create_prototype
+    builds.create(prototype:)
+    path = repository_prototype_path(repository.github_id, prototype, build: "latest")
+
+    get path, as: :json
+
+    assert_response :success
+    assert_nil JSON.parse(response.body).fetch("data")["selectedBuild"]
+
+    build_with_state(prototype, 2, "successful", "b", Time.current)
+    Rails.cache.clear
+    stub_github_permissions \
+      [ repository_payload(repository.github_id, repository.name_with_owner) ],
+      { repository.github_id => nil }
+    get path, as: :json
+    assert_response :not_found
+  end
+
   test "includes localized submit shortcuts for comments and replies" do
     repository, prototype = sign_in_and_create_prototype
     build_with_state(prototype, 1, "successful", "a", Time.current)
@@ -751,13 +807,18 @@ class GalleryTest < ActionDispatch::IntegrationTest
 
   test "rejects malformed prototype IDs and build numbers" do
     repository, prototype = sign_in_and_create_prototype
-    build = builds.create(prototype:)
+    build = build_with_state(prototype, 1, "successful", "a", Time.current)
 
     get "/repositories/#{repository.github_id}/prototypes/#{prototype.id}abc"
     assert_response :not_found
 
     get "/repositories/#{repository.github_id}/prototypes/#{prototype.id}/builds/#{build.number}abc"
     assert_response :not_found
+
+    %w[0 -1 1abc 1.5 Latest latestabc 999].each do |number|
+      get repository_prototype_path(repository.github_id, prototype, build: number)
+      assert_response :not_found
+    end
   end
 
   test "rejects malformed repository IDs in nested gallery paths" do

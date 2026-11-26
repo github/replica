@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { ThemeProvider } from "@primer/react-brand/esm"
 import { createRef } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -9,6 +9,7 @@ import { shareCopy } from "@hooks/use-canvas-share-links/en"
 import type { SharingState } from "@hooks/use-canvas-share-links/types"
 
 afterEach(() => {
+  localStorage.removeItem("replica:share-full-screen-preview:v1")
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -61,7 +62,8 @@ function fixture(display = state) {
 }
 
 describe("ShareLinksPage()", () => {
-  it("defaults only the internal link to minimized view and toggles its displayed, copied and opened URL", async () => {
+  it("always shares latest while preserving the destination and saved fullscreen choice", async () => {
+    localStorage.removeItem("replica:share-full-screen-preview:v1")
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal("navigator", { clipboard: { writeText } })
     const url =
@@ -72,7 +74,7 @@ describe("ShareLinksPage()", () => {
         ...state.context!,
         prototype: {
           ...state.context!.prototype,
-          build: { ...state.context!.prototype.build!, url },
+          build: { ...state.context!.prototype.build!, number: 2, url },
         },
       },
     }
@@ -80,6 +82,7 @@ describe("ShareLinksPage()", () => {
     const checkbox = screen.getByRole("checkbox", { name: "Full screen preview" })
     const input = screen.getByRole("textbox", { name: shareCopy.internal })
     const open = screen.getByRole("link", { name: shareCopy.internalOpen })
+    expect(screen.queryByRole("combobox", { name: "Build" })).not.toBeInTheDocument()
     expect(checkbox).toBeChecked()
     expect(input.compareDocumentPosition(checkbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
@@ -88,8 +91,13 @@ describe("ShareLinksPage()", () => {
     for (const [index, fullScreenPreview] of [true, false, true].entries()) {
       if (index > 0) fireEvent.click(checkbox)
       const expected = new URL(url)
+      expected.searchParams.set("build", "latest")
       expected.searchParams.delete("view")
       if (fullScreenPreview) expected.searchParams.append("view", "minimized")
+      if (index > 0)
+        expect(localStorage.getItem("replica:share-full-screen-preview:v1")).toBe(
+          String(fullScreenPreview),
+        )
       expect(input).toHaveValue(expected.toString())
       expect(open).toHaveAttribute("href", expected.toString())
       fireEvent.click(screen.getByRole("button", { name: shareCopy.internalCopy }))
@@ -101,6 +109,36 @@ describe("ShareLinksPage()", () => {
     expect(display.context!.prototype.build!.url).toBe(url)
     expect(f.props.onCreate).not.toHaveBeenCalled()
   })
+
+  it.each([undefined, false])(
+    "keeps the fixed Build link when Hub does not advertise latest support (%s)",
+    async (supportsLatestBuildLinks) => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal("navigator", { clipboard: { writeText } })
+      const url = "https://hub.example.com/prototypes/1?build=2&return_path=%2Fsettings#preview"
+      fixture({
+        ...state,
+        context: {
+          ...state.context!,
+          prototype: {
+            ...state.context!.prototype,
+            supportsLatestBuildLinks,
+            build: { ...state.context!.prototype.build!, number: 2, url },
+          },
+        },
+      })
+      const expected = new URL(url)
+      expected.searchParams.set("view", "minimized")
+      expect(screen.getByText(shareCopy.internalPinned(2))).toBeInTheDocument()
+      expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(expected.href)
+      expect(screen.getByRole("link", { name: shareCopy.internalOpen })).toHaveAttribute(
+        "href",
+        expected.href,
+      )
+      fireEvent.click(screen.getByRole("button", { name: shareCopy.internalCopy }))
+      await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith(expected.href))
+    },
+  )
 
   it("explains public access and commenting before creation", () => {
     fixture()
@@ -125,9 +163,11 @@ describe("ShareLinksPage()", () => {
         },
       },
     })
-    expect(screen.getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual(
-      options,
-    )
+    expect(
+      within(screen.getByRole("combobox", { name: shareCopy.expiry }))
+        .getAllByRole("option")
+        .map((option) => option.getAttribute("value")),
+    ).toEqual(options)
     expect(screen.getByRole("combobox", { name: shareCopy.expiry })).toHaveValue(selected)
     fireEvent.change(screen.getByRole("textbox", { name: "Label" }), {
       target: { value: "Bounded review" },
@@ -182,7 +222,7 @@ describe("ShareLinksPage()", () => {
         },
       })
       expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
-        `${state.context!.prototype.build!.url}?view=minimized`,
+        `${state.context!.prototype.build!.url}?build=latest&view=minimized`,
       )
       expect(screen.getByRole("link", { name: shareCopy.internalOpen })).toBeInTheDocument()
       expect(screen.getByText(shareCopy.disabled)).toBeInTheDocument()
@@ -289,7 +329,7 @@ describe("ShareLinksPage()", () => {
     }
     expect(internal).toHaveAttribute(
       "href",
-      `${state.context!.prototype.build!.url}?view=minimized`,
+      `${state.context!.prototype.build!.url}?build=latest&view=minimized`,
     )
     expect(internal).toHaveAttribute("target", "_blank")
     expect(internal).toHaveAttribute("rel", "noopener")
@@ -313,7 +353,7 @@ describe("ShareLinksPage()", () => {
           },
         },
       })
-      const url = `${state.context!.prototype.build!.url}?view=minimized`
+      const url = `${state.context!.prototype.build!.url}?build=latest&view=minimized`
       expect(screen.getByRole("heading", { name: shareCopy.title })).toBeInTheDocument()
       expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(url)
       expect(screen.getByText(shareCopy.internalDescription)).toBeInTheDocument()
@@ -374,6 +414,7 @@ describe("ShareLinksPage()", () => {
     expect(f.props.onOpen).toHaveBeenCalledExactlyOnceWith(1, query)
     expect(state.links[0]!.url).toBe(link.url)
     const internalUrl = new URL(state.context!.prototype.build!.url)
+    internalUrl.searchParams.set("build", "latest")
     internalUrl.searchParams.set("rc.page.title", '"Configured"')
     internalUrl.searchParams.append("view", "minimized")
     expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
@@ -516,6 +557,7 @@ describe("ShareLinksPage()", () => {
           </ThemeProvider>,
         )
         const url = new URL(state.context!.prototype.build!.url)
+        url.searchParams.set("build", "latest")
         if (included) url.searchParams.set("rc.page.enabled", "false")
         url.searchParams.append("view", "minimized")
         expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
@@ -608,7 +650,7 @@ describe("ShareLinksPage()", () => {
     expect(screen.getByRole("main", { name: shareCopy.title })).toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(screen.getByText(shareCopy.warning)).toBeInTheDocument()
-    expect(screen.getByText("Build 1")).toBeInTheDocument()
+    expect(screen.getByText("Build 1", { selector: "strong" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "Build 1" })).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: shareCopy.internal })).toBeInTheDocument()
     const publicHeading = screen.getByRole("heading", { name: shareCopy.public })
@@ -663,10 +705,11 @@ describe("ShareLinksPage()", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/100 UTF-8 bytes/)
     expect(f.props.onCreate).not.toHaveBeenCalled()
     fireEvent.change(label, { target: { value: "Review" } })
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "never" } })
+    const expiry = screen.getByRole("combobox", { name: shareCopy.expiry })
+    fireEvent.change(expiry, { target: { value: "never" } })
     fireEvent.click(screen.getByRole("button", { name: "Create share link" }))
     expect(f.props.onCreate).toHaveBeenCalledExactlyOnceWith("Review", "never")
-    expect(screen.getAllByRole("option")).toHaveLength(4)
+    expect(within(expiry).getAllByRole("option")).toHaveLength(4)
   })
 
   it("does not delete on cancellation and deletes only after confirmation", async () => {

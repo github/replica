@@ -1,6 +1,6 @@
 ---
 name: prototype-controls
-description: "Create and wire Replica prototype controls. Also called options. Use when asked to add or change dropdowns, sliders, input fields, toggles or action buttons that configure variants, scenarios, visible UI, app state or data sources, even without canvas terminology. Covers declarations, typed bindings, defaults, conditions, resets and actions. Product UI form fields and filters alone belong to create-prototype."
+description: "Create and wire Replica prototype controls. Also called options. Use when asked to add or change dropdowns, sliders, input fields, toggles or action buttons that configure variants, scenarios, visible UI, app state or data sources, or switch prototype pages, even without canvas terminology. Covers declarations, typed bindings, defaults, conditions, resets and actions. Product UI form fields and filters alone belong to create-prototype."
 ---
 
 # Prototype options
@@ -25,6 +25,7 @@ effect, and prototype configuration is distinguished from product UI behavior.
 | --- | --- |
 | Compare layout variants | Short `segmented` options, or `select` for longer labels; pass the selected variant into the existing layout |
 | Explore empty, loading, error and populated scenarios | `select` mapped to the page's existing state or approved fixtures |
+| Switch between prototype pages | Shared `select` bound to an app-owned routing API; map friendly option labels to the app's routes |
 | Adjust item count, density or another numeric value | Bounded `slider` or `number` consumed by rendering or data selection |
 | Change a heading or other preview text | `text` or `textarea` bound to the rendered content |
 | Show optional UI | `boolean` bound to visibility; `checkboxGroup` for independent choices |
@@ -52,6 +53,7 @@ has a safe, available target.
 
 Keep `public/controls.replica.json` and ordinary app behavior in the prototype; Replica owns the injected adapter and panel UI.
 Preserve usable defaults and ordinary app interactions while disconnected.
+For a page switcher, use a shared set and an app API binding. Read the [page navigation recipe](./references/authoring.md#switch-between-app-pages) before wiring routes; query/hash bindings are not a substitute for the app's router.
 This skill does not authorize dependency installation, server startup or publishing.
 
 ## Validate and reload

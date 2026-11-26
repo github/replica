@@ -86,6 +86,7 @@ export type HubPrototype = {
   canManageShareLinks?: boolean
   publicSharingEnabled?: boolean
   shareLinkExpirationOptions?: string[]
+  supportsLatestBuildLinks?: boolean
   canRegister: boolean
   registrationReason?: string | null
   published: boolean
