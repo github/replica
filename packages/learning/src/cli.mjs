@@ -1,6 +1,7 @@
 import { constants, createReadStream, existsSync } from "node:fs"
 import { mkdir, open as openFile, readFile, realpath, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import { decodeUtf8, parseJson } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
@@ -110,6 +111,10 @@ Use
                                   Record which recalled learnings an agent used for a
                                   commit, with optional before and after screenshots
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
+  mcp [--actor <agent:name>] [--grant <grant-id>]...
+                                  Serve the learning tools to a coding agent over
+                                  standard input and output; --grant lets it submit
+                                  sessions, and screenshots must sit in this directory
 
 Decision model
   decision models                 Base models suggested for checking screenshots
@@ -306,6 +311,7 @@ export async function main(
           "expire-guidance",
           "delete-repository",
           "export",
+          "mcp",
           "verify",
         ].includes(positionals[0]) ||
         (positionals[0] === "grants" &&
@@ -323,6 +329,7 @@ export async function main(
       cwd,
       env,
       stdin,
+      stdout,
       stderr,
       opened,
     }
@@ -418,6 +425,8 @@ async function run(session) {
       return deleteRepository(session)
     case "export":
       return exportRecords(session)
+    case "mcp":
+      return serveMcp(session)
     case "verify":
       return verify(session)
     case "decision":
@@ -1421,6 +1430,96 @@ async function screenshotFile(directory, { file, ...rest }, remaining) {
   } finally {
     await handle.close()
   }
+}
+
+/**
+ * mcp: serves the shared learning tools over standard input and output until the client
+ * hangs up. Each call opens the store and closes it again, like a separate command, so
+ * nothing stays locked between calls.
+ */
+async function serveMcp(session) {
+  if (session.positionals.length !== 1) throw new UsageError("Use mcp without arguments.")
+  const principal =
+    session.values.actor === undefined ? { kind: "agent", id: "agent:mcp" } : actor(session)
+  if (principal.kind !== "agent") throw new UsageError("Name the agent with --actor agent:<name>.")
+  let mcp
+  let stdio
+  try {
+    mcp = await import("./mcp.mjs")
+    stdio = await import("@modelcontextprotocol/sdk/server/stdio.js")
+  } catch (error) {
+    if (error?.code === "ERR_MODULE_NOT_FOUND")
+      throw new LearningError(
+        "unsupported",
+        "The MCP server needs @modelcontextprotocol/sdk. Run npm ci in packages/learning.",
+      )
+    throw error
+  }
+  async function withStore(call) {
+    const { store } = await open(session)
+    try {
+      return await call(store, context(session, principal))
+    } finally {
+      session.opened.splice(session.opened.indexOf(store), 1)
+      await store.close()
+    }
+  }
+  const server = mcp.createLearningMcpServer({
+    getGuidance: ({ task, limit, session: agentSession }) =>
+      withStore((store, ctx) =>
+        store.recall(ctx, { task, limit: limit ?? 20, budgetChars: 6000, session: agentSession }),
+      ),
+    reportUsage: async (report) => {
+      const used = await Promise.all(
+        report.used.map(async (item) => {
+          const copy = { ...item }
+          for (const role of ["before", "after"])
+            if (copy[role]) copy[role] = await screenshotFile(session.cwd, copy[role])
+          return copy
+        }),
+      )
+      return withStore((store, ctx) => store.reportUsage(ctx, { ...report, used }))
+    },
+    submitSession: (input) => {
+      if (!session.values.grant?.length)
+        throw new LearningError(
+          "grant_inactive",
+          "This server was started without a consent grant for sessions. Ask a person to start it with --grant.",
+        )
+      return withStore((store, ctx) =>
+        store.importAgentSession(ctx, input, { grantIds: session.values.grant }),
+      )
+    },
+    listLearnings: ({ state }) =>
+      withStore((store, ctx) => store.queryMemory(ctx, { states: state })),
+    getLearning: ({ id }) =>
+      withStore(async (store, ctx) => {
+        const item = await store.getMemory(ctx, id)
+        const { record } = item
+        if (record.state !== "proposed" || item.withheld) return item
+        // There is no sign-in here, so a person runs the decision themselves.
+        const command = `node ${fileURLToPath(new URL("../bin/replica-learning.mjs", import.meta.url))}`
+        return {
+          ...item,
+          decide: {
+            note: "Only a person can decide. Ask them to run one of these with their GitHub login.",
+            accept: `${command} accept ${record.id} --digest ${record.reviewDigest} --by github:<login>`,
+            reject: `${command} reject ${record.id} --digest ${record.reviewDigest} --by github:<login> --reason <text>`,
+          },
+        }
+      }),
+  })
+  const transport = new stdio.StdioServerTransport(session.stdin, session.stdout)
+  const closed = new Promise((resolve) => {
+    server.server.onclose = resolve
+  })
+  await server.connect(transport)
+  function hangUp() {
+    server.close()
+  }
+  session.stdin.once("end", hangUp)
+  session.stdin.once("close", hangUp)
+  await closed
 }
 
 async function deleteMemory(session) {

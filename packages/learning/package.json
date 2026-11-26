@@ -30,6 +30,7 @@
     "schema:generate": "node generate-validators.mjs",
     "schema:check": "node generate-validators.mjs --check",
     "demo": "node examples/demo.mjs",
+    "demo:mcp": "node examples/mcp-demo.mjs",
     "demo:agent-memory-repo": "node examples/agent-memory-repo/demo.mjs"
   },
   "engines": {

@@ -25,7 +25,7 @@ npm test
 npm run demo
 ```
 
-The demo runs the whole loop on synthetic comments in a temporary checkout and prints every command with its output. `npm run demo:agent-memory-repo` adds Dreaming, which merges duplicate learnings, and publishes the result to a memory repo other agents can read.
+The demo runs the whole loop on synthetic comments in a temporary checkout and prints every command with its output. `npm run demo:mcp` shows the same learnings reaching an agent through [MCP](#connect-an-agent). `npm run demo:agent-memory-repo` adds Dreaming, which merges duplicate learnings, and publishes the result to a memory repo other agents can read.
 
 ## Run it yourself
 
@@ -56,6 +56,7 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `delete <memory-id> --reason <text>` | Removes a learning for good: every version, the records of its deliveries and use, and their screenshots. A learning that is part of a replacement, or that a stored proposal would replace, cannot be deleted; retire it instead |
 | `expire-guidance [--days <n>]` | Removes guidance records older than `--days`, 365 by default, that no usage report names |
 | `delete-repository --confirm <owner/name>` | Removes every record this repository's store holds, including its audit trail. Naming the repository again guards against deleting the wrong store. Copies outside the store, such as exports, are not touched |
+| `mcp` | Serves the learning tools to a coding agent over standard input and output, as [Connect an agent](#connect-an-agent) describes |
 | `export --purpose <p>` | Writes a bundle of what that purpose may use; `--learnings-only` leaves out episodes and their comments, and `--preview` prepares a temporary copy without recording an export or export audit |
 | `decision models` | Lists the base models suggested for a decision model, with their sizes and licenses |
 | `decision questions --by github:<login>` | Prints the questions a decision model answers about a screenshot and whether training consent is recorded. `--preview` shows the named person the questions without recording a use |
@@ -102,6 +103,40 @@ To report use, run recall once with `--json` and keep its output. `guidanceId` n
 ```
 
 `observations --purpose review --event <id> --event <id> --json` reads only the named events and their containing episodes. Pass at most 100 IDs per call, batching larger evidence lists instead of exporting the whole store. Missing IDs and events that consent, retraction, or redaction withholds are omitted, with no unrelated events or episodes returned. Other observation filters intersect the selection. In the API, `queryObservations(context, { purpose: "review", eventIds: [] })` returns empty `episodes` and `events`; omitting `eventIds`, or all CLI `--event` flags, preserves the unfiltered behavior.
+
+## Connect an agent
+
+`replica-learning mcp` lets a coding agent ask for guidance and report back on its own, without a person running `recall` and `report-usage`. It speaks [MCP](https://modelcontextprotocol.io) over standard input and output, so it opens no network port and needs no Replica sign-in. Run `npm ci` in `packages/learning` first, because the MCP SDK is an optional dependency.
+
+To try it with Copilot CLI, save this as `replica-learning-mcp.json`, using your own paths:
+
+```json
+{
+  "mcpServers": {
+    "replica-learning": {
+      "type": "local",
+      "command": "node",
+      "args": ["<replica-checkout>/packages/learning/bin/replica-learning.mjs", "mcp", "--actor", "agent:copilot-cli"],
+      "cwd": "<prototype-checkout>"
+    }
+  }
+}
+```
+
+Then start Copilot CLI in the prototype checkout with `copilot --additional-mcp-config @replica-learning-mcp.json`. To keep the server for every session, add the same entry to the repository's `.mcp.json` or your `~/.copilot/mcp-config.json`.
+
+The agent gets these tools:
+
+| Tool | What it does |
+| --- | --- |
+| `get_guidance` | Returns the accepted learnings for a task, like `recall`, with a `guidanceId` and a `deliveryId` for each learning |
+| `report_usage` | Records which delivered learnings a commit applied, like `report-usage`. A screenshot names a PNG file inside the directory the server runs in |
+| `submit_session` | Stores the session's user and agent messages and its outcome, like `import agent-session`. A person must start the server with `--grant <grant-id>` for a grant that names `agent_session`; without one, the tool refuses |
+| `list_learnings`, `get_learning` | Read learnings and their evidence. For a proposed learning, `get_learning` gives the exact `accept` and `reject` commands for a person to run |
+
+The server tells the agent when to call each tool. Copilot CLI passes a server's instructions to the model only when the server is allowlisted or you start it with `--allow-all-mcp-server-instructions`, so the tool descriptions repeat what matters. The agent acts as `--actor`, `agent:mcp` by default. It can never accept, reject, edit, or delete a learning.
+
+Hosts such as Hub can serve the same tools by importing `createLearningMcpServer` from `@github/replica-learning/mcp` and passing their own backend. The tools and their wording then stay the same everywhere.
 
 ## Rules
 

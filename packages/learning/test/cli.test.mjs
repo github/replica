@@ -13,7 +13,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { Readable } from "node:stream"
+import { PassThrough, Readable } from "node:stream"
 import { after, describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
 import {
@@ -1334,6 +1334,104 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(deleted.records.screenshots, 1)
     assert.deepEqual(readdirSync(evidence), [])
     assert.equal((await ok(repo, ["verify", "--json"])).json().ok, true)
+  })
+
+  it("serves guidance to an agent over MCP and records what it used", async () => {
+    const repo = checkout("mcp")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    writeFileSync(
+      path.join(repo, "after.png"),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]),
+    )
+    const stdin = new PassThrough()
+    const replies = new Map()
+    let errors = ""
+    let pending = ""
+    let waiting
+    const stdout = {
+      write(text) {
+        pending += text
+        for (let end; (end = pending.indexOf("\n")) >= 0; pending = pending.slice(end + 1)) {
+          const message = JSON.parse(pending.slice(0, end))
+          replies.set(message.id, message)
+          waiting?.()
+        }
+        return true
+      },
+    }
+    const served = main(["mcp", "--actor", "agent:copilot"], {
+      cwd: repo,
+      env: {},
+      stdin,
+      stdout,
+      stderr: { write: (text) => (errors += text) },
+      clock: () => CLOCK,
+    })
+    // Fail instead of waiting forever when the server stops early, such as when the
+    // optional MCP SDK is not installed.
+    const stopped = served.then((code) => {
+      throw new Error(`The MCP server stopped with exit code ${code}: ${errors}`)
+    })
+    stopped.catch(() => {})
+    let next = 0
+    async function request(method, params) {
+      const id = ++next
+      stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`)
+      while (!replies.has(id)) {
+        await Promise.race([new Promise((resolve) => (waiting = resolve)), stopped])
+      }
+      return replies.get(id).result
+    }
+    async function call(name, input) {
+      const result = await request("tools/call", { name, arguments: input })
+      return {
+        error: result.isError,
+        data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text),
+      }
+    }
+    await request("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "test", version: "1" },
+    })
+    stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`)
+
+    const guidance = (await call("get_guidance", { task: "Build the form" })).data
+    const [memory] = guidance.memories
+    assert.equal(memory.id, proposal.id)
+    const report = {
+      reportId: "report-1",
+      guidanceIds: [guidance.guidanceId],
+      commitSha: "a".repeat(40),
+      used: [
+        {
+          deliveryId: memory.deliveryId,
+          after: {
+            file: "after.png",
+            route: "/checkout",
+            viewport: { width: 1280, height: 800 },
+            theme: "light",
+            capturedAt: "2026-10-09T12:00:00.000000Z",
+          },
+        },
+      ],
+    }
+    assert.equal((await call("report_usage", report)).data.stored, true)
+    const session = await call("submit_session", { sessionId: "s-1", messages: [] })
+    assert.match(session.data, /^grant_inactive: /)
+
+    stdin.end()
+    assert.equal(await served, 0)
+    const evidence = path.join(repo, ".replica", "learning", "evidence")
+    assert.equal(readdirSync(evidence).length, 1)
   })
 
   it("refuses an identity with control or invisible formatting characters", async () => {
