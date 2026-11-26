@@ -1,0 +1,25 @@
+model LearningUpdateRun {
+  // ID columns
+  id           String @id @default(uuid()) @db.Uuid
+  repositoryId String @map("repository_id") @db.Uuid
+
+  // Relations
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  memoryId        String           @map("memory_id") @db.VarChar(255)
+  state           LearningRunState @default(RUNNING)
+  result          String?          @db.VarChar(30)
+  copilotRequests Int              @default(0) @map("copilot_requests")
+  aiCredits       Decimal          @default(0) @map("ai_credits") @db.Decimal(20, 9)
+  failureCode     String?          @map("failure_code") @db.VarChar(60)
+  finishedAt      DateTime?        @map("finished_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([finishedAt])
+  @@index([repositoryId, memoryId, createdAt])
+  @@map("learning_update_runs")
+}

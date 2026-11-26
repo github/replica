@@ -13,6 +13,8 @@ model Repository {
   learningEvaluationRuns     LearningEvaluationRun[]
   learningScoreRequests      LearningScoreRequest[]
   learningVerifications      LearningReviewerVerification[]
+  learningUpdateRequests     LearningUpdateRequest[]
+  learningUpdateRuns         LearningUpdateRun[]
   decisionModelConfiguration DecisionModelConfiguration?
   decisionReviewSnapshot     DecisionReviewSnapshot?
   decisionTrainingJobs       DecisionTrainingJob[]
