@@ -45,10 +45,18 @@ import { sameScope } from "./policy.mjs"
  * rewrite the contract allows, because an event's digest leaves out its payload.
  *
  * A provider with atomicDecisionFence === true implements decisionFence(scope). The returned
- * opaque digest covers eligibility records, all memory versions, and scope migration mappings.
+ * opaque token changes when eligibility records, memory versions, or scope migrations change.
  * A caller obtains it before reading eligibility and passes it as expectedDecisionFence to
  * appendMemoryVersion. The provider compares it under the same lock as the version and audit
  * write, and throws conflict without writing if any covered state changed.
+ *
+ * A provider that supports indexed learning decisions also implements
+ * readDecisionMemoryIds(scope, ids). It returns the supplied IDs and the connected replacement
+ * histories using indexed links, and refuses a component larger than 1,000 IDs.
+ * readRelatedEpisodeIds(scope, ids) returns those IDs and other episodes of the same Hub
+ * review threads, using indexed source identities.
+ * readDecisionInputs(scope, selection) returns only grants, withdrawals, stable-identity
+ * collections, and migration origins relevant to the selected episodes and events.
  */
 export const PROVIDER_CONTRACT = Object.freeze({ name: "replica.memory-provider", version: 1 })
 
@@ -84,6 +92,12 @@ export const DECISION_FENCE_STREAMS = Object.freeze([
   "episodes",
   "events",
 ])
+
+/** Bind a scope's change generation to an opaque decision token. */
+export function decisionGenerationFence(scope, generation) {
+  assertQuery({ scope })
+  return digestOf({ scope, generation: String(generation) })
+}
 
 /** Hash complete records, including redacted event bodies, without returning their contents. */
 export function decisionFenceDigest(scope, { records = {}, memories = [], migrations = [] } = {}) {

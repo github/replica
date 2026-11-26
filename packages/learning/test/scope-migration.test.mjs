@@ -2453,7 +2453,7 @@ it("preserves overlapping histories when the retracted name migrates first", asy
 
 it("keeps separate withdrawn evidence withheld when its history migrates first", async () => {
   const fixture = await consentHistories("separate-withdrawn-first")
-  const { store, human, agent, scopes, grants, memories, comments, grantInput } = fixture
+  const { store, provider, human, agent, scopes, grants, memories, comments, grantInput } = fixture
   try {
     await store.withdrawGrant(human(scopes[0]), grants[0].id, {
       purposes: ["review", "instruction"],
@@ -2465,12 +2465,43 @@ it("keeps separate withdrawn evidence withheld when its history migrates first",
     for (const purpose of ["review", "instruction"])
       assert.deepEqual(await fixture.observe(purpose), [comments[1]])
     assert.ok(!(await store.recall(agent(scope))).memories.some((item) => item.id === memories[0]))
-    await store.addGrant(human(scope), {
+    const [withdrawn, permitted] = await Promise.all(
+      memories.map(async (id) => (await provider.readMemoryVersions({ scope, ids: [id] })).at(-1)),
+    )
+    await assert.rejects(
+      store.editMemory(human(scope), memories[0], {
+        expectedDigest: withdrawn.digest,
+        title: "Clarify the withheld learning",
+        reason: "Clarify the guidance.",
+      }),
+      { code: "purpose_not_granted" },
+    )
+    const edited = await store.editMemory(human(scope), memories[1], {
+      expectedDigest: permitted.digest,
+      title: "Clarify the permitted learning",
+      reason: "Clarify the guidance.",
+    })
+    assert.equal(edited.version, permitted.version + 1)
+    fixture.advanceClock()
+    const laterGrant = await store.addGrant(human(scope), {
       ...grantInput,
       basis: "The team agreed to use the earlier evidence again.",
     })
+    assert.ok(laterGrant.grantedAt > grants[0].grantedAt)
+    const evidenceEpisodes = await provider.readRecords("episodes", {
+      scope,
+      ids: [...new Set(withdrawn.evidence.map((item) => item.episodeId))],
+    })
+    assert.ok(evidenceEpisodes.length > 0)
+    assert.ok(evidenceEpisodes.every((episode) => !episode.grants.includes(laterGrant.id)))
     assert.deepEqual(new Set(await fixture.observe("instruction")), new Set(comments))
     assert.ok((await store.recall(agent(scope))).memories.some((item) => item.id === memories[0]))
+    const resumed = await store.editMemory(human(scope), memories[0], {
+      expectedDigest: withdrawn.digest,
+      title: "Clarify the formerly withheld learning",
+      reason: "Clarify the guidance.",
+    })
+    assert.equal(resumed.version, withdrawn.version + 1)
   } finally {
     await store.close()
   }
@@ -2769,9 +2800,10 @@ async function consentHistories(name, { overlapping = false } = {}) {
     return { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
   }
   const provider = createSqliteMemoryProvider({ directory })
+  let now = Date.parse("2026-10-09T12:00:00Z")
   const store = await createLearningStore({
     provider,
-    clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    clock: () => now,
   })
   const grantInput = {
     purposes: ["review", "instruction"],
@@ -2816,6 +2848,9 @@ async function consentHistories(name, { overlapping = false } = {}) {
       memories,
       comments,
       grantInput,
+      advanceClock() {
+        now += 1_000
+      },
       migrate(oldScope) {
         return ok(repo, [
           "migrate-scope",

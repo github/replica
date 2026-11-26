@@ -26,6 +26,21 @@ export async function grantLearningDatabaseAccess(databaseUrl: string) {
       "GRANT SELECT, INSERT ON replica_learning.scope_migrations, replica_learning.sqlite_imports TO replica_learning_runtime",
     )
     await client.query(
+      "GRANT SELECT, INSERT, UPDATE ON replica_learning.decision_generations TO replica_learning_runtime",
+    )
+    await client.query(
+      "GRANT SELECT, INSERT ON replica_learning.decision_memory_targets TO replica_learning_runtime",
+    )
+    await client.query(
+      "GRANT SELECT, INSERT, DELETE ON replica_learning.decision_grant_sources TO replica_learning_runtime",
+    )
+    await client.query(
+      "GRANT SELECT, INSERT ON replica_learning.decision_withdrawal_targets TO replica_learning_runtime",
+    )
+    await client.query(
+      "GRANT SELECT, INSERT ON replica_learning.decision_migration_origins TO replica_learning_runtime",
+    )
+    await client.query(
       "GRANT USAGE ON ALL SEQUENCES IN SCHEMA replica_learning TO replica_learning_runtime",
     )
     await client.query(

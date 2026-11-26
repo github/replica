@@ -602,6 +602,10 @@ class LearningStore {
    */
   async #read(stream, context, query = {}) {
     const records = await this.#provider.readRecords(stream, { ...query, scope: context.scope })
+    return this.#validateRecords(stream, context, records)
+  }
+
+  #validateRecords(stream, context, records) {
     const damaged = records.filter(
       (record) =>
         !sameScope(record?.scope, context.scope) ||
@@ -668,19 +672,60 @@ class LearningStore {
     await this.#append("audit", [this.#auditEntry(context, operation, subjects, options)])
   }
 
-  async #eligibility(context, at = this.#now()) {
-    const [grants, withdrawals, collections, migrations] = await Promise.all([
-      this.#read("grants", context),
-      this.#read("withdrawals", context),
-      this.#read("collections", context),
-      this.#provider.scopeMigrations?.(context.scope) ?? [],
-    ])
+  async #eligibility(context, at = this.#now(), observations) {
+    let grants
+    let withdrawals
+    let collections
+    let migrations
+    let indexedOrigins
+    if (observations) {
+      const episodes = new Map(observations.episodes.map((episode) => [episode.id, episode]))
+      const evidence = new Map()
+      for (const event of observations.events) {
+        const item = { source: episodes.get(event.episodeId).source.kind, at: event.at }
+        evidence.set(canonicalJson(item), item)
+      }
+      const hubSources = new Map()
+      for (const episode of observations.episodes) {
+        if (episode.source.kind !== HUB_SOURCE) continue
+        const source = {
+          hubOrigin: episode.source.hubOrigin,
+          repositoryId: episode.source.repositoryId,
+        }
+        hubSources.set(canonicalJson(source), source)
+      }
+      const inputs = await this.#provider.readDecisionInputs(context.scope, {
+        evidence: [...evidence.values()],
+        at,
+        purpose: observations.purpose,
+        hubSources: [...hubSources.values()],
+        eventIds: observations.events.map((event) => event.id),
+      })
+      grants = this.#validateRecords("grants", context, inputs.grants)
+      withdrawals = this.#validateRecords("withdrawals", context, inputs.withdrawals)
+      collections = this.#validateRecords("collections", context, inputs.collections)
+      indexedOrigins = inputs.origins
+    } else {
+      const result = await Promise.all([
+        this.#read("grants", context),
+        this.#read("withdrawals", context),
+        this.#read("collections", context),
+        this.#provider.scopeMigrations?.(context.scope) ?? [],
+      ])
+      grants = result[0]
+      withdrawals = result[1]
+      collections = result[2]
+      migrations = result[3]
+    }
     const eligibility = createEligibility({ grants, withdrawals, at })
     const origins = new Map()
-    for (const migration of migrations)
-      for (const mapping of migration.digestMappings ?? [])
-        if (mapping.field === "digest" && ["grant", "event"].includes(mapping.kind))
-          origins.set(`${mapping.kind} ${mapping.id}`, canonicalJson(migration.oldScope))
+    if (indexedOrigins)
+      for (const origin of indexedOrigins) origins.set(`${origin.kind} ${origin.id}`, origin.origin)
+    else
+      for (const migration of migrations)
+        for (const mapping of migration.digestMappings ?? [])
+          if (mapping.field === "digest" && ["grant", "event"].includes(mapping.kind))
+            origins.set(`${mapping.kind} ${mapping.id}`, canonicalJson(migration.oldScope))
     const byOrigin = new Map()
     const allGrantsFor = eligibility.grantsFor
     eligibility.grantsForEvent = (episode, event, purpose) => {
@@ -704,7 +749,7 @@ class LearningStore {
       .filter((collection) => collection.reviewerIdentity === "stable-user-id")
       .map((collection) => collection.source)
     eligibility.migrationScope = context.scope
-    eligibility.migrationDigest = digestOf(migrations)
+    if (migrations) eligibility.migrationDigest = digestOf(migrations)
     return { eligibility, grants, withdrawals }
   }
 
@@ -718,13 +763,21 @@ class LearningStore {
       )
     }
     if (ids) {
-      const migrations = (await this.#provider.scopeMigrations?.(context.scope)) ?? []
-      migrationDigest = digestOf(migrations)
-      const selected = new Set(ids)
-      for (const migration of migrations)
-        for (const group of migration.overlappingEpisodes ?? [])
-          if (group.some((id) => selected.has(id))) for (const id of group) selected.add(id)
-      if (migrations.length) {
+      const migrations = query.decision
+        ? []
+        : ((await this.#provider.scopeMigrations?.(context.scope)) ?? [])
+      if (!query.decision) migrationDigest = digestOf(migrations)
+      const selected = new Set(
+        typeof this.#provider.readRelatedEpisodeIds === "function"
+          ? await this.#provider.readRelatedEpisodeIds(context.scope, ids)
+          : ids,
+      )
+      if (typeof this.#provider.readRelatedEpisodeIds !== "function") {
+        for (const migration of migrations)
+          for (const group of migration.overlappingEpisodes ?? [])
+            if (group.some((id) => selected.has(id))) for (const id of group) selected.add(id)
+      }
+      if (migrations.length && typeof this.#provider.readRelatedEpisodeIds !== "function") {
         const episodes = await this.#read("episodes", context)
         const keys = new Set(
           episodes
@@ -759,8 +812,9 @@ class LearningStore {
    */
   async #eligible({ episodes, events }, eligibility, purpose) {
     if (
+      eligibility.migrationDigest !== undefined &&
       eligibility.migrationDigest !==
-      digestOf((await this.#provider.scopeMigrations?.(eligibility.migrationScope)) ?? [])
+        digestOf((await this.#provider.scopeMigrations?.(eligibility.migrationScope)) ?? [])
     )
       throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
     const episodesById = new Map(episodes.map((episode) => [episode.id, episode]))
@@ -1026,13 +1080,25 @@ class LearningStore {
    * learning stays as it was. Claims come only from intact versions, and a replacement that is
    * later retired or damaged keeps them, so nothing quietly brings an old learning back.
    */
-  async #statuses(context, purpose = "instruction") {
+  async #statuses(context, purpose = "instruction", ids) {
     const now = this.#now()
-    const [{ eligibility }, observations, entries] = await Promise.all([
-      this.#eligibility(context, now),
-      this.#observations(context),
-      this.#memories(context),
-    ])
+    const entries = await this.#memories(context, ids)
+    const episodeIds = ids
+      ? unique(
+          [...entries.values()].flatMap((entry) =>
+            dependencies(entry.record).map((ref) => ref.episodeId),
+          ),
+        )
+      : undefined
+    const observations = await this.#observations(
+      context,
+      episodeIds ? { episodeIds, decision: true } : {},
+    )
+    const { eligibility } = await this.#eligibility(
+      context,
+      now,
+      ids ? { ...observations, purpose } : undefined,
+    )
     const eligible = await this.#eligible(observations, eligibility, purpose)
     const items = [...entries.values()].map((entry) => ({
       ...entry,
@@ -2479,14 +2545,26 @@ class LearningStore {
       throw new LearningError("invalid_input", "Give a title or text to edit.")
     if (
       this.#provider.atomicDecisionFence !== true ||
-      typeof this.#provider.decisionFence !== "function"
+      typeof this.#provider.decisionFence !== "function" ||
+      typeof this.#provider.readDecisionMemoryIds !== "function" ||
+      typeof this.#provider.readRelatedEpisodeIds !== "function" ||
+      typeof this.#provider.readDecisionInputs !== "function"
     )
       throw new LearningError(
         "unsupported",
-        "This provider cannot atomically verify learning decision evidence.",
+        "This provider cannot atomically verify indexed learning decision evidence.",
       )
     const expectedDecisionFence = await this.#provider.decisionFence(context.scope)
-    const { items, eligible, now } = await this.#statuses(context)
+    const initial = (await this.#memories(context, [id])).get(id)
+    if (!initial) throw new LearningError("not_found", `No memory ${id} in this scope.`)
+    if (initial.problems.length)
+      throw new LearningError("invalid_record", `Memory ${id} failed its integrity checks.`)
+    const targets =
+      decision === "reinstate" && initial.record.state === "rejected"
+        ? (initial.record.proposal.lifecycle.targets ?? [])
+        : []
+    const ids = await this.#provider.readDecisionMemoryIds(context.scope, [id, ...targets])
+    const { items, eligible, now } = await this.#statuses(context, "instruction", ids)
     const entries = new Map(items.map((item) => [item.id, item]))
     const entry = entries.get(id)
     if (!entry) throw new LearningError("not_found", `No memory ${id} in this scope.`)
@@ -2522,6 +2600,8 @@ class LearningStore {
           (content !== undefined && previous.content !== content)
         )
           throw new LearningError("conflict", "This operation ID was used for another decision.")
+        if ((await this.#provider.decisionFence(context.scope)) !== expectedDecisionFence)
+          throw new LearningError("stale_review", "Decision eligibility changed while reading.")
         return previous
       }
     }
@@ -2534,12 +2614,12 @@ class LearningStore {
       throw new LearningError("stale_review", `Memory ${id} changed since it was reviewed.`)
     if (entry.status.superseded || entry.status.conflicts.length)
       throw new LearningError("invalid_transition", `Memory ${id} has been replaced or conflicts.`)
-    const targets =
+    const replacementTargets =
       decision === "reinstate" && latest.state === "rejected"
         ? (latest.proposal.lifecycle.targets ?? [])
         : []
-    for (const target of targets) this.#assertReplaceable(entries.get(target), target)
-    const unusable = targets.length ? replacementProblem(validity(latest, now)) : null
+    for (const target of replacementTargets) this.#assertReplaceable(entries.get(target), target)
+    const unusable = replacementTargets.length ? replacementProblem(validity(latest, now)) : null
     if (unusable)
       throw new LearningError("invalid_transition", `${id} cannot replace another learning now.`)
     const draft = {
@@ -2549,7 +2629,7 @@ class LearningStore {
       state: "accepted",
       ...(title !== undefined ? { title } : {}),
       ...(content !== undefined ? { content } : {}),
-      ...(targets.length ? { supersedes: unique(targets) } : {}),
+      ...(replacementTargets.length ? { supersedes: unique(replacementTargets) } : {}),
       updatedAt: now,
     }
     const edited = draft.title !== latest.title || draft.content !== latest.content

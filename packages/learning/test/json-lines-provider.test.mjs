@@ -934,6 +934,47 @@ describe("JSON Lines provider", () => {
     },
   )
 
+  it("keeps history readable when editing or reinstating is unsupported", async () => {
+    const directory = fresh()
+    const { store, proposal } = await acceptedStore(directory)
+    const provider = createJsonLinesMemoryProvider({ directory })
+    async function snapshot() {
+      return {
+        memories: await provider.readMemoryVersions({ scope, ids: [proposal.id] }),
+        audit: await provider.readRecords("audit", { scope }),
+      }
+    }
+    try {
+      const beforeEdit = await snapshot()
+      await assert.rejects(
+        store.editMemory(designer(), proposal.id, {
+          expectedDigest: beforeEdit.memories.at(-1).digest,
+          title: "Keep labels visible",
+          reason: "Clarify the guidance.",
+        }),
+        { code: "unsupported" },
+      )
+      assert.deepEqual(await snapshot(), beforeEdit)
+      const retired = await store.retireMemory(designer(), proposal.id, { reason: "Review later." })
+      const beforeReinstate = await snapshot()
+      await assert.rejects(
+        store.reinstateMemory(designer(), proposal.id, {
+          expectedDigest: retired.digest,
+          reason: "The guidance applies again.",
+        }),
+        { code: "unsupported" },
+      )
+      assert.deepEqual(await snapshot(), beforeReinstate)
+      const history = await store.getMemory(designer(), proposal.id, { history: true })
+      assert.deepEqual(
+        history.versions.map((version) => version.state),
+        ["proposed", "accepted", "retired"],
+      )
+    } finally {
+      await store.close()
+    }
+  })
+
   it("records each recall as a use for instruction, but not a preview for a person", async () => {
     const directory = fresh()
     const { store, proposal } = await acceptedStore(directory)

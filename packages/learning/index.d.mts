@@ -418,6 +418,26 @@ export interface MemoryProvider {
   readonly atomicDecisionFence?: true
   /** Capture the scope's eligibility state before reading it for a decision. */
   decisionFence?(scope: Scope): Promise<Digest>
+  /** Find the connected replacement histories for a decision. */
+  readDecisionMemoryIds?(scope: Scope, ids: string[]): Promise<string[]>
+  /** Find episodes from the same Hub review threads as the selected episodes. */
+  readRelatedEpisodeIds?(scope: Scope, ids: string[]): Promise<string[]>
+  /** Read the consent, identity, and migration inputs for selected evidence. */
+  readDecisionInputs?(
+    scope: Scope,
+    selection: {
+      evidence: Array<{ source: string; at: Timestamp }>
+      at: Timestamp
+      purpose: Purpose
+      hubSources: Array<Pick<SourcePin, "hubOrigin" | "repositoryId">>
+      eventIds: string[]
+    },
+  ): Promise<{
+    grants: ConsentGrant[]
+    withdrawals: GrantWithdrawal[]
+    collections: Collection[]
+    origins: Array<{ kind: "grant" | "event"; id: string; origin: string }>
+  }>
   manifest(): ProviderManifest
   health(): Promise<{ ok: boolean; detail: string }>
   /**

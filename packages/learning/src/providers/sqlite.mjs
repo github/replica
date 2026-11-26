@@ -14,7 +14,6 @@ import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
-  DECISION_FENCE_STREAMS,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
@@ -23,7 +22,7 @@ import {
   assertStorable,
   assertStream,
   batchWrites,
-  decisionFenceDigest,
+  decisionGenerationFence,
   redactionProblem,
 } from "../provider-contract.mjs"
 import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
@@ -46,8 +45,95 @@ const SCHEMA = `
     unique (stream, id)
   );
   create index if not exists records_by_scope on records (stream, scope_key, seq);
+  create index if not exists records_by_episode on records (stream, scope_key, episode_id);
+  create index if not exists records_by_hub_thread on records (
+    scope_key,
+    json_extract(body, '$.source.hubOrigin'),
+    json_extract(body, '$.source.repositoryId'),
+    json_extract(body, '$.source.prototypeId'),
+    json_extract(body, '$.source.threadId')
+  ) where stream = 'episodes' and json_extract(body, '$.source.kind') = 'hub_review_comments';
   create index if not exists records_by_operation
     on records (stream, scope_key, json_extract(body, '$.operation'), seq);
+  create index if not exists decision_collections_by_source on records (
+    scope_key,
+    json_extract(body, '$.source.hubOrigin'),
+    json_extract(body, '$.source.repositoryId')
+  ) where stream = 'collections' and json_extract(body, '$.reviewerIdentity') = 'stable-user-id';
+  create index if not exists decision_collections_by_snapshot
+    on records (scope_key, json_extract(body, '$.snapshotId')) where stream = 'collections';
+  create table if not exists decision_grant_sources (
+    scope_key text not null,
+    source text not null,
+    purpose text not null,
+    grant_id text not null,
+    granted_at text not null,
+    expires_at text not null,
+    evidence_from text,
+    evidence_until text,
+    primary key (scope_key, source, purpose, grant_id)
+  );
+  create index if not exists decision_grant_sources_by_id
+    on decision_grant_sources (scope_key, grant_id);
+  create index if not exists decision_grant_sources_by_expiry
+    on decision_grant_sources (scope_key, source, purpose, expires_at, granted_at);
+  create index if not exists decision_grant_sources_by_start
+    on decision_grant_sources (scope_key, source, purpose, granted_at, expires_at);
+  -- Keep the original target when a stored withdrawal is damaged.
+  create table if not exists decision_withdrawal_targets (
+    scope_key text not null,
+    grant_id text not null,
+    withdrawal_id text not null,
+    primary key (scope_key, grant_id, withdrawal_id)
+  );
+  create trigger if not exists decision_withdrawal_targets_insert after insert on records
+  when new.stream = 'withdrawals' and json_type(new.body, '$.grantId') = 'text'
+  begin
+    insert or ignore into decision_withdrawal_targets (scope_key, grant_id, withdrawal_id)
+    values (new.scope_key, json_extract(new.body, '$.grantId'), new.id);
+  end;
+  create trigger if not exists decision_withdrawal_targets_update after update on records
+  when old.stream = 'withdrawals' or new.stream = 'withdrawals'
+  begin
+    insert or ignore into decision_withdrawal_targets (scope_key, grant_id, withdrawal_id)
+    select old.scope_key, json_extract(old.body, '$.grantId'), old.id
+    where old.stream = 'withdrawals' and json_type(old.body, '$.grantId') = 'text';
+    insert or ignore into decision_withdrawal_targets (scope_key, grant_id, withdrawal_id)
+    select new.scope_key, json_extract(new.body, '$.grantId'), new.id
+    where new.stream = 'withdrawals' and json_type(new.body, '$.grantId') = 'text';
+  end;
+  create trigger if not exists decision_grant_sources_insert after insert on records
+  when new.stream = 'grants'
+  begin
+    insert or ignore into decision_grant_sources
+      (scope_key, source, purpose, grant_id, granted_at, expires_at, evidence_from, evidence_until)
+    select new.scope_key, source.value, purpose.value, new.id,
+      coalesce(json_extract(new.body, '$.grantedAt'), '9999-12-31T23:59:59.999999Z'),
+      coalesce(json_extract(new.body, '$.expiresAt'), '9999-12-31T23:59:59.999999Z'),
+      json_extract(new.body, '$.evidenceFrom'), json_extract(new.body, '$.evidenceUntil')
+    from json_each(new.body, '$.sources') as source,
+      json_each(new.body, '$.purposes') as purpose
+    where source.type = 'text' and purpose.type = 'text';
+  end;
+  create trigger if not exists decision_grant_sources_update after update on records
+  when old.stream = 'grants' or new.stream = 'grants'
+  begin
+    delete from decision_grant_sources where scope_key = old.scope_key and grant_id = old.id;
+    insert or ignore into decision_grant_sources
+      (scope_key, source, purpose, grant_id, granted_at, expires_at, evidence_from, evidence_until)
+    select new.scope_key, source.value, purpose.value, new.id,
+      coalesce(json_extract(new.body, '$.grantedAt'), '9999-12-31T23:59:59.999999Z'),
+      coalesce(json_extract(new.body, '$.expiresAt'), '9999-12-31T23:59:59.999999Z'),
+      json_extract(new.body, '$.evidenceFrom'), json_extract(new.body, '$.evidenceUntil')
+    from json_each(new.body, '$.sources') as source,
+      json_each(new.body, '$.purposes') as purpose
+    where new.stream = 'grants' and source.type = 'text' and purpose.type = 'text';
+  end;
+  create trigger if not exists decision_grant_sources_delete after delete on records
+  when old.stream = 'grants'
+  begin
+    delete from decision_grant_sources where scope_key = old.scope_key and grant_id = old.id;
+  end;
   create table if not exists memory_versions (
     seq integer primary key autoincrement,
     id text not null,
@@ -59,6 +145,145 @@ const SCHEMA = `
     unique (id, version)
   );
   create index if not exists memory_versions_by_scope on memory_versions (scope_key, seq);
+  create table if not exists decision_memory_targets (
+    scope_key text not null,
+    source_id text not null,
+    version integer not null,
+    target_id text not null,
+    primary key (scope_key, source_id, version, target_id)
+  );
+  create index if not exists decision_memory_targets_by_target
+    on decision_memory_targets (scope_key, target_id, source_id);
+  create table if not exists decision_index_state (name text primary key);
+  create trigger if not exists decision_targets_insert after insert on memory_versions
+  begin
+    insert or ignore into decision_memory_targets (scope_key, source_id, version, target_id)
+    select new.scope_key, new.id, new.version, target.value
+    from json_each(new.body, '$.supersedes') as target where target.type = 'text';
+  end;
+  create trigger if not exists decision_targets_update after update on memory_versions
+  begin
+    delete from decision_memory_targets
+    where scope_key = old.scope_key and source_id = old.id and version = old.version;
+    insert or ignore into decision_memory_targets (scope_key, source_id, version, target_id)
+    select new.scope_key, new.id, new.version, target.value
+    from json_each(new.body, '$.supersedes') as target where target.type = 'text';
+  end;
+  create trigger if not exists decision_targets_delete after delete on memory_versions
+  begin
+    delete from decision_memory_targets
+    where scope_key = old.scope_key and source_id = old.id and version = old.version;
+  end;
+  create table if not exists scope_migrations (
+    old_scope_key text primary key,
+    new_scope_key text not null,
+    metadata text not null
+  );
+  create index if not exists scope_migrations_by_target on scope_migrations (new_scope_key);
+  create table if not exists decision_migration_origins (
+    scope_key text not null,
+    kind text not null,
+    record_id text not null,
+    migration_id integer not null,
+    old_scope_key text not null,
+    primary key (scope_key, kind, record_id, migration_id)
+  );
+  create index if not exists decision_migration_origins_by_migration
+    on decision_migration_origins (migration_id);
+  create trigger if not exists decision_origins_insert after insert on scope_migrations
+  begin
+    insert or ignore into decision_migration_origins
+      (scope_key, kind, record_id, migration_id, old_scope_key)
+    select new.new_scope_key, json_extract(mapping.value, '$.kind'),
+      json_extract(mapping.value, '$.id'), new.rowid, new.old_scope_key
+    from json_each(new.metadata, '$.digestMappings') as mapping
+    where json_extract(mapping.value, '$.field') = 'digest'
+      and json_extract(mapping.value, '$.kind') in ('grant', 'event')
+      and json_type(mapping.value, '$.id') = 'text';
+  end;
+  create trigger if not exists decision_origins_update after update on scope_migrations
+  begin
+    delete from decision_migration_origins where migration_id = old.rowid;
+    insert or ignore into decision_migration_origins
+      (scope_key, kind, record_id, migration_id, old_scope_key)
+    select new.new_scope_key, json_extract(mapping.value, '$.kind'),
+      json_extract(mapping.value, '$.id'), new.rowid, new.old_scope_key
+    from json_each(new.metadata, '$.digestMappings') as mapping
+    where json_extract(mapping.value, '$.field') = 'digest'
+      and json_extract(mapping.value, '$.kind') in ('grant', 'event')
+      and json_type(mapping.value, '$.id') = 'text';
+  end;
+  create trigger if not exists decision_origins_delete after delete on scope_migrations
+  begin
+    delete from decision_migration_origins where migration_id = old.rowid;
+  end;
+  create table if not exists decision_generations (
+    scope_key text primary key,
+    generation integer not null check (generation between 1 and 9007199254740991)
+  );
+  create trigger if not exists decision_records_insert after insert on records
+  when new.stream in ('grants', 'withdrawals', 'collections', 'episodes', 'events')
+  begin
+    insert into decision_generations values (new.scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
+  create trigger if not exists decision_records_update after update on records
+  when old.stream in ('grants', 'withdrawals', 'collections', 'episodes', 'events')
+    or new.stream in ('grants', 'withdrawals', 'collections', 'episodes', 'events')
+  begin
+    insert into decision_generations values (old.scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+    insert into decision_generations values (new.scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
+  create trigger if not exists decision_records_delete after delete on records
+  when old.stream in ('grants', 'withdrawals', 'collections', 'episodes', 'events')
+  begin
+    insert into decision_generations values (old.scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
+  create trigger if not exists decision_memories_insert after insert on memory_versions
+  begin
+    insert into decision_generations values (new.scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
+  create trigger if not exists decision_memories_update after update on memory_versions
+  begin
+    insert into decision_generations values (old.scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+    insert into decision_generations values (new.scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
+  create trigger if not exists decision_memories_delete after delete on memory_versions
+  begin
+    insert into decision_generations values (old.scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
+  create trigger if not exists decision_migrations_insert after insert on scope_migrations
+  begin
+    insert into decision_generations values (new.old_scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+    insert into decision_generations values (new.new_scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
+  create trigger if not exists decision_migrations_update after update on scope_migrations
+  begin
+    insert into decision_generations values (old.old_scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+    insert into decision_generations values (old.new_scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+    insert into decision_generations values (new.old_scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+    insert into decision_generations values (new.new_scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
+  create trigger if not exists decision_migrations_delete after delete on scope_migrations
+  begin
+    insert into decision_generations values (old.old_scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+    insert into decision_generations values (old.new_scope_key, 1)
+    on conflict (scope_key) do update set generation = generation + 1;
+  end;
 `
 
 /** Copy a stopped store without creating or migrating its source. */
@@ -166,6 +391,78 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     try {
       assertSameFile(root, target, checked)
       opened.exec(SCHEMA)
+      const indexed = opened.prepare("select 1 from decision_index_state where name = ?")
+      if (
+        !indexed.get("memory-targets") ||
+        !indexed.get("eligibility") ||
+        !indexed.get("withdrawal-targets")
+      ) {
+        opened.exec("begin immediate")
+        try {
+          if (!indexed.get("memory-targets")) {
+            opened.exec(`
+              insert or ignore into decision_memory_targets
+                (scope_key, source_id, version, target_id)
+              select memory.scope_key, memory.id, memory.version, target.value
+              from memory_versions as memory, json_each(memory.body, '$.supersedes') as target
+              where target.type = 'text';
+              insert into decision_index_state (name) values ('memory-targets');
+            `)
+          }
+          if (!indexed.get("eligibility")) {
+            opened.exec(`
+              insert or ignore into decision_grant_sources
+                (scope_key, source, purpose, grant_id, granted_at, expires_at,
+                 evidence_from, evidence_until)
+              select grant_record.scope_key, source.value, purpose.value, grant_record.id,
+                coalesce(json_extract(grant_record.body, '$.grantedAt'), '9999-12-31T23:59:59.999999Z'),
+                coalesce(json_extract(grant_record.body, '$.expiresAt'), '9999-12-31T23:59:59.999999Z'),
+                json_extract(grant_record.body, '$.evidenceFrom'),
+                json_extract(grant_record.body, '$.evidenceUntil')
+              from records as grant_record, json_each(grant_record.body, '$.sources') as source,
+                json_each(grant_record.body, '$.purposes') as purpose
+              where grant_record.stream = 'grants'
+                and source.type = 'text' and purpose.type = 'text';
+              insert or ignore into decision_migration_origins
+                (scope_key, kind, record_id, migration_id, old_scope_key)
+              select migration.new_scope_key, json_extract(mapping.value, '$.kind'),
+                json_extract(mapping.value, '$.id'), migration.rowid, migration.old_scope_key
+              from scope_migrations as migration,
+                json_each(migration.metadata, '$.digestMappings') as mapping
+              where json_extract(mapping.value, '$.field') = 'digest'
+                and json_extract(mapping.value, '$.kind') in ('grant', 'event')
+                and json_type(mapping.value, '$.id') = 'text';
+              insert into decision_index_state (name) values ('eligibility');
+            `)
+          }
+          if (!indexed.get("withdrawal-targets")) {
+            opened.exec(`
+              insert or ignore into decision_withdrawal_targets
+                (scope_key, grant_id, withdrawal_id)
+              select scope_key, json_extract(body, '$.grantId'), id
+              from records
+              where stream = 'withdrawals' and json_type(body, '$.grantId') = 'text';
+              -- Audit entries also retain targets damaged before this index existed.
+              insert or ignore into decision_withdrawal_targets
+                (scope_key, grant_id, withdrawal_id)
+              select audit.scope_key, json_extract(grant_subject.value, '$.id'),
+                json_extract(withdrawal_subject.value, '$.id')
+              from records as audit, json_each(audit.body, '$.subjects') as grant_subject,
+                json_each(audit.body, '$.subjects') as withdrawal_subject
+              where audit.stream = 'audit' and json_extract(audit.body, '$.operation') = 'grant.withdraw'
+                and json_extract(grant_subject.value, '$.kind') = 'grant'
+                and json_type(grant_subject.value, '$.id') = 'text'
+                and json_extract(withdrawal_subject.value, '$.kind') = 'withdrawal'
+                and json_type(withdrawal_subject.value, '$.id') = 'text';
+              insert into decision_index_state (name) values ('withdrawal-targets');
+            `)
+          }
+          opened.exec("commit")
+        } catch (error) {
+          opened.exec("rollback")
+          throw error
+        }
+      }
       assertOwnFiles()
     } catch (error) {
       opened.close()
@@ -251,39 +548,13 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     }
   }
 
-  /** Read the scoped eligibility state while the write transaction excludes other writers. */
+  /** Read one scope's generation, including writes made by older SQLite clients. */
   function fence(scope) {
-    const key = canonicalJson(scope)
     try {
-      const readRecords = db.prepare(
-        "select body from records where stream = ? and scope_key = ? order by seq",
-      )
-      const records = Object.fromEntries(
-        DECISION_FENCE_STREAMS.map((stream) => [
-          stream,
-          readRecords.all(stream, key).map((row) => JSON.parse(row.body)),
-        ]),
-      )
-      const memories = db
-        .prepare("select body from memory_versions where scope_key = ? order by seq")
-        .all(key)
-        .map((row) => JSON.parse(row.body))
-      const table = db
-        .prepare("select 1 from sqlite_master where type = 'table' and name = 'scope_migrations'")
-        .get()
-      const migrations = table
-        ? db
-            .prepare(
-              "select old_scope_key, new_scope_key, metadata from scope_migrations where old_scope_key = ? or new_scope_key = ? order by rowid",
-            )
-            .all(key, key)
-            .map((row) => ({
-              oldScopeKey: row.old_scope_key,
-              newScopeKey: row.new_scope_key,
-              metadata: JSON.parse(row.metadata),
-            }))
-        : []
-      return decisionFenceDigest(scope, { records, memories, migrations })
+      const row = db
+        .prepare("select generation from decision_generations where scope_key = ?")
+        .get(canonicalJson(scope))
+      return decisionGenerationFence(scope, row?.generation ?? 0)
     } catch (error) {
       if (error instanceof LearningError) throw error
       throw new LearningError("storage_corrupt", "Could not read the decision eligibility state.")
@@ -406,8 +677,159 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
 
     async decisionFence(scope) {
       assertQuery({ scope })
-      if (!connect({ create: false })) return decisionFenceDigest(scope)
-      return transaction(() => fence(scope))
+      if (!connect({ create: false })) return decisionGenerationFence(scope, 0)
+      return fence(scope)
+    },
+
+    async readDecisionMemoryIds(scope, ids) {
+      assertQuery({ scope })
+      if (!connect({ create: false })) return [...new Set(ids)]
+      const key = canonicalJson(scope)
+      const rows = db
+        .prepare(
+          `
+          with recursive linked(id) as (
+            select value from json_each(?)
+            union
+            select target.target_id from linked
+              join decision_memory_targets as target
+                on target.scope_key = ? and target.source_id = linked.id
+            union
+            select target.source_id from linked
+              join decision_memory_targets as target
+                on target.scope_key = ? and target.target_id = linked.id
+          )
+          select id from linked limit 1001
+        `,
+        )
+        .all(JSON.stringify(ids), key, key)
+      if (rows.length > 1000)
+        throw new LearningError("unsupported", "The learning replacement history is too large.")
+      return rows.map((row) => row.id)
+    },
+
+    async readRelatedEpisodeIds(scope, ids) {
+      assertQuery({ scope })
+      if (!connect({ create: false })) return [...new Set(ids)]
+      const rows = db
+        .prepare(
+          `
+          select distinct related.id
+          from records as selected
+          join records as related
+            on related.scope_key = selected.scope_key
+            and related.stream = 'episodes'
+            and json_extract(related.body, '$.source.kind') = 'hub_review_comments'
+            and json_extract(related.body, '$.source.hubOrigin')
+              = json_extract(selected.body, '$.source.hubOrigin')
+            and json_extract(related.body, '$.source.repositoryId')
+              = json_extract(selected.body, '$.source.repositoryId')
+            and json_extract(related.body, '$.source.prototypeId')
+              = json_extract(selected.body, '$.source.prototypeId')
+            and json_extract(related.body, '$.source.threadId')
+              = json_extract(selected.body, '$.source.threadId')
+          where selected.stream = 'episodes' and selected.scope_key = ?
+            and selected.id in (select value from json_each(?))
+            and json_extract(selected.body, '$.source.kind') = 'hub_review_comments'
+        `,
+        )
+        .all(canonicalJson(scope), JSON.stringify(ids))
+      return [...new Set([...ids, ...rows.map((row) => row.id)])]
+    },
+
+    async readDecisionInputs(scope, { evidence, at, purpose, hubSources, eventIds }) {
+      assertQuery({ scope, ids: eventIds })
+      if (!connect({ create: false }))
+        return { grants: [], withdrawals: [], collections: [], origins: [] }
+      const key = canonicalJson(scope)
+      const columns = "stream, id, scope_key, occurred_at, episode_id, digest, body"
+      const grants = db
+        .prepare(
+          `
+          select distinct ${columns
+            .split(", ")
+            .map((column) => `grant_record.${column}`)
+            .join(", ")}
+          from json_each(?) as evidence
+          join decision_grant_sources as source
+            on source.scope_key = ? and source.source = json_extract(evidence.value, '$.source')
+            and source.purpose = ?
+            and source.granted_at <= ? and source.expires_at > ?
+            and (source.evidence_from is null
+              or source.evidence_from <= json_extract(evidence.value, '$.at'))
+            and (source.evidence_until is null
+              or source.evidence_until > json_extract(evidence.value, '$.at'))
+          join records as grant_record
+            on grant_record.stream = 'grants' and grant_record.scope_key = ?
+            and grant_record.id = source.grant_id
+          order by grant_record.seq
+        `,
+        )
+        .all(JSON.stringify(evidence), key, purpose, at, at, key)
+        .map(storedRecord)
+      const withdrawals = db
+        .prepare(
+          `
+          select distinct ${columns
+            .split(", ")
+            .map((column) => `withdrawal.${column}`)
+            .join(", ")}
+          from decision_withdrawal_targets as target
+          left join records as withdrawal
+            on withdrawal.stream = 'withdrawals' and withdrawal.id = target.withdrawal_id
+            and withdrawal.scope_key = target.scope_key
+          where target.scope_key = ?
+            and target.grant_id in (select value from json_each(?))
+          order by withdrawal.seq
+        `,
+        )
+        .all(key, JSON.stringify(grants.map((grant) => grant.id)))
+        .map(storedRecord)
+      const stableCollections = db
+        .prepare(
+          `
+          select distinct ${columns
+            .split(", ")
+            .map((column) => `collection.${column}`)
+            .join(", ")}
+          from json_each(?) as source
+          join records as collection
+            on collection.scope_key = ? and collection.stream = 'collections'
+            and json_extract(collection.body, '$.reviewerIdentity') = 'stable-user-id'
+            and json_extract(collection.body, '$.source.hubOrigin')
+              is json_extract(source.value, '$.hubOrigin')
+            and json_extract(collection.body, '$.source.repositoryId')
+              is json_extract(source.value, '$.repositoryId')
+          order by collection.seq
+        `,
+        )
+        .all(JSON.stringify(hubSources), key)
+        .map(storedRecord)
+      const collections = db
+        .prepare(
+          `
+          select ${columns} from records
+          where stream = 'collections' and scope_key = ?
+            and json_extract(body, '$.snapshotId') in (select value from json_each(?))
+          order by seq
+        `,
+        )
+        .all(key, JSON.stringify(stableCollections.map((collection) => collection.snapshotId)))
+        .map(storedRecord)
+      const origins = db
+        .prepare(
+          `
+          select kind, record_id as id, old_scope_key as origin
+          from decision_migration_origins
+          where scope_key = ? and (
+            (kind = 'grant' and record_id in (select value from json_each(?))) or
+            (kind = 'event' and record_id in (select value from json_each(?)))
+          )
+          order by migration_id
+        `,
+        )
+        .all(key, JSON.stringify(grants.map((grant) => grant.id)), JSON.stringify(eventIds))
+      return { grants, withdrawals, collections, origins }
     },
 
     manifest() {
@@ -539,6 +961,51 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         .prepare("select metadata from scope_migrations where new_scope_key = ? order by rowid")
         .all(canonicalJson(scope))
         .map((row) => JSON.parse(row.metadata))
+    },
+
+    async scopeMigrationSummaries(scope) {
+      const database = connect({ create: false })
+      if (!database) return []
+      return database
+        .prepare(
+          `
+          select old_scope_key, json_extract(metadata, '$.redactionFollowUps') as follow_ups
+          from scope_migrations where new_scope_key = ? order by rowid
+        `,
+        )
+        .all(canonicalJson(scope))
+        .map((row) => ({
+          oldScope: JSON.parse(row.old_scope_key),
+          ...(row.follow_ups ? { redactionFollowUps: JSON.parse(row.follow_ups) } : {}),
+        }))
+    },
+
+    async scopeMigrationIdentityFrom(scope) {
+      const database = connect({ create: false })
+      if (!database) return null
+      const row = database
+        .prepare(
+          `
+          select old_scope_key, new_scope_key,
+            json_extract(metadata, '$.oldScope') as old_scope,
+            json_extract(metadata, '$.newScope') as new_scope
+          from scope_migrations where old_scope_key = ?
+        `,
+        )
+        .get(canonicalJson(scope))
+      if (!row) return null
+      try {
+        const oldScope = JSON.parse(row.old_scope)
+        const newScope = JSON.parse(row.new_scope)
+        if (
+          canonicalJson(oldScope) === row.old_scope_key &&
+          canonicalJson(newScope) === row.new_scope_key
+        )
+          return { oldScope, newScope }
+      } catch {
+        throw new LearningError("storage_corrupt", "A SQLite migration mapping is invalid.")
+      }
+      throw new LearningError("storage_corrupt", "A SQLite migration mapping is invalid.")
     },
 
     async scopeMigrationFrom(scope) {

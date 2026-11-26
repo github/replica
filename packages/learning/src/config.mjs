@@ -510,9 +510,11 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
           )
       }
       const previous =
-        typeof provider.scopeMigrationFrom === "function"
-          ? await provider.scopeMigrationFrom(environment.legacyScope)
-          : null
+        typeof provider.scopeMigrationIdentityFrom === "function"
+          ? await provider.scopeMigrationIdentityFrom(environment.legacyScope)
+          : typeof provider.scopeMigrationFrom === "function"
+            ? await provider.scopeMigrationFrom(environment.legacyScope)
+            : null
       if (previous) {
         if (
           !previous.oldScope ||
@@ -551,11 +553,13 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
         )
     }
     const migrations =
-      typeof provider.scopeMigrations === "function"
-        ? await provider.scopeMigrations(environment.scope)
-        : result
-          ? [result]
-          : []
+      typeof provider.scopeMigrationSummaries === "function"
+        ? await provider.scopeMigrationSummaries(environment.scope)
+        : typeof provider.scopeMigrations === "function"
+          ? await provider.scopeMigrations(environment.scope)
+          : result
+            ? [result]
+            : []
     const digestMappings = Object.fromEntries(
       migrations
         .flatMap((migration) => migration.digestMappings ?? [])

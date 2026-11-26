@@ -1102,8 +1102,37 @@ it("upgrades the base PostgreSQL schema without losing history", async () => {
   const db = new pg.Client({ connectionString: url })
   await db.connect()
   const scope = { host: "github.com", repository: "repositories/123456" }
-  const record = { id: "grant_v1", digest: "sha256:grant", scope }
-  const memory = { id: "memory_v1", version: 1, digest: "sha256:memory", scope }
+  const record = {
+    id: "grant_v1",
+    digest: "sha256:grant",
+    scope,
+    sources: ["hub_review_comments"],
+    purposes: ["instruction"],
+    grantedAt: "2026-10-01T00:00:00.000000Z",
+  }
+  const withdrawal = {
+    id: "withdrawal_v1",
+    digest: "sha256:withdrawal",
+    scope,
+    grantId: "grant_damaged",
+  }
+  const audit = {
+    id: "audit_v1",
+    digest: "sha256:audit",
+    scope,
+    operation: "grant.withdraw",
+    subjects: [
+      { kind: "grant", id: record.id },
+      { kind: "withdrawal", id: withdrawal.id },
+    ],
+  }
+  const memory = {
+    id: "memory_v1",
+    version: 1,
+    digest: "sha256:memory",
+    scope,
+    supersedes: ["memory_target_v1"],
+  }
   try {
     await db.query("create schema replica_learning")
     await db.query(
@@ -1118,18 +1147,27 @@ it("upgrades the base PostgreSQL schema without losing history", async () => {
       "insert into replica_learning.records (stream, id, scope_key, digest, body) values ($1, $2, $3, $4, $5)",
       ["grants", record.id, canonicalJson(scope), record.digest, JSON.stringify(record)],
     )
+    for (const [stream, value] of [
+      ["withdrawals", withdrawal],
+      ["audit", audit],
+    ]) {
+      await db.query(
+        "insert into replica_learning.records (stream, id, scope_key, digest, body) values ($1, $2, $3, $4, $5)",
+        [stream, value.id, canonicalJson(scope), value.digest, JSON.stringify(value)],
+      )
+    }
     await db.query(
       "insert into replica_learning.memory_versions (id, version, scope_key, digest, body) values ($1, $2, $3, $4, $5)",
       [memory.id, memory.version, canonicalJson(scope), memory.digest, JSON.stringify(memory)],
     )
 
-    assert.equal((await migratePostgres({ connectionString: url })).version, 2)
+    assert.equal((await migratePostgres({ connectionString: url })).version, 3)
     const ledger = await db.query(
       "select version, checksum from replica_learning.schema_migrations order by version",
     )
     assert.deepEqual(
       ledger.rows.map((row) => row.version),
-      [1, 2],
+      [1, 2, 3],
     )
     assert.equal(
       ledger.rows[0].checksum,
@@ -1138,6 +1176,18 @@ it("upgrades the base PostgreSQL schema without losing history", async () => {
     const target = provider(url)
     assert.deepEqual(await target.readRecords("grants", { scope }), [record])
     assert.deepEqual(await target.readMemoryVersions({ scope }), [memory])
+    assert.deepEqual(
+      new Set(await target.readDecisionMemoryIds(scope, ["memory_target_v1"])),
+      new Set(["memory_target_v1", memory.id]),
+    )
+    const inputs = await target.readDecisionInputs(scope, {
+      evidence: [{ source: "hub_review_comments", at: "2026-10-03T00:00:00.000000Z" }],
+      at: "2026-10-09T12:00:00.000000Z",
+      purpose: "instruction",
+      hubSources: [],
+      eventIds: [],
+    })
+    assert.deepEqual(inputs.withdrawals, [withdrawal])
 
     const importedScope = { host: "github.com", repository: "repositories/987654" }
     const oldScope = { host: "github.com", repository: "repositories/old" }
@@ -1215,6 +1265,19 @@ it("migrates only with the migration URL and lets a limited runtime login use th
     await db.query(`grant select, insert, update on replica_learning.records to "${role}"`)
     await db.query(`grant select, insert on replica_learning.memory_versions to "${role}"`)
     await db.query(
+      `grant select, insert, update on replica_learning.decision_generations to "${role}"`,
+    )
+    await db.query(`grant select, insert on replica_learning.decision_memory_targets to "${role}"`)
+    await db.query(
+      `grant select, insert, delete on replica_learning.decision_grant_sources to "${role}"`,
+    )
+    await db.query(
+      `grant select, insert on replica_learning.decision_withdrawal_targets to "${role}"`,
+    )
+    await db.query(
+      `grant select, insert on replica_learning.decision_migration_origins to "${role}"`,
+    )
+    await db.query(
       `grant select on replica_learning.scope_migrations, replica_learning.sqlite_imports to "${role}"`,
     )
     await db.query(`grant usage on all sequences in schema replica_learning to "${role}"`)
@@ -1242,17 +1305,44 @@ it("migrates only with the migration URL and lets a limited runtime login use th
     } finally {
       await restricted.end()
     }
-    const record = { id: "grant_runtime", digest: "sha256:runtime", scope: { repository: "a" } }
+    const record = {
+      id: "grant_runtime",
+      digest: "sha256:runtime",
+      scope: { repository: "a" },
+      sources: ["hub_review_comments"],
+      purposes: ["instruction"],
+      grantedAt: "2026-10-01T00:00:00.000000Z",
+    }
     await runtime.appendRecords("grants", [record])
     assert.deepEqual(await runtime.readRecords("grants", { scope: record.scope }), [record])
+    const withdrawal = {
+      id: "withdrawal_runtime",
+      grantId: record.id,
+      digest: "sha256:withdrawal",
+      scope: record.scope,
+    }
+    await runtime.appendRecords("withdrawals", [withdrawal])
+    const inputs = await runtime.readDecisionInputs(record.scope, {
+      evidence: [{ source: "hub_review_comments", at: "2026-10-03T00:00:00.000000Z" }],
+      at: "2026-10-09T12:00:00.000000Z",
+      purpose: "instruction",
+      hubSources: [],
+      eventIds: [],
+    })
+    assert.deepEqual(inputs.withdrawals, [withdrawal])
     const memory = {
       id: "memory_runtime",
       version: 1,
       digest: "sha256:memory",
       scope: record.scope,
     }
-    await runtime.appendMemoryVersion(memory, { expectedPreviousDigest: null })
+    const fence = await runtime.decisionFence(record.scope)
+    await runtime.appendMemoryVersion(memory, {
+      expectedPreviousDigest: null,
+      expectedDecisionFence: fence,
+    })
     assert.deepEqual(await runtime.readMemoryVersions({ scope: record.scope }), [memory])
+    assert.deepEqual(await runtime.readDecisionMemoryIds(record.scope, [memory.id]), [memory.id])
     const event = {
       id: "event_runtime",
       digest: "sha256:event",
@@ -1267,7 +1357,15 @@ it("migrates only with the migration URL and lets a limited runtime login use th
       ...withoutPayload,
       redaction: { commentId: 123, reason: "Requested." },
     }
+    const beforeRedaction = await runtime.decisionFence(record.scope)
     assert.deepEqual(await runtime.redactRecord("events", redacted), { redacted: true })
+    await assert.rejects(
+      runtime.appendMemoryVersion(
+        { ...memory, version: 2, digest: "sha256:next" },
+        { expectedPreviousDigest: memory.digest, expectedDecisionFence: beforeRedaction },
+      ),
+      { code: "conflict" },
+    )
     assert.deepEqual(await runtime.readRecords("events", { scope: record.scope }), [redacted])
     assert.deepEqual(await runtime.scopeMigrations(scope), [mapping])
     assert.deepEqual(await runtime.scopeMigrationFrom(oldScope), mapping)
@@ -2088,6 +2186,223 @@ it("uses indexes for selective scope, ID, episode, time, and operation queries",
       const { rows } = await db.query(`explain (format json) ${sql}`, values)
       assert.ok(usesIndex(rows[0]["QUERY PLAN"][0].Plan), sql)
     }
+  } finally {
+    await db.end()
+  }
+})
+
+it("keeps decision and related-thread reads indexed and bounded", async () => {
+  const url = await database()
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  const scope = { repository: "bounded-repository" }
+  const key = canonicalJson(scope)
+  try {
+    await db.query(
+      `insert into replica_learning.records (stream, id, scope_key, digest, body)
+       select 'episodes', 'ep-' || n, $1, 'sha256:' || n,
+         json_build_object('source', json_build_object(
+           'kind', 'hub_review_comments',
+           'hubOrigin', 'https://replica.example.com',
+           'repositoryId', 42,
+           'prototypeId', 7,
+           'threadId', n
+         ))::text
+       from generate_series(1, 2500) as n`,
+      [key],
+    )
+    await db.query(
+      `insert into replica_learning.records (stream, id, scope_key, digest, body)
+       select stream, 'ep-related', scope_key, digest, body
+       from replica_learning.records where stream = 'episodes' and id = 'ep-1'`,
+    )
+    await db.query(
+      `insert into replica_learning.records (stream, id, scope_key, digest, body)
+       select 'events', 'event-' || n, $1, 'sha256:' || n, '{}'
+       from generate_series(1, 2500) as n`,
+      [key],
+    )
+    await db.query(
+      `insert into replica_learning.records (stream, id, scope_key, digest, body)
+       select 'events', 'foreign-event-' || n,
+         '{"repository":"foreign-' || n || '"}', 'sha256:' || n, '{}'
+       from generate_series(1, 2500) as n`,
+    )
+    await db.query(
+      `insert into replica_learning.memory_versions
+         (id, version, scope_key, digest, body)
+       select 'memory-' || n, 1, $1, 'sha256:' || n,
+         json_build_object('supersedes', json_build_array('target-' || n))::text
+       from generate_series(1, 2500) as n`,
+      [key],
+    )
+    await db.query(
+      `insert into replica_learning.records (stream, id, scope_key, digest, body)
+       select 'grants', 'grant-' || n, $1, 'sha256:' || n,
+         json_build_object(
+           'id', 'grant-' || n,
+           'sources', json_build_array(case
+             when n = 1 or n % 2 = 0 then 'hub_review_comments' else 'other_source' end),
+           'purposes', json_build_array('instruction'),
+           'grantedAt', '2026-10-01T00:00:00.000000Z',
+           'expiresAt', case when n = 1 then '9999-12-31T23:59:59.999999Z'
+             else '2026-10-05T00:00:00.000000Z' end
+         )::text
+       from generate_series(1, 2500) as n`,
+      [key],
+    )
+    await db.query(
+      `insert into replica_learning.records (stream, id, scope_key, digest, body)
+       select 'withdrawals', 'withdrawal-' || n, $1, 'sha256:' || n,
+         json_build_object('id', 'withdrawal-' || n, 'grantId', 'grant-' || n)::text
+       from generate_series(1, 2500) as n`,
+      [key],
+    )
+    await db.query(
+      `insert into replica_learning.records (stream, id, scope_key, digest, body)
+       select 'collections', 'collection-' || n, $1, 'sha256:' || n,
+         json_build_object(
+           'id', 'collection-' || n,
+           'snapshotId', 'snapshot-' || n,
+           'reviewerIdentity', 'stable-user-id',
+           'source', json_build_object(
+             'hubOrigin', 'https://replica.example.com', 'repositoryId', n
+           )
+         )::text
+       from generate_series(1, 2500) as n`,
+      [key],
+    )
+    const eventOrigin = { repository: "old-events" }
+    const grantOrigin = { repository: "old-grants" }
+    function migration(oldScope, kind, id) {
+      return JSON.stringify({
+        oldScope,
+        newScope: scope,
+        digestMappings: [{ kind, id, field: "digest" }],
+      })
+    }
+    await db.query(
+      `insert into replica_learning.scope_migrations (old_scope_key, new_scope_key, metadata)
+       values ($1, $2, $3), ($4, $2, $5)`,
+      [
+        canonicalJson(eventOrigin),
+        key,
+        migration(eventOrigin, "event", "event-1"),
+        canonicalJson(grantOrigin),
+        migration(grantOrigin, "grant", "grant-1"),
+      ],
+    )
+    await db.query(
+      `insert into replica_learning.scope_migrations (old_scope_key, new_scope_key, metadata)
+       select '{"repository":"old-event-' || n || '"}', $1,
+         json_build_object('digestMappings', json_build_array(
+           json_build_object('kind', 'event', 'id', 'event-' || n, 'field', 'digest')
+         ))::text
+       from generate_series(2, 2500) as n`,
+      [key],
+    )
+    await db.query(`
+      analyze replica_learning.records;
+      analyze replica_learning.memory_versions;
+      analyze replica_learning.decision_generations;
+      analyze replica_learning.decision_memory_targets;
+      analyze replica_learning.decision_grant_sources;
+      analyze replica_learning.decision_withdrawal_targets;
+      analyze replica_learning.decision_migration_origins;
+    `)
+    const opened = provider(url)
+    await opened.decisionFence(scope)
+    const queries = []
+    const originalQuery = pg.Client.prototype.query
+    pg.Client.prototype.query = function (...args) {
+      if (
+        typeof args[0] === "string" &&
+        /^\s*(select|with)\b/i.test(args[0]) &&
+        /\breplica_learning\.(records|memory_versions|decision_generations|decision_memory_targets|decision_grant_sources|decision_withdrawal_targets|decision_migration_origins)\b/i.test(
+          args[0],
+        )
+      )
+        queries.push(args)
+      return originalQuery.apply(this, args)
+    }
+    try {
+      const fence = await opened.decisionFence(scope)
+      assert.deepEqual(
+        new Set(await opened.readRelatedEpisodeIds(scope, ["ep-1"])),
+        new Set(["ep-1", "ep-related"]),
+      )
+      assert.deepEqual(
+        new Set(await opened.readDecisionMemoryIds(scope, ["memory-1"])),
+        new Set(["memory-1", "target-1"]),
+      )
+      const inputs = await opened.readDecisionInputs(scope, {
+        evidence: [{ source: "hub_review_comments", at: "2026-10-03T00:00:00.000000Z" }],
+        at: "2026-10-09T12:00:00.000000Z",
+        purpose: "instruction",
+        hubSources: [{ hubOrigin: "https://replica.example.com", repositoryId: 1 }],
+        eventIds: ["event-1"],
+      })
+      assert.deepEqual(
+        inputs.grants.map((grant) => grant.id),
+        ["grant-1"],
+      )
+      assert.deepEqual(
+        inputs.withdrawals.map((withdrawal) => withdrawal.id),
+        ["withdrawal-1"],
+      )
+      assert.deepEqual(
+        inputs.collections.map((collection) => collection.id),
+        ["collection-1"],
+      )
+      assert.deepEqual(
+        new Map(inputs.origins.map(({ kind, id, origin }) => [`${kind} ${id}`, origin])),
+        new Map([
+          ["event event-1", canonicalJson(eventOrigin)],
+          ["grant grant-1", canonicalJson(grantOrigin)],
+        ]),
+      )
+      await opened.appendMemoryVersion(
+        { id: "memory-decision", version: 1, scope, digest: "sha256:decision" },
+        { expectedPreviousDigest: null, expectedDecisionFence: fence },
+      )
+    } finally {
+      pg.Client.prototype.query = originalQuery
+    }
+    assert.ok(queries.length >= 4)
+    const tables = new Set([
+      "records",
+      "memory_versions",
+      "decision_generations",
+      "decision_memory_targets",
+      "decision_grant_sources",
+      "decision_withdrawal_targets",
+      "decision_migration_origins",
+    ])
+    function scans(node) {
+      return [node, ...(node.Plans ?? []).flatMap(scans)].filter((plan) =>
+        tables.has(plan["Relation Name"]),
+      )
+    }
+    const unbounded = []
+    for (const [sql, values] of queries) {
+      const { rows } = await db.query(`explain (analyze, format json) ${sql}`, values)
+      for (const scan of scans(rows[0]["QUERY PLAN"][0].Plan)) {
+        const visited =
+          (scan["Actual Rows"] +
+            (scan["Rows Removed by Filter"] ?? 0) +
+            (scan["Rows Removed by Index Recheck"] ?? 0)) *
+          scan["Actual Loops"]
+        if (visited > 100 || scan["Node Type"] === "Seq Scan")
+          unbounded.push({
+            sql: sql.replace(/\s+/g, " ").trim(),
+            relation: scan["Relation Name"],
+            type: scan["Node Type"],
+            index: scan["Index Name"],
+            visited,
+          })
+      }
+    }
+    assert.deepEqual(unbounded, [])
   } finally {
     await db.end()
   }

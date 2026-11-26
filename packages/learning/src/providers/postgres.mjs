@@ -2,7 +2,6 @@ import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
-  DECISION_FENCE_STREAMS,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
@@ -11,7 +10,7 @@ import {
   assertStorable,
   assertStream,
   batchWrites,
-  decisionFenceDigest,
+  decisionGenerationFence,
   redactionProblem,
 } from "../provider-contract.mjs"
 import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
@@ -147,37 +146,21 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
       throw new ProviderConflictError("Repository migration changed during the write.")
   }
 
-  /** Read the indexed scope while its advisory lock excludes competing changes. */
-  async function fence(client, scope) {
+  /** Read one scope's generation; writers lock it before checking a decision. */
+  async function fence(client, scope, lock = false) {
     const key = canonicalJson(scope)
-    const recordsResult = await client.query(
-      `select stream, body from replica_learning.records
-       where stream = any($1::text[]) and scope_key = $2 order by seq`,
-      [DECISION_FENCE_STREAMS, key],
-    )
-    const memoriesResult = await client.query(
-      "select body from replica_learning.memory_versions where scope_key = $1 order by seq",
+    if (lock)
+      await client.query(
+        `insert into replica_learning.decision_generations (scope_key, generation)
+         values ($1, 0) on conflict (scope_key) do nothing`,
+        [key],
+      )
+    const { rows } = await client.query(
+      `select generation from replica_learning.decision_generations
+       where scope_key = $1${lock ? " for update" : ""}`,
       [key],
     )
-    const migrationsResult = await client.query(
-      `select old_scope_key, new_scope_key, metadata from replica_learning.scope_migrations
-       where old_scope_key = $1 or new_scope_key = $1 order by seq`,
-      [key],
-    )
-    try {
-      const records = Object.fromEntries(DECISION_FENCE_STREAMS.map((stream) => [stream, []]))
-      for (const row of recordsResult.rows) records[row.stream].push(JSON.parse(row.body))
-      const memories = memoriesResult.rows.map((row) => JSON.parse(row.body))
-      const migrations = migrationsResult.rows.map((row) => ({
-        oldScopeKey: row.old_scope_key,
-        newScopeKey: row.new_scope_key,
-        metadata: JSON.parse(row.metadata),
-      }))
-      return decisionFenceDigest(scope, { records, memories, migrations })
-    } catch (error) {
-      if (error instanceof LearningError) throw error
-      throw new LearningError("storage_corrupt", "Could not read the decision eligibility state.")
-    }
+    return decisionGenerationFence(scope, rows[0]?.generation ?? 0)
   }
 
   async function write(batch, { audit = [], expectedCollection, expectedMigrations } = {}) {
@@ -241,7 +224,154 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
 
     async decisionFence(scope) {
       assertQuery({ scope })
-      return transaction([canonicalJson(scope)], (client) => fence(client, scope))
+      const { rows } = await query(
+        "select generation from replica_learning.decision_generations where scope_key = $1",
+        [canonicalJson(scope)],
+      )
+      return decisionGenerationFence(scope, rows[0]?.generation ?? 0)
+    },
+
+    async readDecisionMemoryIds(scope, ids) {
+      assertQuery({ scope })
+      const { rows } = await query(
+        `with recursive linked(id) as (
+          select unnest($2::text[]) collate "C"
+          union
+          select neighbor.id from linked
+          join lateral (
+            select target_id as id from replica_learning.decision_memory_targets
+              where scope_key = $1 and source_id = linked.id
+            union
+            select source_id as id from replica_learning.decision_memory_targets
+              where scope_key = $1 and target_id = linked.id
+          ) as neighbor on true
+        )
+        select id from linked limit 1001`,
+        [canonicalJson(scope), ids],
+      )
+      if (rows.length > 1000)
+        throw new LearningError("unsupported", "The learning replacement history is too large.")
+      return rows.map((row) => row.id)
+    },
+
+    async readRelatedEpisodeIds(scope, ids) {
+      assertQuery({ scope })
+      const { rows } = await query(
+        `with selected as (
+          select body::jsonb -> 'source' as source
+          from replica_learning.records
+          where stream = 'episodes' and scope_key = $1 and id = any($2::text[])
+        )
+        select distinct related.id
+        from selected
+        join replica_learning.records as related
+          on related.scope_key = $1 and related.stream = 'episodes'
+          and (related.body::jsonb -> 'source') ->> 'kind' = 'hub_review_comments'
+          and (related.body::jsonb -> 'source') -> 'hubOrigin' = selected.source -> 'hubOrigin'
+          and (related.body::jsonb -> 'source') -> 'repositoryId' = selected.source -> 'repositoryId'
+          and (related.body::jsonb -> 'source') -> 'prototypeId' = selected.source -> 'prototypeId'
+          and (related.body::jsonb -> 'source') -> 'threadId' = selected.source -> 'threadId'
+        where selected.source ->> 'kind' = 'hub_review_comments'`,
+        [canonicalJson(scope), ids],
+      )
+      return [...new Set([...ids, ...rows.map((row) => row.id)])]
+    },
+
+    async readDecisionInputs(scope, { evidence, at, purpose, hubSources, eventIds }) {
+      assertQuery({ scope, ids: eventIds })
+      const key = canonicalJson(scope)
+      const grantsResult = await query(
+        `with candidate_grants as materialized (
+          select distinct grant_id from replica_learning.decision_grant_sources as source
+          where scope_key = $1 and source.source = any($2::text[])
+            and purpose = $4 and granted_at <= $3 and expires_at > $3
+            and exists (
+              select 1 from jsonb_to_recordset($5::jsonb) as evidence(source text, at text)
+              where source.source = evidence.source
+                and (source.evidence_from is null or source.evidence_from <= evidence.at)
+                and (source.evidence_until is null or source.evidence_until > evidence.at)
+            )
+         )
+         select body from replica_learning.records as grant_record
+         where stream = 'grants' and scope_key = $1
+           and id = any(array(select grant_id from candidate_grants))
+         order by seq`,
+        [
+          key,
+          [...new Set(evidence.map((item) => item.source))],
+          at,
+          purpose,
+          JSON.stringify(evidence),
+        ],
+      )
+      let grants
+      try {
+        grants = grantsResult.rows.map((row) => JSON.parse(row.body))
+      } catch {
+        throw new LearningError("storage_corrupt", "A PostgreSQL record contains invalid JSON.")
+      }
+      const grantIds = grants.map((grant) => grant.id)
+      // Keep source lookups selective even when PostgreSQL overestimates the input array.
+      const [withdrawalResult, collectionResult, originResult] = await Promise.all([
+        query(
+          `select distinct withdrawal.seq, withdrawal.body
+           from replica_learning.decision_withdrawal_targets as target
+           left join replica_learning.records as withdrawal
+             on withdrawal.stream = 'withdrawals' and withdrawal.id = target.withdrawal_id
+             and withdrawal.scope_key = target.scope_key
+           where target.scope_key = $1 and target.grant_id = any($2::text[])
+           order by withdrawal.seq`,
+          [key, grantIds],
+        ),
+        query(
+          `select distinct collection.seq, collection.body
+           from jsonb_array_elements($2::jsonb) as source(value)
+           cross join lateral (
+             select seq, body from replica_learning.records
+             where stream = 'collections' and scope_key = $1
+             and (body::jsonb) ->> 'reviewerIdentity' = 'stable-user-id'
+             and coalesce((body::jsonb -> 'source') -> 'hubOrigin', 'null'::jsonb)
+               = coalesce(source.value -> 'hubOrigin', 'null'::jsonb)
+             and coalesce((body::jsonb -> 'source') -> 'repositoryId', 'null'::jsonb)
+               = coalesce(source.value -> 'repositoryId', 'null'::jsonb)
+             offset 0
+           ) as collection
+           order by collection.seq`,
+          [key, JSON.stringify(hubSources)],
+        ),
+        query(
+          `select kind, record_id as id, old_scope_key as origin
+           from replica_learning.decision_migration_origins
+           where scope_key = $1 and (
+             (kind = 'grant' and record_id = any($2::text[])) or
+             (kind = 'event' and record_id = any($3::text[]))
+           ) order by migration_id`,
+          [key, grantIds, eventIds],
+        ),
+      ])
+      let snapshots
+      try {
+        snapshots = collectionResult.rows.map((row) => JSON.parse(row.body).snapshotId)
+      } catch {
+        throw new LearningError("storage_corrupt", "A PostgreSQL record contains invalid JSON.")
+      }
+      const collections = await query(
+        `select body from replica_learning.records
+         where stream = 'collections' and scope_key = $1
+           and (body::jsonb) ->> 'snapshotId' = any($2::text[])
+         order by seq`,
+        [key, snapshots],
+      )
+      try {
+        return {
+          grants,
+          withdrawals: withdrawalResult.rows.map((row) => JSON.parse(row.body)),
+          collections: collections.rows.map((row) => JSON.parse(row.body)),
+          origins: originResult.rows,
+        }
+      } catch {
+        throw new LearningError("storage_corrupt", "A PostgreSQL record contains invalid JSON.")
+      }
     },
 
     manifest() {
@@ -309,7 +439,7 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
         async (client) => {
           await assertMigrations(client, expectedMigrations)
           if (expectedDecisionFence !== undefined)
-            assertDecisionFence(expectedDecisionFence, await fence(client, record.scope))
+            assertDecisionFence(expectedDecisionFence, await fence(client, record.scope, true))
           const { rows } = await client.query(
             "select version, digest, scope_key from replica_learning.memory_versions where id = $1 order by version desc limit 1",
             [record.id],
@@ -354,6 +484,44 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
       } catch {
         throw new LearningError("storage_corrupt", "A PostgreSQL migration mapping is invalid.")
       }
+    },
+
+    async scopeMigrationSummaries(scope) {
+      const { rows } = await query(
+        `select old_scope_key, metadata::jsonb -> 'redactionFollowUps' as follow_ups
+         from replica_learning.scope_migrations where new_scope_key = $1 order by seq`,
+        [canonicalJson(scope)],
+      )
+      try {
+        return rows.map((row) => ({
+          oldScope: JSON.parse(row.old_scope_key),
+          ...(row.follow_ups ? { redactionFollowUps: row.follow_ups } : {}),
+        }))
+      } catch {
+        throw new LearningError("storage_corrupt", "A PostgreSQL migration mapping is invalid.")
+      }
+    },
+
+    async scopeMigrationIdentityFrom(scope) {
+      const { rows } = await query(
+        `select old_scope_key, new_scope_key, metadata::jsonb -> 'oldScope' as old_scope,
+           metadata::jsonb -> 'newScope' as new_scope
+         from replica_learning.scope_migrations
+         where old_scope_key = $1`,
+        [canonicalJson(scope)],
+      )
+      try {
+        if (!rows.length) return null
+        const row = rows[0]
+        if (
+          canonicalJson(row.old_scope) === row.old_scope_key &&
+          canonicalJson(row.new_scope) === row.new_scope_key
+        )
+          return { oldScope: row.old_scope, newScope: row.new_scope }
+      } catch {
+        throw new LearningError("storage_corrupt", "A PostgreSQL migration mapping is invalid.")
+      }
+      throw new LearningError("storage_corrupt", "A PostgreSQL migration mapping is invalid.")
     },
 
     async scopeMigrationFrom(scope) {
