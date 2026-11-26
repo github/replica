@@ -10,6 +10,8 @@ CREATE TABLE "agent_authorizations" (
     "expires_at" TIMESTAMPTZ(3) NOT NULL,
     "approved_at" TIMESTAMPTZ(3),
     "consumed_at" TIMESTAMPTZ(3),
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "agent_authorizations_pkey" PRIMARY KEY ("id")
 );
@@ -20,6 +22,7 @@ CREATE TABLE "agent_clients" (
     "name" VARCHAR(200) NOT NULL,
     "redirect_uris" TEXT[],
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "agent_clients_pkey" PRIMARY KEY ("id")
 );
@@ -39,6 +42,7 @@ CREATE TABLE "agent_connections" (
     "last_used_at" TIMESTAMPTZ(3),
     "revoked_at" TIMESTAMPTZ(3),
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "agent_connections_pkey" PRIMARY KEY ("id")
 );
