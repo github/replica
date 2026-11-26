@@ -7,6 +7,7 @@ model Repository {
   learningRuns               LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]
   decisionModelConfiguration DecisionModelConfiguration?
+  decisionReviewSnapshot     DecisionReviewSnapshot?
   decisionTrainingJobs       DecisionTrainingJob[]
   decisionCandidates         DecisionCandidate[]
   decisionModelPromotions    DecisionModelPromotion[]

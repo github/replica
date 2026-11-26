@@ -487,6 +487,7 @@ describe("createHubDecisionTasksetSource()", () => {
   it("reports deterministic eligible evidence, task, split, and label counts", async () => {
     vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
       run(new AbortController().signal, {
+        client: {} as never,
         runWithoutRepositoryAuthorityLock: (operation) => operation(),
       }),
     )
@@ -649,6 +650,7 @@ describe("createHubDecisionTasksetSource()", () => {
     const privateEvidence = "Do not expose this private learning"
     vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
       run(new AbortController().signal, {
+        client: {} as never,
         runWithoutRepositoryAuthorityLock: (operation) => operation(),
       }),
     )
@@ -725,6 +727,7 @@ describe("createHubDecisionTasksetSource()", () => {
   it("exports repository-scoped learning evidence deterministically on retry", async () => {
     vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
       run(new AbortController().signal, {
+        client: {} as never,
         runWithoutRepositoryAuthorityLock: (operation) => operation(),
       }),
     )

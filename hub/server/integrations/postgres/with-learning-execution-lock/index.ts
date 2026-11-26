@@ -11,6 +11,7 @@ export async function withLearningExecutionLock<T>({
   run: (
     signal: AbortSignal,
     controls: {
+      client: Pick<Client, "query">
       runWithoutRepositoryAuthorityLock: <Result>(
         operation: () => Promise<Result>,
       ) => Promise<Result>
@@ -49,6 +50,7 @@ export async function withLearningExecutionLock<T>({
     }
     controller.signal.throwIfAborted()
     running = run(controller.signal, {
+      client,
       runWithoutRepositoryAuthorityLock: async <Result>(operation: () => Promise<Result>) => {
         const unlocked = await client.query<{ unlocked: boolean }>(
           "SELECT pg_advisory_unlock_shared(1919242348, 3) AS unlocked",

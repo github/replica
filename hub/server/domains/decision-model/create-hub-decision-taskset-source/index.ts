@@ -15,6 +15,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { z } from "zod"
 import type { Logger } from "pino"
+import type { Client } from "pg"
 
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
@@ -27,6 +28,8 @@ import { prepareLearningStore } from "../../learning/prepare-learning-store/inde
 import { captureRepositoryReviewSnapshot } from "../../review-comments/capture-repository-review-snapshot/index.ts"
 import { listDecisionTrainingBuilds } from "../../../repositories/decision-training-builds/list-decision-training-builds/index.ts"
 import { findDecisionEvaluationBuild } from "../../../repositories/decision-training-builds/find-decision-evaluation-build/index.ts"
+import { getDecisionReviewSnapshot } from "../../../repositories/decision-review-snapshots/get-decision-review-snapshot/index.ts"
+import { saveDecisionReviewSnapshot } from "../../../repositories/decision-review-snapshots/save-decision-review-snapshot/index.ts"
 import { listDecisionWithdrawalSources } from "../../../repositories/decision-training-jobs/list-decision-withdrawal-sources/index.ts"
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { DecisionModelError } from "../errors.ts"
@@ -243,14 +246,12 @@ function digestJson(value: unknown): string {
   return sha256(canonicalJson(value))
 }
 
-async function stabilizeReviewSnapshot(
-  directory: string,
-  digest: string,
-  capturedAt: Date,
-): Promise<{ snapshotId: string; capturedAt: Date }> {
-  const statePath = join(directory, "decision-review-snapshot.json")
+async function readLegacyReviewSnapshot(directory: string) {
   try {
-    const handle = await open(statePath, constants.O_RDONLY | constants.O_NOFOLLOW)
+    const handle = await open(
+      join(directory, "decision-review-snapshot.json"),
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    )
     try {
       const state = z
         .object({
@@ -260,20 +261,26 @@ async function stabilizeReviewSnapshot(
         })
         .strict()
         .parse(JSON.parse(await handle.readFile("utf8")))
-      if (state.digest === digest) {
-        return { snapshotId: state.snapshotId, capturedAt: new Date(state.capturedAt) }
-      }
+      return { ...state, capturedAt: new Date(state.capturedAt) }
     } finally {
       await handle.close()
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    return null
   }
-  const state = {
-    digest,
-    snapshotId: randomUUID(),
-    capturedAt: capturedAt.toISOString(),
-  }
+}
+
+async function stabilizeLocalReviewSnapshot(
+  directory: string,
+  digest: string,
+  capturedAt: Date,
+  signal: AbortSignal,
+): Promise<{ snapshotId: string; capturedAt: Date }> {
+  const previous = await readLegacyReviewSnapshot(directory)
+  signal.throwIfAborted()
+  if (previous?.digest === digest) return previous
+  const next = { digest, snapshotId: randomUUID(), capturedAt }
   const temporary = join(directory, `.decision-review-snapshot-${randomUUID()}`)
   const handle = await open(
     temporary,
@@ -281,13 +288,45 @@ async function stabilizeReviewSnapshot(
     0o600,
   )
   try {
-    await handle.writeFile(`${JSON.stringify(state)}\n`)
-    await handle.sync()
+    try {
+      await handle.writeFile(`${JSON.stringify(next)}\n`)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    signal.throwIfAborted()
+    await rename(temporary, join(directory, "decision-review-snapshot.json"))
   } finally {
-    await handle.close()
+    await rm(temporary, { force: true })
   }
-  await rename(temporary, statePath)
-  return { snapshotId: state.snapshotId, capturedAt }
+  return next
+}
+
+async function stabilizeReviewSnapshot(
+  database: PrismaClient,
+  lockClient: Pick<Client, "query">,
+  repositoryId: string,
+  directory: string,
+  digest: string,
+  capturedAt: Date,
+  signal: AbortSignal,
+): Promise<{ snapshotId: string; capturedAt: Date }> {
+  const stored = await getDecisionReviewSnapshot(database, repositoryId)
+  signal.throwIfAborted()
+  const previous = stored ?? (await readLegacyReviewSnapshot(directory))
+  signal.throwIfAborted()
+  if (stored?.digest === digest) return stored
+  const next =
+    previous?.digest === digest ? previous : { digest, snapshotId: randomUUID(), capturedAt }
+  if (!(await saveDecisionReviewSnapshot(lockClient, repositoryId, next, stored))) {
+    throw new DecisionModelError(
+      409,
+      "taskset_drift",
+      "The review snapshot changed during taskset preparation. Try again.",
+    )
+  }
+  signal.throwIfAborted()
+  return next
 }
 
 function stableExport(bundle: Record<string, unknown>, snapshotDigest: string) {
@@ -1003,7 +1042,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         try {
           return await withLearningExecutionLock({
             databaseUrl: options.databaseUrl,
-            run: async (signal) => {
+            run: async (signal, { client }) => {
               const store = await learningStore(repositoryId)
               const common = learningStoreArguments(store)
               const grants = grantListSchema.parse(
@@ -1044,11 +1083,28 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 options.hubOrigin,
                 store.repositoryScope,
               )
-              const metadata = await (options.stabilizeSnapshot ?? stabilizeReviewSnapshot)(
-                store.directory,
-                initialReview.digest,
-                snapshot.capturedAt,
-              )
+              const metadata = options.stabilizeSnapshot
+                ? await options.stabilizeSnapshot(
+                    store.directory,
+                    initialReview.digest,
+                    snapshot.capturedAt,
+                  )
+                : options.learningDatabaseUrl
+                  ? await stabilizeReviewSnapshot(
+                      options.database,
+                      client,
+                      repositoryId,
+                      store.directory,
+                      initialReview.digest,
+                      snapshot.capturedAt,
+                      signal,
+                    )
+                  : await stabilizeLocalReviewSnapshot(
+                      store.directory,
+                      initialReview.digest,
+                      snapshot.capturedAt,
+                      signal,
+                    )
               snapshot.snapshotId = metadata.snapshotId
               snapshot.capturedAt = metadata.capturedAt
               const review = createHubReviewCollection(

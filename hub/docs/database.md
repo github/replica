@@ -92,6 +92,8 @@ Review threads bind one non-removed repository, one reviewable prototype, and on
 
 Decision-model tables store repository settings, pinned input digests, runtime job and candidate references, promotion generations, Build evaluation references, and decimal usage or cost metadata. They do not store credentials, screenshots, tasksets, adapters, evaluation reports, or model weights. Database checks enforce training bounds, positive promotion generations, nonnegative usage and cost, and complete quantity/unit and amount/currency pairs.
 
+For PostgreSQL learning stores, the latest decision-review snapshot keeps its content digest, snapshot ID, and capture time per repository. It contains no review text and is removed with its repository. SQLite keeps this checkpoint in its existing store directory; see [learning storage](learning-foundation.md).
+
 Candidate rows also store the runtime's held-out baseline and candidate metrics, per-learning metric changes, and an optional administrator rejection. Rejection fields must be absent together or include a time and reason. Build evaluation rows keep typed page-level findings in their bounded summary rather than copying screenshot bytes.
 
 Runtime copy rows keep content-free provider references and provenance selectors. Runtime deletion rows keep selectors, pending and failure counts, safe receipt metadata, and completion times. They never store evidence bodies, screenshots, labels, prompts, adapters, or model artifacts.
