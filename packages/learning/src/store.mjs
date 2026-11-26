@@ -54,6 +54,7 @@ const STREAM_KINDS = Object.freeze({
   usageReports: "usageReport",
   usedLearnings: "usedLearning",
   screenshots: "screenshot",
+  scores: "score",
 })
 const PROVIDER_METHODS = [
   "health",
@@ -75,6 +76,10 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/
 const SUBJECTS_PER_ENTRY = 10_000
 const REPORT_ID = /^[A-Za-z0-9._:-]{1,128}$/
 const COMMIT_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/
+const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const EFFICIENCY_RUBRIC = "replica.efficiency-rubric/v1"
+const FOLLOWED = ["followed", "not_followed", "unclear"]
+const SCORE_INPUTS = ["screenshots", "build_diff"]
 /** The grant source a person names to allow evaluating agent screenshots. */
 const SCREENSHOT_SOURCE = "agent_screenshots"
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -3617,6 +3622,123 @@ class LearningStore {
   }
 
   /**
+   * What an evaluator may read about one used learning: the exact text the agent received,
+   * the report it came from, and the screenshots whose consent still allows evaluation. A
+   * screenshot's bytes are null when this store does not keep them, as on a host.
+   */
+  async evaluationInputs(context, { usedLearningId } = {}) {
+    assertContext(context)
+    if (typeof usedLearningId !== "string" || !RECORD_ID.test(usedLearningId))
+      throw new LearningError("invalid_input", "Name the used learning to evaluate.")
+    const [used] = await this.#read("usedLearnings", context, { ids: [usedLearningId] })
+    if (!used)
+      throw new LearningError("not_found", `No used learning ${usedLearningId} in this repository.`)
+    const [report] = await this.#read("usageReports", context, { ids: [used.usageReportId] })
+    const [delivery] = await this.#read("deliveries", context, { ids: [used.deliveryId] })
+    if (!report || !delivery)
+      throw new LearningError("not_found", `Used learning ${usedLearningId} lost its report.`)
+    const version = (await this.#memories(context, [used.memoryId]))
+      .get(used.memoryId)
+      ?.versions.findLast((item) => item.contentDigest === delivery.contentDigest)
+    const ids = [used.beforeScreenshotId, used.afterScreenshotId].filter(Boolean)
+    const screenshots = []
+    for (const shot of ids.length ? await this.#read("screenshots", context, { ids }) : []) {
+      // A screenshot taken under a withdrawn grant is no longer the model's to see.
+      if (shot.consentGrantId !== undefined) {
+        const grantId = shot.consentGrantId
+        const allowed = await this.#assertScreenshotGrant(context, grantId, [shot]).then(
+          () => true,
+          (error) => {
+            if (error.code === "unsupported") return false
+            throw error
+          },
+        )
+        if (!allowed) continue
+      }
+      const { sha256, role, route, viewport, theme, capturedAt } = shot
+      const bytes = (await this.#screenshots?.read(sha256)) ?? null
+      screenshots.push({ sha256, role, route, viewport, theme, capturedAt, bytes })
+    }
+    return {
+      usedLearning: { id: used.id, memoryId: used.memoryId, usageReportId: report.id },
+      learning: {
+        version: version?.version ?? null,
+        title: version?.title ?? null,
+        text: delivery.text,
+      },
+      report: {
+        commitSha: report.commitSha,
+        ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
+        ...(report.session ? { session: report.session } : {}),
+        reportedAt: report.reportedAt,
+      },
+      screenshots,
+    }
+  }
+
+  /**
+   * Keep an evaluator's score for one used learning. The host names each scoring attempt with
+   * an operation ID, so a retry keeps the first score instead of adding another.
+   */
+  async recordScore(
+    context,
+    {
+      usedLearningId,
+      operationId,
+      efficiency,
+      followed,
+      reasoning,
+      issue,
+      inputs = [],
+      route,
+    } = {},
+  ) {
+    assertContext(context)
+    if (typeof operationId !== "string" || !OPERATION_ID.test(operationId))
+      throw new LearningError("invalid_input", "Name the scoring attempt with a UUID operation ID.")
+    if (!Number.isInteger(efficiency) || efficiency < 1 || efficiency > 4)
+      throw new LearningError("invalid_input", "A score is a whole number from 1 to 4.")
+    if (!FOLLOWED.includes(followed))
+      throw new LearningError("invalid_input", `followed is one of ${FOLLOWED.join(", ")}.`)
+    if (!Array.isArray(inputs) || inputs.some((input) => !SCORE_INPUTS.includes(input)))
+      throw new LearningError("invalid_input", `Score inputs are ${SCORE_INPUTS.join(" or ")}.`)
+    const [used] = await this.#read("usedLearnings", context, { ids: [usedLearningId] })
+    if (!used)
+      throw new LearningError("not_found", `No used learning ${usedLearningId} in this repository.`)
+    const id = derivedId("score", { usedLearningId, operationId })
+    const [stored] = await this.#read("scores", context, { ids: [id] })
+    if (stored) return { id, stored: false, score: stored }
+    const score = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.score,
+      id,
+      scope: context.scope,
+      usedLearningId,
+      usageReportId: used.usageReportId,
+      memoryId: used.memoryId,
+      operationId,
+      rubricVersion: EFFICIENCY_RUBRIC,
+      efficiency,
+      followed,
+      reasoning,
+      ...(efficiency <= 2 ? { issue } : {}),
+      inputs: SCORE_INPUTS.filter((input) => inputs.includes(input)),
+      route,
+      scoredBy: context.principal,
+      scoredAt: this.#now(),
+    })
+    assertValid("score", score)
+    await this.#provider.appendBatch(
+      { scores: [score] },
+      {
+        audit: this.#auditEntries(context, "usage.score", [
+          { kind: "score", id, digest: score.digest },
+        ]),
+      },
+    )
+    return { id, stored: true, score }
+  }
+
+  /**
    * Refuse screenshots unless the grant lets agent screenshots be evaluated now, and each was
    * captured inside the period the grant covers.
    */
@@ -3641,10 +3763,10 @@ class LearningStore {
 
   /**
    * Remove one learning for good, at a person's request: every version, the deliveries that
-   * gave it to agents, the claims that agents used it, and their screenshots. A usage report
-   * goes too once none of its used learnings remain; one that said it used none stays, as
-   * does the guidance. A learning that replaced another, or was replaced, stays: removing it
-   * would break the history recall follows, so retire it instead.
+   * gave it to agents, the claims that agents used it, and their screenshots and scores. A
+   * usage report goes too once none of its used learnings remain; one that said it used none
+   * stays, as does the guidance. A learning that replaced another, or was replaced, stays:
+   * removing it would break the history recall follows, so retire it instead.
    */
   async deleteMemory(context, id, { reason } = {}) {
     assertContext(context)
@@ -3685,11 +3807,15 @@ class LearningStore {
     const shots = (await this.#read("screenshots", context)).filter(
       (record) => reportIds.has(record.usageReportId) && !kept.has(record.id),
     )
+    const scores = (await this.#read("scores", context)).filter((record) =>
+      gone.has(record.usedLearningId),
+    )
     const selection = {
       deliveries,
       usedLearnings: used,
       usageReports: reports,
       screenshots: shots,
+      scores,
     }
     const subjects = [
       { kind: "memory", id },
@@ -4320,6 +4446,7 @@ const RECEIPTS = {
   usageReports: [["usage.report"], "usage_report"],
   usedLearnings: [["usage.report"], "used_learning"],
   screenshots: [["usage.report"], "screenshot"],
+  scores: [["usage.score"], "score"],
 }
 
 /** The audit operation that records a learning version, named for the step that wrote it. */
@@ -4388,6 +4515,7 @@ const SUBJECT_KINDS = {
   usageReports: "usage_report",
   usedLearnings: "used_learning",
   screenshots: "screenshot",
+  scores: "score",
 }
 
 /** The stream that holds each kind of record an audit entry names, other than a learning. */
@@ -4403,6 +4531,7 @@ const SUBJECTS = {
   usage_report: "usageReports",
   used_learning: "usedLearnings",
   screenshot: "screenshots",
+  score: "scores",
 }
 
 /**

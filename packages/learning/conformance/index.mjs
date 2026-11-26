@@ -1561,7 +1561,7 @@ export function memoryProviderConformance({ name, createProvider }) {
       assert.equal((await store.getMemory(designer(), first.id)).status.superseded, true)
     })
 
-    it("usage: recall records what an agent got, and a report is stored once", async () => {
+    it("usage: recall records what an agent got, and a report and score are stored once", async () => {
       const { store, provider, proposal } = await proposed()
       await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
 
@@ -1584,6 +1584,19 @@ export function memoryProviderConformance({ name, createProvider }) {
       })
       const [used] = await provider.readRecords("usedLearnings", { scope: SCOPE })
       assert.equal(used.memoryId, proposal.id)
+      const score = {
+        usedLearningId: used.id,
+        operationId: "33333333-3333-4333-8333-333333333333",
+        efficiency: 2,
+        followed: "followed",
+        reasoning: "The label stayed visible, but the agent rebuilt the field twice.",
+        issue: "The rule did not say where the label goes.",
+        route: { kind: "fusion", fusionTier: "max" },
+      }
+      const scored = await store.recordScore(agent(), score)
+      const rescored = await store.recordScore(agent(), { ...score, efficiency: 4 })
+      assert.deepEqual([scored.stored, rescored.stored], [true, false])
+      assert.equal(rescored.score.efficiency, 2)
       assert.equal((await store.verify(designer())).ok, true)
     })
 
@@ -1603,12 +1616,21 @@ export function memoryProviderConformance({ name, createProvider }) {
         commitSha: "a".repeat(40),
         used: [{ deliveryId: recalled.memories[0].deliveryId }],
       })
+      const [used] = await provider.readRecords("usedLearnings", { scope: SCOPE })
+      await clocked.recordScore(agent(), {
+        usedLearningId: used.id,
+        operationId: "33333333-3333-4333-8333-333333333333",
+        efficiency: 4,
+        followed: "followed",
+        reasoning: "The agent kept the label visible on the first try.",
+        route: { kind: "auto", model: "gpt-test", reasoningEffort: "high" },
+      })
 
       await clocked.deleteMemory(designer(), proposal.id, { reason: "The rule was wrong." })
       now += 366 * 24 * 60 * 60 * 1000
       const expired = await clocked.expireGuidance(designer())
 
-      for (const stream of ["deliveries", "usedLearnings", "usageReports", "guidance"])
+      for (const stream of ["deliveries", "usedLearnings", "usageReports", "scores", "guidance"])
         assert.deepEqual(await provider.readRecords(stream, { scope: SCOPE }), [], stream)
       assert.equal(expired.records.guidance, 1)
       assert.equal(

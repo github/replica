@@ -21,6 +21,7 @@ export type Stream =
   | "usageReports"
   | "usedLearnings"
   | "screenshots"
+  | "scores"
 
 /** The coding agent session asking for guidance or reporting its use. */
 export interface AgentSessionRef {
@@ -349,6 +350,31 @@ export interface ScreenshotRecord {
   digest: Digest
 }
 
+/** How an evaluator scored one used learning, and the Copilot route it scored with. */
+export interface ScoreRecord {
+  schemaVersion: "replica.score/v1"
+  id: string
+  scope: Scope
+  usedLearningId: string
+  usageReportId: string
+  memoryId: string
+  operationId: string
+  rubricVersion: "replica.efficiency-rubric/v1"
+  efficiency: 1 | 2 | 3 | 4
+  followed: "followed" | "not_followed" | "unclear"
+  reasoning: string
+  /** Present for an efficiency of 1 or 2. */
+  issue?: string
+  inputs: Array<"screenshots" | "build_diff">
+  route: ScoreRoute
+  scoredBy: Actor
+  scoredAt: Timestamp
+  digest: Digest
+}
+
+export type ScoreRoute =
+  { kind: "fusion"; fusionTier: string } | { kind: "auto"; model: string; reasoningEffort?: string }
+
 /** Any record a provider stores in a stream. */
 export type StoredRecord =
   | Episode
@@ -363,6 +389,7 @@ export type StoredRecord =
   | UsageReport
   | UsedLearning
   | ScreenshotRecord
+  | ScoreRecord
 
 export interface RecalledMemory {
   id: string
@@ -1114,7 +1141,54 @@ export interface LearningStore {
       }>
     }>
   >
-  /** Remove a learning for good, with its deliveries, use, and screenshots. Needs a person. */
+  /**
+   * What an evaluator may read about one used learning. A screenshot whose consent no longer
+   * allows evaluation is left out; bytes are null when the store does not keep them.
+   */
+  evaluationInputs(
+    context: LearningContext,
+    request: { usedLearningId: string },
+  ): Promise<{
+    usedLearning: { id: string; memoryId: string; usageReportId: string }
+    learning: { version: number | null; title: string | null; text: string }
+    report: {
+      commitSha: string
+      prototypeId?: string
+      session?: AgentSessionRef
+      reportedAt: string
+    }
+    screenshots: Array<{
+      sha256: string
+      role: "before" | "after"
+      route: string
+      viewport: { width: number; height: number }
+      theme: string
+      capturedAt: string
+      bytes: Uint8Array | null
+    }>
+  }>
+  /**
+   * Keep an evaluator's score for one used learning. A retry with the same operationId
+   * stores nothing new and returns the first score.
+   */
+  recordScore(
+    context: LearningContext,
+    score: {
+      usedLearningId: string
+      operationId: string
+      efficiency: 1 | 2 | 3 | 4
+      followed: "followed" | "not_followed" | "unclear"
+      reasoning: string
+      /** Required for an efficiency of 1 or 2. */
+      issue?: string
+      inputs?: Array<"screenshots" | "build_diff">
+      route: ScoreRoute
+    },
+  ): Promise<{ id: string; stored: boolean; score: ScoreRecord }>
+  /**
+   * Remove a learning for good, with its deliveries, use, screenshots, and scores. Needs a
+   * person.
+   */
   deleteMemory(
     context: LearningContext,
     id: string,
