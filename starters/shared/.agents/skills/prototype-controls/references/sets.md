@@ -41,6 +41,8 @@ Use one set unless controls have different page lifetimes or shared/page roles. 
 
 `role` is `shared` or `page` (default). It controls ordering and width priority, not route matching. Shared fields appear first, followed by active page fields in one panel, separated by existing dividers. Do not add new grouping UI or scope headings.
 
+Put a page selector in a shared set so it remains available while the app changes routes. The app-owned API binding performs the navigation; the shared role does not select or track routes.
+
 `panel.width` is an integer from 160 to 4096, default 288, capped to the viewport. Active page widths take priority over shared widths; the widest active page wins. With no page set, the widest shared width wins.
 
 Scopes are unique within the document. Control IDs may repeat across sets; conditions refer only within their own set. Reuse a scope intentionally to share settings between pages. Keep a Build's definitions in its static asset so later source edits cannot change retained review behavior.

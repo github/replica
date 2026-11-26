@@ -110,11 +110,61 @@ Choose notifications or periodic reads for each API value binding. A notificatio
 
 Object paths and method names are identifiers, not executable expressions. No eval, configurable method arguments, framework-internal state access or router detection is supported.
 
+## Switch between app pages
+
+Use an app API binding when a control should navigate between pages owned by the app's router. Give the options friendly values, then map each value to a route in the app. Keep the control in a shared set so it remains available while pages change; `role: "shared"` affects panel ordering and width, not route matching.
+
+```json
+{
+  "version": 1,
+  "sets": [
+    {
+      "version": 1,
+      "scope": "navigation",
+      "label": "Navigation",
+      "role": "shared",
+      "controls": [
+        {
+          "id": "page",
+          "label": "Page",
+          "type": "select",
+          "default": "Organization",
+          "options": ["Organization", "Enterprise"],
+          "binding": {
+            "type": "api",
+            "object": "pageNavigation",
+            "read": "readPage",
+            "write": "writePage",
+            "subscribe": "subscribePage"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+`readPage` returns a declared option matching the current route. Define how the selector represents routes outside those options; an undeclared value produces a control error. `writePage` maps the selected option to its route and does nothing when that route is already current. `subscribePage` notifies Replica when the app's router changes and returns a cleanup function. Replace the example names with methods that use the app's existing router; do not read or change framework-internal state.
+
+Define the page API once at module scope and register it from app startup code so it is available when Controls initializes. Keep that same object while pages change. If a page component replaces or removes the API object after a route change, Replica can no longer read the selected value back. It restores the previous control value and reports a binding error; it does not navigate the app back.
+
+Leave the navigation set without a page `container` or a `when` condition on its selector. A page container can remove the selector during navigation; hiding a conditional control restores its default, which can navigate away from the current page.
+
+Do not bind a page selector directly to `hash` or `query` navigation. Those bindings change URL strings rather than mapping friendly labels through the app's router. They can also carry a saved control override into another route, which can make Back or Reset return to the saved page.
+
+### Startup and direct links
+
+With the current Controls runtime, a missing saved override uses the JSON `default`, and the adapter writes that value to the binding when the control initializes. If the current route differs from the default, the app API can navigate to the default page. For example, a direct link to Enterprise without a saved Enterprise override can open Organization when Organization is the default.
+
+Make the API write idempotent so it does not navigate when the current route already matches the selected option. This prevents redundant navigation, but it does not preserve a direct link to a non-default route. Until the runtime supports using the app's current route as the initial control value, treat direct links to non-default pages as a known limitation; do not claim this recipe supports them.
+
 ## Defaults, URLs and reset
 
 Canvas and Hub persist ordinary overrides in prototype URLs as `rc.<scope>.<controlId>`. Missing overrides use JSON defaults. Edits use `replaceState`, preserving router-owned history state without reload or extra history entries. These settings never belong in a private renderer/proxy capability URL or review route.
 
 Back/Forward restores the settings in that history entry. Invalid or duplicate overrides produce a visible notice; settings exceeding the 8 KB limit remain in memory with a saving error. Actions and results are never persisted. **Reset all controls** restores every set, including inactive sets, and removes overrides. Existing private Controls files are not read, migrated or deleted.
+
+For a page selector, test a direct link to both the default and a non-default page without any `rc` override, app Back/Forward, and Reset all. Record the direct-link limitation above if the runtime redirects a non-default route.
 
 Definition edits need a page reload; there is no Replica file watcher or live schema replacement. After each edit, follow the skill's validate-and-reload loop, including worktree verification and runtime status. Missing definitions mean no Controls. Invalid/unsupported definitions show a local Controls error without breaking the ordinary app, and reject publication when present in the actual retained asset.
 
