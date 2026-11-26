@@ -91,7 +91,7 @@ Every read checks the session and repository visibility again after asynchronous
 
 The read response lists the ten newest persisted runs and decimal Copilot usage from runs started during the previous 30 days. It resolves every displayed package event against the current repository snapshot and shows the exact imported event body only when the event, episode, comment, Hub origin, and repository all match. Deleted comments remain visible as redacted evidence without text.
 
-The browser decision route supports accept, reject, retire, edit, and reinstate. Accept and reject require the reviewed `reviewDigest`. Edit and reinstate require the exact version `digest` shown in the library, and edit changes the title, the text, or both. Package `stale_review` failures return `409` rather than applying a changed learning. If the repository becomes hidden while a decision runs, Hub returns a generic not-found response instead of exposing package-store failure details. Every decision except accept requires a reason. Hub writes titles, text, and reasons to private temporary files because command-line arguments must not carry review text. Successful and failed package decisions write typed security audits without storing content, evidence, or reasons.
+The browser decision route supports accept, reject, retire, edit, reinstate, and the two suggested-update decisions described in [Reviewing suggested updates](#reviewing-suggested-updates). Accept and reject require the reviewed `reviewDigest`. Edit and reinstate require the exact version `digest` shown in the library, and edit changes the title, the text, or both. Package `stale_review` failures return `409` rather than applying a changed learning. If the repository becomes hidden while a decision runs, Hub returns a generic not-found response instead of exposing package-store failure details. Every decision except accept requires a reason. Hub writes titles, text, and reasons to private temporary files because command-line arguments must not carry review text. Successful and failed package decisions write typed security audits without storing content, evidence, or reasons.
 
 The share route takes `{ "shared": true }` to share a learning and `{ "shared": false }` to stop sharing it. It requires Hub administration and the source repository's administrator boundary, rechecked in the same transaction that records the change. Sharing a learning that is not active and usable by agents returns `409`.
 
@@ -186,11 +186,22 @@ Each new score flags its learning for a check. Once a day at 03:00 UTC, a job qu
 - Flags for repositories with evaluations off or no longer connected are dropped.
 - A check can't be resumed. One interrupted by a worker stopping is recorded as interrupted by the next check, and it may have spent credits Hub didn't see.
 
+### Reviewing suggested updates
+
+An open suggestion appears on the active learning's detail view under **Suggested update**. It shows the issue, the new wording, Copilot's reasoning, and links to the scored Builds that showed the issue. For example, "Use one primary button per form" gets a suggestion that says which button wins when two actions are equal, with links to Signup Builds 4 and 6.
+
+- People who can decide on learnings can apply or dismiss it, and both need a reason. **Apply update** opens the suggested title and wording in a form, so the person can change them first. The wording can be up to 2,000 characters, and a suggested title can't be left empty. Agents get the applied wording as the learning's next version.
+- **Dismiss** closes the suggestion. Copilot suggests the same issue again only after new Builds show it.
+- Hub sends the suggestion's ID and checks that it belongs to the learning. Both decisions pass the decision's operation ID, so recovery after a crash finds whether it landed. A dismissal counts as Hub's own only when it carries that ID, so another administrator's dismissal fails the retry instead.
+- When the last check found too few Builds with the same issue, **Observed outcomes** says so.
+- Hub hides a suggestion when any score behind it no longer has a Build or its screenshot was withheld, and checks again before applying it. A suggestion goes away when the learning's wording changes.
+
 ### Observed outcomes
 
 An active learning's detail view lists how later Builds did with its current wording, newest first. Each entry reads a score as one result. A score where the agent didn't clearly follow the guidance is "Inconclusive". Otherwise a score of 3 or 4 "Supports the guidance" and 1 or 2 is a "Possible concern". The entry shows the scorer's issue, or its reasoning when there is no issue, and links to the Build it judged. For example, "Possible concern · Automated assessment · Checkout, Build 12" with "The rule did not say where the label goes." A score made after a reviewer verified the work reads "Reviewer-confirmed" instead, and replaces the earlier score for the same use.
 
 - Scores of earlier wording are left out, since they say nothing about the guidance agents get now. Retiring and reinstating a learning keeps its wording, so its scores stay.
+- **Earlier guidance** lists each wording agents had before, newest first, with its own scores. This lets people compare an applied update with what came before it.
 - A score with no successful Build people can open is left out.
 - Before and after screenshot links appear only under the screenshot consent that is on now, the same rule as applied learnings.
 - When a screenshot the scorer saw is no longer shown, its written summary is hidden too, because the words may describe that screenshot.
