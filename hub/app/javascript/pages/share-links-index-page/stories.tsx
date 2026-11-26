@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect } from "storybook/test"
 
 import { prototypeWorkspaceData } from "@/storybook/fixtures/prototype-workspace"
+import { prototypeShareLink } from "@utils/prototype-share-link"
+import { useShareFullScreenPreview } from "@hooks/use-share-full-screen-preview"
 
 import { ShareLinksIndexPage } from "."
 import type { ShareLinksIndexPageData } from "./types"
@@ -76,7 +78,14 @@ const data: ShareLinksIndexPageData = {
 const meta = {
   title: "Hub/Pages/Share Links",
   component: ShareLinksIndexPage,
-  args: { data },
+  args: {
+    data,
+    previewPreference: { fullScreenPreview: true, error: "", onChange: () => undefined },
+  },
+  render: function ShareLinksStory(args) {
+    const previewPreference = useShareFullScreenPreview()
+    return <ShareLinksIndexPage {...args} previewPreference={previewPreference} />
+  },
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof ShareLinksIndexPage>
 
@@ -106,10 +115,10 @@ export const FullScreenPreviewOff: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     const checkbox = canvas.getByRole("checkbox", { name: data.fullScreenPreviewLabel })
-    await userEvent.click(checkbox)
+    if (checkbox instanceof HTMLInputElement && checkbox.checked) await userEvent.click(checkbox)
     await expect(checkbox).not.toBeChecked()
     await expect(canvas.getByRole("textbox", { name: data.internalHeading })).toHaveValue(
-      new URL(data.closePath ?? data.branchPath, window.location.href).toString(),
+      prototypeShareLink(data.closePath ?? data.branchPath, "latest"),
     )
   },
 }

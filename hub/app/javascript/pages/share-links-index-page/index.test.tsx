@@ -1,13 +1,22 @@
-import { fireEvent, render, screen } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { ComponentProps } from "react"
+import { describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
+import { useShareFullScreenPreview } from "@hooks/use-share-full-screen-preview"
 
-import { ShareLinksIndexPage } from "./index"
+import { ShareLinksIndexPage as ShareLinksIndexPagePresentation } from "./index"
 import story from "./stories"
 import type { ShareLinksIndexPageData } from "./types"
 
 const writeText = vi.fn()
+
+function ShareLinksIndexPage(
+  props: Omit<ComponentProps<typeof ShareLinksIndexPagePresentation>, "previewPreference">,
+) {
+  const previewPreference = useShareFullScreenPreview()
+  return <ShareLinksIndexPagePresentation {...props} previewPreference={previewPreference} />
+}
 
 const PAGE_DATA: ShareLinksIndexPageData = {
   ...story.args.data,
@@ -63,6 +72,7 @@ describe("ShareLinksIndexPage()", () => {
   })
 
   it("explains disabled sharing without a create form or remembered public links", () => {
+    localStorage.removeItem("replica:share-full-screen-preview:v1")
     render(<ShareLinksIndexPage data={{ ...PAGE_DATA, publicSharingEnabled: false }} />, {
       wrapper: HubThemeProvider,
     })
@@ -71,14 +81,17 @@ describe("ShareLinksIndexPage()", () => {
     expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "No active share links" })).not.toBeInTheDocument()
     const internalUrl = new URL(PAGE_DATA.closePath!, window.location.href)
+    internalUrl.searchParams.set("build", "latest")
     internalUrl.searchParams.append("view", "minimized")
     expect(screen.getByRole("textbox", { name: "Internal prototype link" })).toHaveValue(
       internalUrl.toString(),
     )
   })
 
-  it("defaults the internal link to minimized view and toggles only its copy and open URL", async () => {
+  it("always shares latest and applies the saved fullscreen choice to Build-copy actions", async () => {
+    localStorage.removeItem("replica:share-full-screen-preview:v1")
     writeText.mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
     const query = "rc.page.title=%22Configured%22"
     const { unmount } = render(
       <ShareLinksIndexPage
@@ -97,11 +110,13 @@ describe("ShareLinksIndexPage()", () => {
     const input = screen.getByRole("textbox", { name: "Internal prototype link" })
     const open = screen.getByRole("link", { name: "Open internal prototype link" })
     const expected = new URL(PAGE_DATA.closePath!, window.location.href)
+    expected.searchParams.set("build", "latest")
     expected.searchParams.set("rc.page.title", '"Configured"')
     expected.searchParams.append("view", "minimized")
     const publicLinkUrl = new URL(PAGE_DATA.shareLinks[0]!.url)
     publicLinkUrl.searchParams.set("rc.page.title", '"Configured"')
     expect(checkbox).toBeChecked()
+    expect(screen.queryByRole("combobox", { name: "Build" })).not.toBeInTheDocument()
     expect(input.compareDocumentPosition(checkbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
@@ -116,6 +131,7 @@ describe("ShareLinksIndexPage()", () => {
     )
 
     fireEvent.click(checkbox)
+    expect(localStorage.getItem("replica:share-full-screen-preview:v1")).toBe("false")
     expected.searchParams.delete("view")
     expect(input).toHaveValue(expected.toString())
     expect(open).toHaveAttribute("href", expected.toString())
@@ -126,13 +142,32 @@ describe("ShareLinksIndexPage()", () => {
       "href",
       publicLinkUrl.toString(),
     )
+    fireEvent.click(screen.getByRole("button", { name: "Choose build, v2" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy link to Build 2" }))
+    const fixedUrl = new URL(PAGE_DATA.branchPath, window.location.href)
+    fixedUrl.searchParams.set("build", "2")
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(fixedUrl.toString()))
+    expect(
+      screen
+        .getByRole("button", { name: "Create share link" })
+        .closest("form")
+        ?.querySelector('input[name="share_link[build_number]"]'),
+    ).toHaveValue("2")
     unmount()
     render(<ShareLinksIndexPage data={PAGE_DATA} />, { wrapper: HubThemeProvider })
-    expect(screen.getByRole("checkbox", { name: "Full screen preview" })).toBeChecked()
+    expect(screen.getByRole("checkbox", { name: "Full screen preview" })).not.toBeChecked()
+    expect(screen.queryByRole("combobox", { name: "Build" })).not.toBeInTheDocument()
+    const restored = new URL(PAGE_DATA.closePath!, window.location.href)
+    restored.searchParams.set("build", "latest")
+    expect(screen.getByRole("textbox", { name: "Internal prototype link" })).toHaveValue(
+      restored.toString(),
+    )
   })
 
   it("falls back to the branch path when no close path is available", async () => {
+    localStorage.removeItem("replica:share-full-screen-preview:v1")
     writeText.mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
     const data = {
       ...PAGE_DATA,
       branchPath: "/repositories/2001/prototypes/1?build=2",
@@ -141,6 +176,7 @@ describe("ShareLinksIndexPage()", () => {
     render(<ShareLinksIndexPage data={data} />, { wrapper: HubThemeProvider })
 
     const expected = new URL(data.branchPath, window.location.href)
+    expected.searchParams.set("build", "latest")
     expected.searchParams.append("view", "minimized")
     expect(screen.getByRole("textbox", { name: "Internal prototype link" })).toHaveValue(
       expected.toString(),
@@ -181,6 +217,7 @@ describe("ShareLinksIndexPage()", () => {
   })
   it("decorates copied and opened links while preserving source settings in native mutation forms", async () => {
     writeText.mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
     const query = "rc.page.title=%22Configured%22"
     const { container, rerender } = render(
       <ShareLinksIndexPage
@@ -223,13 +260,6 @@ describe("ShareLinksIndexPage()", () => {
     )
     expect(container.querySelector('input[name="control_query"]')).toHaveValue(query)
     expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument()
-  })
-
-  beforeEach(() => {
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    })
   })
 
   it("uses the review workspace without breadcrumbs", () => {
@@ -302,6 +332,7 @@ describe("ShareLinksIndexPage()", () => {
 
   it("copies and opens an active share link", async () => {
     writeText.mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
     render(<ShareLinksIndexPage data={PAGE_DATA} />, { wrapper: HubThemeProvider })
 
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }))

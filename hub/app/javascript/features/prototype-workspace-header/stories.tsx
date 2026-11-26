@@ -1,8 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect } from "storybook/test"
 
 import { replicaBrowseData } from "@/storybook/fixtures/replica-browse"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 import { octocat } from "@/storybook/fixtures/users"
+import { prototypeLinkCopy } from "@utils/prototype-share-link/en"
 
 import { PrototypeWorkspaceHeader } from "."
 import type { PrototypeWorkspaceHeaderData } from "./types"
@@ -76,6 +78,36 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Ready: Story = {}
+
+export const BuildMenuOpen: Story = {
+  args: {
+    data: {
+      ...data,
+      buildOptions: [
+        ...data.buildOptions,
+        {
+          number: 2,
+          label: "v2",
+          path: "/repositories/2001/prototypes/1?build=2",
+          state: "successful",
+        },
+        {
+          number: 3,
+          label: "v3",
+          path: "/repositories/2001/prototypes/1/builds/3",
+          state: "failed",
+          stateLabel: "Failed to build",
+        },
+      ],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /Choose build/ }))
+    await expect(
+      canvas.getByRole("menuitem", { name: prototypeLinkCopy.copyBuildNumber(2) }),
+    ).toBeVisible()
+  },
+}
 
 export const ReplicaBrowse: Story = {
   args: {
