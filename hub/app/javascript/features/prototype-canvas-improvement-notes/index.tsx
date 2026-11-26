@@ -342,16 +342,20 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
           })
         }
       />
-      {active && annotating && !canvas.hubOpen ? (
-        <PrototypeCanvasFixPill
-          count={pending}
-          disabled={!saved.state || threadInteraction || Boolean(selection)}
-          busy={saved.busy}
-          onFix={() => {
-            void saved.change("fix")
-          }}
-        />
-      ) : null}
+      <PrototypeCanvasFixPill
+        count={pending}
+        disabled={
+          !saved.state ||
+          canvas.hubOpen ||
+          canvas.selectionDisabled ||
+          threadInteraction ||
+          Boolean(selection)
+        }
+        busy={saved.busy}
+        onFix={() => {
+          void saved.change("fix")
+        }}
+      />
       <p className="visually-hidden" role="status">
         {saved.state ? message : copy.storageLoading}
       </p>
