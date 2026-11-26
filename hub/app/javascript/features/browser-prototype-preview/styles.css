@@ -1,0 +1,5 @@
+.canvas-shell.browser-prototype-preview {
+  --canvas-preview-top: 0px;
+
+  grid-template-rows: minmax(0, 1fr);
+}

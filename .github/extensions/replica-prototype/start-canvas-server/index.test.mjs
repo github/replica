@@ -724,7 +724,11 @@ esac
       assert.equal((await open("https://elsewhere.example/")).status, 422)
       assert.equal((await open("http://someone@localhost:3000/")).status, 422)
       assert.equal((await open("http://localhost:3000/settings")).status, 200)
-      assert.deepEqual(openedUrls, ["http://localhost:3000/settings"])
+      assert.equal(openedUrls.length, 1)
+      const browserPreview = new URL(openedUrls[0])
+      assert.equal(browserPreview.origin, new URL(canvas.url).origin)
+      assert.equal(browserPreview.pathname, "/browser")
+      assert.equal(browserPreview.searchParams.get("url"), "http://localhost:3000/settings")
       const setup = await fetch(new URL("/api/commenting/setup", canvas.url), {
         method: "POST",
         headers,

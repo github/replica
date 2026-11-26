@@ -324,9 +324,14 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const shareLinks = createShareLinks(hubClient, options.openBrowser || openBrowser)
   const token = randomBytes(24).toString("base64url")
   const documentToken = randomBytes(32).toString("base64url")
-  const server = createServer((request, response) => {
-    void serve(request, response)
-  })
+  const browserDocumentToken = randomBytes(32).toString("base64url")
+  // The wrapper URL encodes an already-encoded Controls query and its underlying route.
+  const server = createServer(
+    { maxHeaderSize: MAX_RELOAD_ADDRESS_LENGTH * 3 + 4096 },
+    (request, response) => {
+      void serve(request, response)
+    },
+  )
   async function serve(request, response) {
     try {
       if (request.headers.host !== `127.0.0.1:${request.socket.localPort}`) {
@@ -339,6 +344,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         session,
         token,
         documentToken,
+        browserDocumentToken,
         hubClient,
         updateMetadata,
         registerForPublish,
@@ -469,6 +475,7 @@ async function routeRequest(
   session,
   token,
   documentToken,
+  browserDocumentToken,
   hubClient,
   updateMetadata,
   registerForPublish,
@@ -487,6 +494,22 @@ async function routeRequest(
   verifyFeedbackContext,
 ) {
   const requestUrl = new URL(request.url || "/", "http://127.0.0.1")
+  if (request.method === "GET" && requestUrl.pathname === "/browser") {
+    if (
+      requestUrl.searchParams.getAll("document").length !== 1 ||
+      requestUrl.searchParams.get("document") !== browserDocumentToken
+    ) {
+      throw httpError(403, "Invalid browser preview token.")
+    }
+    if (requestUrl.searchParams.getAll("url").length !== 1)
+      throw httpError(422, "Enter a valid prototype URL.")
+    const target = prototypeBrowserUrl(requestUrl.searchParams.get("url"), context)
+    sendHtml(
+      response,
+      renderCanvasHtml({ ...context, normalizedUrl: target.href, browserPreview: true }),
+    )
+    return
+  }
   if (request.method === "GET" && requestUrl.pathname === "/") {
     if (
       requestUrl.searchParams.getAll("document").length !== 1 ||
@@ -644,27 +667,12 @@ async function routeRequest(
     return
   }
   if (request.method === "POST" && requestUrl.pathname === "/api/prototype/open") {
-    if (!context.normalizedUrl)
-      throw httpError(409, "Connect a prototype before opening its address.")
     const { url: value } = await readJson(request)
-    if (typeof value !== "string" || value.length > 2048) {
-      throw httpError(422, "Enter a valid prototype URL.")
-    }
-    let target
-    try {
-      target = new URL(value)
-    } catch {
-      throw httpError(422, "Enter a valid prototype URL.")
-    }
-    if (
-      !["http:", "https:"].includes(target.protocol) ||
-      target.origin !== new URL(context.normalizedUrl).origin ||
-      target.username ||
-      target.password
-    ) {
-      throw httpError(422, "The address must stay on this prototype's origin.")
-    }
-    const opened = await launchBrowser(target.href)
+    const target = prototypeBrowserUrl(value, context)
+    const wrapper = new URL(`http://${request.headers.host}/browser`)
+    wrapper.searchParams.set("document", browserDocumentToken)
+    wrapper.searchParams.set("url", target.href)
+    const opened = await launchBrowser(wrapper.href)
     if (!opened.ok) throw httpError(502, opened.error || "Could not open the browser.")
     sendJson(response, 200, { opened: true })
     return
@@ -1062,6 +1070,26 @@ function readPublishTarget(input) {
     originFingerprint: value.originFingerprint,
     pushFingerprint: value.pushFingerprint,
   }
+}
+function prototypeBrowserUrl(value, context) {
+  if (!context.normalizedUrl)
+    throw httpError(409, "Connect a prototype before opening its address.")
+  if (typeof value !== "string" || value.length > MAX_RELOAD_ADDRESS_LENGTH)
+    throw httpError(422, "Enter a valid prototype URL.")
+  let target
+  try {
+    target = new URL(value)
+  } catch {
+    throw httpError(422, "Enter a valid prototype URL.")
+  }
+  if (
+    !["http:", "https:"].includes(target.protocol) ||
+    target.origin !== new URL(context.normalizedUrl).origin ||
+    target.username ||
+    target.password
+  )
+    throw httpError(422, "The address must stay on this prototype's origin.")
+  return target
 }
 function requireToken(request, token) {
   if (request.headers["x-replica-canvas-token"] !== token) {
