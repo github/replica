@@ -1,11 +1,16 @@
-import { access } from "node:fs/promises"
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root"
 import { getLearningOverview } from "."
 
-vi.mock("node:fs/promises", () => ({ access: vi.fn() }))
+vi.mock("node:fs/promises", () => ({
+  access: vi.fn(),
+  mkdtemp: vi.fn(),
+  rm: vi.fn(),
+  writeFile: vi.fn(),
+}))
 vi.mock("../../../integrations/learning/run-learning-command", () => ({
   runLearningCommand: vi.fn(),
 }))
@@ -273,6 +278,7 @@ describe("getLearningOverview()", () => {
         decidedBy: "mona",
         decidedAt: "2026-11-20T10:00:00.000Z",
         reason: "Labels help everyone.",
+        shared: false,
       },
       {
         id: "mem_retired",
@@ -283,6 +289,81 @@ describe("getLearningOverview()", () => {
         decidedBy: null,
         decidedAt: "2026-11-21T10:00:00.000Z",
         reason: "The header changed.",
+        shared: false,
+      },
+    ])
+  })
+
+  it("recalls learnings other repositories shared and marks the ones this repository shares", async () => {
+    vi.mocked(mkdtemp).mockResolvedValue("/tmp/replica-learning-shared-1")
+    const accepted = {
+      state: "accepted",
+      digest: `sha256:${"a".repeat(64)}`,
+      accepted: { at: "2026-11-20T10:00:00.000Z", by: { id: "github:mona" } },
+    }
+    const status = { recallEligible: true, problems: [], conflicts: [] }
+    vi.mocked(runLearningCommand).mockImplementation((arguments_) => {
+      if (arguments_[0] === "memories")
+        return Promise.resolve([
+          {
+            withheld: false,
+            status,
+            record: { id: "mem_own", content: "Label every field.", ...accepted },
+          },
+        ])
+      if (arguments_[0] === "recall")
+        return Promise.resolve({ text: "", memories: [{ id: "mem_own" }, { id: "mem_shared" }] })
+      if (arguments_[0] === "status") return Promise.resolve({})
+      throw new Error(`Unexpected learning command: ${arguments_[0]}`)
+    })
+    const sharedRecord = { id: "mem_shared", title: "Buttons", content: "Use one primary button." }
+
+    const result = await getLearningOverview({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      shared: [
+        {
+          record: sharedRecord,
+          source: "team/marketing",
+          sharedBy: "hubot",
+          sharedAt: "2026-11-22T10:00:00.000Z",
+        },
+        {
+          record: { id: "mem_own", content: "A copy that reuses this repository's ID." },
+          source: "team/marketing",
+          sharedBy: "hubot",
+          sharedAt: "2026-11-22T10:00:00.000Z",
+        },
+      ],
+      sharedLearningIds: ["mem_own"],
+      staticDirectories: [],
+      viewer: "human:mona",
+    })
+
+    const recall = vi
+      .mocked(runLearningCommand)
+      .mock.calls.find(([arguments_]) => arguments_[0] === "recall")?.[0]
+    expect(recall).toContain("--shared-file")
+    expect(writeFile).toHaveBeenCalledWith(
+      "/tmp/replica-learning-shared-1/shared.json",
+      JSON.stringify([sharedRecord]),
+      { mode: 0o600 },
+    )
+    expect(rm).toHaveBeenCalledWith("/tmp/replica-learning-shared-1", { recursive: true })
+    expect(result.learnings).toMatchObject([{ id: "mem_own", shared: true }])
+    expect(result.shared).toEqual([
+      {
+        id: "mem_shared",
+        title: "Buttons",
+        content: "Use one primary button.",
+        source: "team/marketing",
+        sharedBy: "hubot",
+        sharedAt: "2026-11-22T10:00:00.000Z",
+        status: "recalled",
       },
     ])
   })

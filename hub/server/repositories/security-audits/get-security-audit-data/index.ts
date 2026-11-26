@@ -339,6 +339,18 @@ export function getSecurityAuditData(
           ...(event.reason ? { reason: event.reason } : {}),
         },
       }
+    case "learning_share":
+      return {
+        id: event.id,
+        action: event.shared ? "learning.share" : "learning.unshare",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "learning",
+        targetId: event.learningId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+        },
+      }
     case "learning_run":
       return {
         id: event.id,

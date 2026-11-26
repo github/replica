@@ -303,6 +303,16 @@ const eventSchema = z.discriminatedUnion("type", [
     .object({
       actorMembershipId: z.uuid(),
       id: z.uuid(),
+      learningId: z.string().min(1).max(255),
+      repositoryId: z.uuid(),
+      shared: z.boolean(),
+      type: z.literal("learning_share"),
+    })
+    .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid(),
+      id: z.uuid(),
       outcome: z.enum(["requested", "failed"]),
       reason: z.string().min(1).max(100).optional(),
       repositoryId: z.uuid(),
@@ -314,7 +324,12 @@ const eventSchema = z.discriminatedUnion("type", [
     .object({
       actorMembershipId: z.uuid(),
       id: z.uuid(),
-      operation: z.enum(["learning_overview", "learning_run", "learning_decision"]),
+      operation: z.enum([
+        "learning_overview",
+        "learning_run",
+        "learning_decision",
+        "learning_share",
+      ]),
       reason: z.literal("authority_missing"),
       repositoryId: z.uuid(),
       type: z.literal("repository_administration_denied"),

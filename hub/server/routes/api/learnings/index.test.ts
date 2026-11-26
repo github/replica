@@ -12,6 +12,7 @@ import { post as postDecision } from "./decision/post/index.ts"
 import { get as getLearnings } from "./get/index.ts"
 import { get as getLearningHistory } from "./history/get/index.ts"
 import { post as postRun } from "./runs/post/index.ts"
+import { post as postShare } from "./share/post/index.ts"
 import type { LearningsRouteDependencies } from "./types.ts"
 
 const repositoryId = "11111111-2222-4333-8444-555555555555"
@@ -56,6 +57,7 @@ function dependencies(
     getCopilot: vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" }),
     listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: null }),
     decide: vi.fn().mockResolvedValue({ notice: "Learning accepted." }),
+    share: vi.fn().mockResolvedValue({ notice: "Shared across Hub." }),
     redactComment: vi.fn().mockResolvedValue(undefined),
     serializeReviewCommentDeletion: (operation) => operation(),
     ...overrides,
@@ -231,7 +233,7 @@ describe("learning routes", () => {
             administerHub: false,
             administerRepository: true,
           },
-          permissions: { viewEvidence: true, decide: true, requestRun: false },
+          permissions: { viewEvidence: true, decide: true, requestRun: false, share: false },
           copilot: { state: "connected", connectedBy: "mona" },
           automaticRunsEnabled: true,
           usageCredits: "0.021",
@@ -690,6 +692,64 @@ describe("learning routes", () => {
 
         expect(response.status).toBe(404)
         expect(await response.json()).toMatchObject({ code: "repository_not_found" })
+      },
+    )
+  })
+
+  it("shares a learning only for someone who administers both Hub and its repository", async () => {
+    const share = vi.fn().mockResolvedValue({ notice: "Shared across Hub." })
+    const auditRepositoryAdministrationDenial = vi.fn().mockResolvedValue(undefined)
+    const administrator = { ...session, role: "ADMINISTRATOR" as const }
+    const authorizeRepositoryAdministration = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true)
+    const deps = dependencies({
+      currentSession: {
+        restore: vi
+          .fn()
+          .mockResolvedValueOnce(session)
+          .mockResolvedValueOnce(administrator)
+          .mockResolvedValue(administrator),
+      },
+      authorizeRepositoryAdministration,
+      auditRepositoryAdministrationDenial,
+      share,
+    })
+
+    await withRoute(
+      "post",
+      "/api/repositories/:repositoryId/learnings/:learningId/share",
+      postShare(deps),
+      async (baseUrl) => {
+        function request() {
+          return fetch(`${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/share`, {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ shared: true }),
+          })
+        }
+
+        const member = await request()
+        expect(member.status).toBe(403)
+        const hubAdministratorOnly = await request()
+        expect(hubAdministratorOnly.status).toBe(403)
+        expect(auditRepositoryAdministrationDenial).toHaveBeenCalledWith({
+          actorMembershipId: session.membershipId,
+          operation: "learning_share",
+          repositoryId,
+        })
+        expect(share).not.toHaveBeenCalled()
+
+        const both = await request()
+        expect(both.status).toBe(200)
+        expect(share).toHaveBeenCalledWith({
+          repositoryId,
+          learningId: "mem_1",
+          actorMembershipId: session.membershipId,
+          shared: true,
+          sessionDigest: hashAuthenticationValue("current-session"),
+        })
       },
     )
   })

@@ -7,6 +7,7 @@ import type {
   LearningEvidence,
   LearningSuggestion,
   RejectedLearning,
+  SharedLearning,
 } from "../../../domains/learning/types.ts"
 
 export type {
@@ -16,6 +17,7 @@ export type {
   LearningEvidence,
   LearningSuggestion,
   RejectedLearning,
+  SharedLearning,
 }
 
 export interface LearningRun {
@@ -55,7 +57,7 @@ export interface LearningsRouteDependencies {
   }): Promise<boolean>
   auditRepositoryAdministrationDenial(input: {
     actorMembershipId: string
-    operation: "learning_overview" | "learning_run" | "learning_decision"
+    operation: "learning_overview" | "learning_run" | "learning_decision" | "learning_share"
     repositoryId: string
   }): Promise<void>
   getOverview(input: { repositoryId: string; viewer: string }): Promise<{
@@ -64,6 +66,7 @@ export interface LearningsRouteDependencies {
     suggestions: LearningSuggestion[]
     learnings: AcceptedLearning[]
     rejected: RejectedLearning[]
+    shared: SharedLearning[]
     recall: { text: string; count: number }
   }>
   getHistory(input: { repositoryId: string; learningId: string }): Promise<{
@@ -93,6 +96,13 @@ export interface LearningsRouteDependencies {
     actor: string
     actorMembershipId: string
     decision: LearningDecision
+    sessionDigest: string
+  }): Promise<{ notice: string }>
+  share(input: {
+    repositoryId: string
+    learningId: string
+    actorMembershipId: string
+    shared: boolean
     sessionDigest: string
   }): Promise<{ notice: string }>
   redactComment(input: {

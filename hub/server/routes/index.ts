@@ -69,6 +69,7 @@ import { get as handleLearningsGet } from "./api/learnings/get/index.ts"
 import { get as handleLearningHistoryGet } from "./api/learnings/history/get/index.ts"
 import { post as handleLearningRunPost } from "./api/learnings/runs/post/index.ts"
 import { post as handleLearningDecisionPost } from "./api/learnings/decision/post/index.ts"
+import { post as handleLearningSharePost } from "./api/learnings/share/post/index.ts"
 import type { RouteDependencies } from "./types.ts"
 import { mountPrivatePreview } from "./private-preview/index.ts"
 import { get as handleDecisionModelGet } from "./api/decision-model/get/index.ts"
@@ -366,6 +367,12 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         // Room for the longest valid edit, even when every character is escaped.
         express.json({ limit: "16kb", strict: true }),
         handleLearningDecisionPost(learnings),
+      )
+      app.post(
+        "/api/repositories/:repositoryId/learnings/:learningId/share",
+        requireOrigin(learnings.applicationOrigin),
+        express.json({ limit: "1kb", strict: true }),
+        handleLearningSharePost(learnings),
       )
     }
     if (authentication.administrators) {

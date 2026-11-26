@@ -76,6 +76,7 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
           viewEvidence: true,
           decide: stillAdministrator,
           requestRun: stillAdministrator && dependencies.requestRun !== undefined,
+          share: stillAdministrator && current.role === "ADMINISTRATOR",
         },
         copilot,
         automaticRunsEnabled: dependencies.automaticRunsEnabled,

@@ -94,6 +94,7 @@ describe("learning overview repository visibility", () => {
         suggestions: [],
         learnings: [],
         rejected: [],
+        shared: [],
         recall: { text: "private recall", count: 1 },
       }
     })

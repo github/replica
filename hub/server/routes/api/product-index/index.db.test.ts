@@ -1039,6 +1039,7 @@ describe("real product index", () => {
           suggestions: [],
           learnings: [],
           rejected: [],
+          shared: [],
           recall: { text: secret, count: 1 },
         }
       })
@@ -1107,6 +1108,7 @@ describe("real product index", () => {
       suggestions: [],
       learnings: [],
       rejected: [],
+      shared: [],
       recall: { text: "", count: 0 },
     })
     vi.spyOn(learnings, "getCopilot").mockResolvedValue({ state: "not-connected" })
@@ -1313,6 +1315,7 @@ describe("real product index", () => {
       suggestions: [],
       learnings: [],
       rejected: [],
+      shared: [],
       recall: { text: "", count: 0 },
     })
     await withServer(

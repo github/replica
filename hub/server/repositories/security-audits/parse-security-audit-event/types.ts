@@ -29,6 +29,7 @@ import type {
   SessionCreatedAudit,
   SessionEndedAudit,
   LearningDecisionAudit,
+  LearningShareAudit,
   LearningRunAudit,
   RepositoryAdministrationDeniedAudit,
   DecisionTrainingAudit,
@@ -74,6 +75,7 @@ export type ParsedSecurityAuditEvent =
     })
   | SessionRevocationAdvancedAudit
   | LearningDecisionAudit
+  | LearningShareAudit
   | LearningRunAudit
   | RepositoryAdministrationDeniedAudit
   | DecisionTrainingAudit

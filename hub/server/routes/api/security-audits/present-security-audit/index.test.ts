@@ -470,6 +470,40 @@ describe("presentSecurityAudit()", () => {
       }),
     },
     {
+      label: "learning share",
+      event: {
+        actorMembershipId,
+        id: auditId,
+        learningId: "mem_1",
+        repositoryId: providerId,
+        shared: true,
+        type: "learning_share",
+      },
+      expected: expectedRecord({
+        action: "learning.share",
+        actor: { membershipId: actorMembershipId },
+        context: { repositoryId: providerId, learningId: "mem_1" },
+        outcome: "success",
+      }),
+    },
+    {
+      label: "learning unshare",
+      event: {
+        actorMembershipId,
+        id: auditId,
+        learningId: "mem_1",
+        repositoryId: providerId,
+        shared: false,
+        type: "learning_share",
+      },
+      expected: expectedRecord({
+        action: "learning.unshare",
+        actor: { membershipId: actorMembershipId },
+        context: { repositoryId: providerId, learningId: "mem_1" },
+        outcome: "success",
+      }),
+    },
+    {
       label: "decision training failure",
       event: {
         actorMembershipId,
@@ -553,27 +587,29 @@ describe("presentSecurityAudit()", () => {
         outcome: "success",
       }),
     },
-    ...(["learning_overview", "learning_run", "learning_decision"] as const).map((operation) => ({
-      label: `repository administration ${operation} denial`,
-      event: {
-        actorMembershipId,
-        id: auditId,
-        operation,
-        reason: "authority_missing",
-        repositoryId: providerId,
-        type: "repository_administration_denied",
-      },
-      expected: expectedRecord({
-        action: `repository.administration.${operation}.denied`,
-        actor: { membershipId: actorMembershipId },
-        context: {
+    ...(["learning_overview", "learning_run", "learning_decision", "learning_share"] as const).map(
+      (operation) => ({
+        label: `repository administration ${operation} denial`,
+        event: {
+          actorMembershipId,
+          id: auditId,
           operation,
           reason: "authority_missing",
           repositoryId: providerId,
+          type: "repository_administration_denied",
         },
-        outcome: "denied",
+        expected: expectedRecord({
+          action: `repository.administration.${operation}.denied`,
+          actor: { membershipId: actorMembershipId },
+          context: {
+            operation,
+            reason: "authority_missing",
+            repositoryId: providerId,
+          },
+          outcome: "denied",
+        }),
       }),
-    })),
+    ),
     ...(
       [
         ["connected", "success", true, undefined],

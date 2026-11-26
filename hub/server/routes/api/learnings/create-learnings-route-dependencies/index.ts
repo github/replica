@@ -9,6 +9,7 @@ import { createReviewCommentLearningSource } from "../../../../domains/learning/
 import { getLearningHistory } from "../../../../domains/learning/get-learning-history/index.ts"
 import { getLearningOverview } from "../../../../domains/learning/get-learning-overview/index.ts"
 import { getLearningRepositoryScope } from "../../../../domains/learning/get-learning-repository-scope/index.ts"
+import { readShareableLearnings } from "../../../../domains/learning/read-shareable-learnings/index.ts"
 import { learningRunJob } from "../../../../domains/learning/jobs/learning-run.ts"
 import { redactReviewCommentJob } from "../../../../domains/learning/jobs/redact-review-comment.ts"
 import type { ReviewCommentLearningSource } from "../../../../domains/learning/review-comment-learning-source/types.ts"
@@ -26,6 +27,9 @@ import { finishLearningRun } from "../../../../repositories/learning-runs/finish
 import { listLearningRuns } from "../../../../repositories/learning-runs/list-learning-runs/index.ts"
 import { createLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/create-learning-decision-operation/index.ts"
 import { deleteLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/delete-learning-decision-operation/index.ts"
+import { listLearningShares } from "../../../../repositories/learning-shares/list-learning-shares/index.ts"
+import { saveLearningShare } from "../../../../repositories/learning-shares/save-learning-share/index.ts"
+import { withdrawLearningShare } from "../../../../repositories/learning-shares/withdraw-learning-share/index.ts"
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
 import { findActiveRepository } from "../../../../repositories/prototype-index/find-active-repository/index.ts"
 import { lockRepositoryAdministratorAuthority } from "../../../../repositories/repository-access/lock-repository-administrator-authority/index.ts"
@@ -38,6 +42,9 @@ import { isDefinitiveDecisionRejection } from "../is-definitive-decision-rejecti
 import { runWithBoundedRetries } from "../../../../domains/identity/run-with-bounded-retries/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import type { LearningsRouteDependencies } from "../types.ts"
+
+const sharedSourceConcurrency = 4
+const sharedSourceTimeoutMs = 10_000
 
 export async function createLearningsRouteDependencies(
   environment: NodeJS.ProcessEnv,
@@ -84,6 +91,62 @@ export async function createLearningsRouteDependencies(
       options.scopeGitHubMembers ?? false,
       (scope) => findActiveRepository(prisma, repositoryId, scope),
     )
+  }
+
+  /**
+   * Reads the learnings other repositories share, straight from each source store, so a
+   * learning that was retired or stopped reaching agents there stops being shared too. A
+   * source Hub cannot read is skipped rather than hiding this repository's own learnings.
+   */
+  async function readSharedLearnings(shares: Awaited<ReturnType<typeof listLearningShares>>) {
+    const sources = new Map<string, typeof shares>()
+    for (const share of shares) {
+      sources.set(share.repositoryId, [...(sources.get(share.repositoryId) ?? []), share])
+    }
+    async function readSource([sourceId, sourceShares]: [string, typeof shares]) {
+      try {
+        const records = await readShareableLearnings({
+          ...configuration,
+          learningIds: sourceShares.map((share) => share.learningId),
+          repositoryId: sourceId,
+          repositoryScope: await getLearningRepositoryScope(prisma, sourceId),
+          timeoutMs: sharedSourceTimeoutMs,
+        })
+        return records.flatMap((record) => {
+          const share = sourceShares.find((item) => item.learningId === record.id)
+          return share
+            ? [
+                {
+                  record,
+                  source: share.repository.nameWithOwner,
+                  sharedBy: share.sharedByMembership?.user.profile?.login ?? null,
+                  sharedAt: share.sharedAt.toISOString(),
+                },
+              ]
+            : []
+        })
+      } catch (error) {
+        // Any failure stays with its source, so one broken store cannot take down the
+        // Learnings page of every repository it shares with.
+        logger.warn(
+          {
+            learningFailureCode: error instanceof LearningCommandError ? error.code : "unexpected",
+            repositoryId: sourceId,
+          },
+          "Shared learnings could not be read",
+        )
+        return []
+      }
+    }
+    // A few sources at a time, each with a short deadline, so stalled stores cannot hold
+    // the page for minutes or start one process per repository at once.
+    const entries = [...sources]
+    const shared = []
+    for (let start = 0; start < entries.length; start += sharedSourceConcurrency) {
+      const batch = entries.slice(start, start + sharedSourceConcurrency)
+      shared.push(...(await Promise.all(batch.map(readSource))).flat())
+    }
+    return shared
   }
 
   async function getCopilot() {
@@ -142,12 +205,20 @@ export async function createLearningsRouteDependencies(
     findRepository,
     getOverview: async ({ repositoryId, viewer }) => {
       const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
+      const shares = await listLearningShares(prisma)
+      const shared = await readSharedLearnings(
+        shares.filter((share) => share.repositoryId !== repositoryId),
+      )
       try {
         const overview = await getLearningOverview({
           ...configuration,
           evidenceSource: source,
           repositoryId,
           repositoryScope,
+          shared,
+          sharedLearningIds: shares
+            .filter((share) => share.repositoryId === repositoryId)
+            .map((share) => share.learningId),
           viewer,
         })
         if (repositoryScope !== (await getLearningRepositoryScope(prisma, repositoryId))) {
@@ -170,6 +241,7 @@ export async function createLearningsRouteDependencies(
           suggestions: [],
           learnings: [],
           rejected: [],
+          shared: [],
           recall: { text: "", count: 0 },
         }
       }
@@ -338,6 +410,65 @@ export async function createLearningsRouteDependencies(
       return {
         notice:
           created || promoted ? "Learning run requested." : "Learning run already in progress.",
+      }
+    },
+    share: async ({ actorMembershipId, learningId, repositoryId, sessionDigest, shared }) => {
+      if (shared) {
+        const shareable = await readShareableLearnings({
+          ...configuration,
+          learningIds: [learningId],
+          repositoryId,
+          repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
+        })
+        if (shareable.length === 0) {
+          throw new LearningsError(
+            409,
+            "learning_not_shareable",
+            "Only an accepted learning that agents receive can be shared.",
+          )
+        }
+      }
+      const authorized = await runRepositoryAuthorityTransaction(async (transaction) => {
+        if (
+          !(await lockRepositoryAdministratorSession(transaction, {
+            membershipId: actorMembershipId,
+            repositoryId,
+            sessionDigest,
+          })) ||
+          !(await isEffectiveAdministrator(transaction, actorMembershipId))
+        ) {
+          return false
+        }
+        const change = { repositoryId, learningId, membershipId: actorMembershipId, at: new Date() }
+        if (shared) await saveLearningShare(transaction, change)
+        else await withdrawLearningShare(transaction, change)
+        await createSecurityAudit(transaction, {
+          id: randomUUID(),
+          type: "learning_share",
+          actorMembershipId,
+          learningId,
+          repositoryId,
+          shared,
+        })
+        return true
+      })
+      if (!authorized) {
+        await createSecurityAudit(prisma, {
+          id: randomUUID(),
+          type: "repository_administration_denied",
+          actorMembershipId,
+          operation: "learning_share",
+          reason: "authority_missing",
+          repositoryId,
+        })
+        throw new LearningsError(
+          403,
+          "repository_administrator_required",
+          "Hub and repository administrator access is required.",
+        )
+      }
+      return {
+        notice: shared ? "Shared across Hub." : "Stopped sharing across Hub.",
       }
     },
     redactComment: async ({ repositoryId, commentId, actorLogin }) => {

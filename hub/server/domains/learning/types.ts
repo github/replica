@@ -34,6 +34,19 @@ export interface AcceptedLearning {
   /** The decision the receipt records, which edits and reinstatements replace. */
   lastDecision: "accepted" | "edited" | "reinstated"
   status: "recalled" | "not-recalled" | "budget-excluded" | "damaged" | "identity-review"
+  /** Whether every other repository's agents receive it too. */
+  shared: boolean
+}
+
+/** A learning another repository shared, which this repository can read but not change. */
+export interface SharedLearning {
+  id: string
+  title: string | null
+  content: string | null
+  source: string
+  sharedBy: string | null
+  sharedAt: string
+  status: "recalled" | "budget-excluded"
 }
 
 /** A learning a person turned down or stopped using, kept so it can be reinstated. */
@@ -46,6 +59,8 @@ export interface RejectedLearning {
   decidedBy: string | null
   decidedAt: string | null
   reason: string | null
+  /** Whether a share is still saved, so an administrator can stop it before reinstating. */
+  shared: boolean
 }
 
 /** One decision in a learning's history, oldest first. */

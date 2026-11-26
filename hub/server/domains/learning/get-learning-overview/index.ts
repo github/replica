@@ -1,4 +1,5 @@
-import { access } from "node:fs/promises"
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import { z } from "zod"
 
@@ -7,7 +8,12 @@ import { LearningCommandError } from "../../../integrations/learning/run-learnin
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
 import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 import type { ReviewCommentLearningSource } from "../review-comment-learning-source/types.ts"
-import type { AcceptedLearning, LearningSuggestion, RejectedLearning } from "../types.ts"
+import type {
+  AcceptedLearning,
+  LearningSuggestion,
+  RejectedLearning,
+  SharedLearning,
+} from "../types.ts"
 
 const referenceSchema = z
   .object({
@@ -137,6 +143,15 @@ export async function getLearningOverview(input: {
   repositoryId: string
   repositoryScope: string
   root: string
+  /** Learnings other repositories shared, as full records their stores returned. */
+  shared?: {
+    record: { id: string; title?: string; content?: string }
+    source: string
+    sharedBy: string | null
+    sharedAt: string
+  }[]
+  /** This repository's learnings that it shares with every other repository. */
+  sharedLearningIds?: string[]
   staticDirectories: string[]
   viewer: string
 }) {
@@ -161,6 +176,7 @@ export async function getLearningOverview(input: {
         suggestions: [],
         learnings: [],
         rejected: [],
+        shared: [],
         recall: { text: "", count: 0 },
       }
     }
@@ -177,11 +193,34 @@ export async function getLearningOverview(input: {
   })
   const rawMemories = await runLearningCommand(["memories", ...commonArguments], commandOptions)
   const rawStatus = await runLearningCommand(["status", ...commonArguments], commandOptions)
-  const rawRecall = await runLearningCommand(
-    ["recall", "--preview", "--by", input.viewer, ...commonArguments],
-    commandOptions,
-  )
   const memories = z.array(memorySchema).parse(rawMemories)
+  // Recall skips a shared learning that reuses one of this repository's IDs, so the page
+  // leaves it out too.
+  const ownIds = new Set(memories.map((item) => item.record.id))
+  const shared = (input.shared ?? []).filter(
+    (item, index, all) =>
+      !ownIds.has(item.record.id) &&
+      all.findIndex((other) => other.record.id === item.record.id) === index,
+  )
+  let temporaryDirectory: string | null = null
+  let rawRecall
+  try {
+    const sharedArguments: string[] = []
+    if (shared.length > 0) {
+      temporaryDirectory = await mkdtemp(resolve(tmpdir(), "replica-learning-shared-"))
+      const sharedPath = resolve(temporaryDirectory, "shared.json")
+      await writeFile(sharedPath, JSON.stringify(shared.map((item) => item.record)), {
+        mode: 0o600,
+      })
+      sharedArguments.push("--shared-file", sharedPath)
+    }
+    rawRecall = await runLearningCommand(
+      ["recall", "--preview", "--by", input.viewer, ...sharedArguments, ...commonArguments],
+      commandOptions,
+    )
+  } finally {
+    if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true })
+  }
   const followUps = statusSchema.parse(rawStatus).migrationRedactionFollowUps
   const recall = recallSchema.parse(rawRecall)
   const recalledIds = new Set(recall.memories.map((memory) => memory.id))
@@ -309,6 +348,7 @@ export async function getLearningOverview(input: {
       referenceOffset += itemReferences.length
     }
   }
+  const sharedLearningIds = new Set(input.sharedLearningIds)
   const learnings: AcceptedLearning[] = memories
     .filter((item) => item.record.state === "accepted")
     .map((item) => ({
@@ -335,6 +375,7 @@ export async function getLearningOverview(input: {
               : item.status.recallEligible
                 ? "budget-excluded"
                 : "not-recalled",
+      shared: sharedLearningIds.has(item.record.id),
     }))
   const rejected: RejectedLearning[] = memories.flatMap((item) => {
     const { state } = item.record
@@ -350,6 +391,7 @@ export async function getLearningOverview(input: {
         decidedBy: login(decision?.by?.id),
         decidedAt: decision?.at ?? null,
         reason: item.withheld ? null : (decision?.reason ?? null),
+        shared: sharedLearningIds.has(item.record.id),
       },
     ]
   })
@@ -364,6 +406,15 @@ export async function getLearningOverview(input: {
     suggestions,
     learnings,
     rejected,
+    shared: shared.map((item): SharedLearning => ({
+      id: item.record.id,
+      title: item.record.title ?? null,
+      content: item.record.content ?? null,
+      source: item.source,
+      sharedBy: item.sharedBy,
+      sharedAt: item.sharedAt,
+      status: recalledIds.has(item.record.id) ? "recalled" : "budget-excluded",
+    })),
     recall: { text: recall.text, count: recall.memories.length },
   }
 }

@@ -236,6 +236,14 @@ export interface LearningDecisionAudit extends SecurityAuditEvent {
   repositoryId: string
 }
 
+export interface LearningShareAudit extends SecurityAuditEvent {
+  type: "learning_share"
+  actorMembershipId: string
+  learningId: string
+  repositoryId: string
+  shared: boolean
+}
+
 export interface LearningRunAudit extends SecurityAuditEvent {
   type: "learning_run"
   actorMembershipId: string
@@ -248,7 +256,7 @@ export interface LearningRunAudit extends SecurityAuditEvent {
 export interface RepositoryAdministrationDeniedAudit extends SecurityAuditEvent {
   type: "repository_administration_denied"
   actorMembershipId: string
-  operation: "learning_overview" | "learning_run" | "learning_decision"
+  operation: "learning_overview" | "learning_run" | "learning_decision" | "learning_share"
   reason: "authority_missing"
   repositoryId: string
 }
@@ -317,6 +325,7 @@ export type CreateSecurityAuditEvent =
   | AuthenticationProvidersReconcileFailedAudit
   | SessionRevocationAdvancedAudit
   | LearningDecisionAudit
+  | LearningShareAudit
   | LearningRunAudit
   | RepositoryAdministrationDeniedAudit
   | DecisionTrainingAudit

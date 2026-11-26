@@ -133,4 +133,18 @@ describe("parseSecurityAuditEvent()", () => {
 
     expect(parseSecurityAuditEvent(event)).toEqual(event)
   })
+
+  it("accepts a content-free learning share audit", () => {
+    const event = {
+      actorMembershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+      id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+      learningId: "mem_1",
+      repositoryId: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
+      shared: false,
+      type: "learning_share" as const,
+    }
+
+    expect(parseSecurityAuditEvent(event)).toEqual(event)
+    expect(() => parseSecurityAuditEvent({ ...event, content: "Use red buttons." })).toThrow()
+  })
 })

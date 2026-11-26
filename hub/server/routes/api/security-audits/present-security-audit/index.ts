@@ -28,6 +28,7 @@ const repositoryAdministrationOperationSchema = z.enum([
   "learning_overview",
   "learning_run",
   "learning_decision",
+  "learning_share",
 ])
 
 function actorFor(record: SecurityAuditListRecord) {
@@ -95,11 +96,14 @@ function actorFor(record: SecurityAuditListRecord) {
     case "learning.reject.requested":
     case "learning.retire":
     case "learning.retire.requested":
+    case "learning.share":
+    case "learning.unshare":
     case "learning.run.requested":
     case "learning.run.failed":
     case "repository.administration.learning_overview.denied":
     case "repository.administration.learning_run.denied":
     case "repository.administration.learning_decision.denied":
+    case "repository.administration.learning_share.denied":
     case "decision.training.requested":
     case "decision.training.cancelled":
     case "decision.training.failed":
@@ -407,6 +411,8 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
     case "learning.reject.requested":
     case "learning.retire":
     case "learning.retire.requested":
+    case "learning.share":
+    case "learning.unshare":
     case "learning.run.requested":
     case "learning.run.failed": {
       const parsed = z
@@ -433,7 +439,8 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
     }
     case "repository.administration.learning_overview.denied":
     case "repository.administration.learning_run.denied":
-    case "repository.administration.learning_decision.denied": {
+    case "repository.administration.learning_decision.denied":
+    case "repository.administration.learning_share.denied": {
       const parsed = z
         .object({
           actorMembershipId: z.uuid(),
