@@ -5,6 +5,7 @@ import type { Logger } from "pino"
 import { createAgentConnections } from "../../domains/agent-connections/create-agent-connections/index.ts"
 import type { AgentConnections } from "../../domains/agent-connections/create-agent-connections/index.ts"
 import { createLearningMcpBackend } from "../../domains/agent-connections/create-learning-mcp-backend/index.ts"
+import { saveAgentScreenshot } from "../../domains/agent-connections/save-agent-screenshot/index.ts"
 import {
   createCanvasAuthorization,
   type GetCanvasRepositoryPermission,
@@ -20,6 +21,9 @@ import { handleMcpRequest } from "../../integrations/mcp/handle-mcp-request/inde
 import { requireAgentToken } from "../../integrations/mcp/require-agent-token/index.ts"
 import { withLearningExecutionLock } from "../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { findAgentRepository } from "../../repositories/agent-connections/find-agent-repository/index.ts"
+import { createAgentScreenshot } from "../../repositories/agent-screenshots/create-agent-screenshot/index.ts"
+import { getRepositoryEvaluationSetting } from "../../repositories/evaluation-settings/get-repository-evaluation-setting/index.ts"
+import type { PrismaClient } from "../../generated/prisma/client.ts"
 import type { AgentConnectionRouteDependencies } from "./types.ts"
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -38,14 +42,14 @@ export function agentConnectionRoutes(
   getRepositoryPermission?: GetCanvasRepositoryPermission,
   logger?: Logger,
 ) {
-  const { applicationOrigin, databaseUrl, learning } = dependencies
+  const { applicationOrigin, artifactStorage, databaseUrl, learning } = dependencies
   const router = express.Router()
   const browserMutation = requireOrigin(applicationOrigin)
 
   let services: Promise<{
     connections: AgentConnections
     authority: ReturnType<typeof createCanvasAuthorization>
-    prisma: Parameters<typeof findAgentRepository>[0]
+    prisma: PrismaClient
   }> | null = null
   function load() {
     services ??= import("../../integrations/prisma/index.ts").then(({ prisma }) => ({
@@ -176,6 +180,8 @@ export function agentConnectionRoutes(
   router.post(
     mcpPath,
     requireAgentToken(applicationOrigin, service),
+    // Usage reports can carry screenshots, so this route allows larger bodies than the rest.
+    express.json({ limit: "32mb" }),
     handler(async (request, response) => {
       const id = String(request.params.repositoryId)
       const { prisma, authority } = await load()
@@ -219,6 +225,23 @@ export function agentConnectionRoutes(
             throw error
           }
         },
+        ...(artifactStorage
+          ? {
+              screenshots: {
+                grantId: async () =>
+                  (await getRepositoryEvaluationSetting(prisma, repository.id))
+                    ?.screenshotGrantId ?? null,
+                save: ({ grantId, bytes }: { grantId: string; bytes: Uint8Array }) =>
+                  saveAgentScreenshot(
+                    {
+                      create: (record) => createAgentScreenshot(prisma, record),
+                      storage: artifactStorage,
+                    },
+                    { repositoryId: repository.id, grantId, bytes },
+                  ),
+              },
+            }
+          : {}),
         toAgentError: (code, message) => new mcp.LearningError(code, message),
       })
       const server = mcp.createLearningMcpServer(backend, {

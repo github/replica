@@ -24,6 +24,11 @@ interface LearningSettings {
   staticDirectories: string[]
 }
 
+interface Screenshot {
+  data?: unknown
+  file?: unknown
+}
+
 interface StoredLearning {
   record: { id: string; state: string }
   status: { recallEligible: boolean }
@@ -54,6 +59,10 @@ export function createLearningMcpBackend(input: {
   learningsUrl: string
   repository: { id: string; githubRepositoryId: bigint }
   serialize<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
+  screenshots?: {
+    grantId(): Promise<string | null>
+    save(input: { grantId: string; bytes: Uint8Array }): Promise<void>
+  }
   toAgentError: (code: string, message: string) => Error
 }) {
   const { learning, repository, toAgentError } = input
@@ -167,18 +176,35 @@ export function createLearningMcpBackend(input: {
       }
     },
 
-    async reportUsage(report: { used: { before?: unknown; after?: unknown }[] }) {
-      if (report.used.some((item) => item.before !== undefined || item.after !== undefined))
+    async reportUsage(report: { used: { before?: Screenshot; after?: Screenshot }[] }) {
+      const screenshots = report.used.flatMap((item) =>
+        [item.before, item.after].filter((shot) => shot !== undefined),
+      )
+      if (screenshots.some((shot) => shot.file !== undefined))
+        throw toAgentError("invalid_input", "Hub accepts screenshots only as base64 data.")
+      const grantId = screenshots.length > 0 ? ((await input.screenshots?.grantId()) ?? null) : null
+      if (screenshots.length > 0 && !grantId)
         throw toAgentError(
           "unsupported",
-          "Hub does not accept screenshots yet. Report usage without them.",
+          "Screenshots are not allowed for this repository. Send the report without them.",
         )
       const directory = await storeDirectory()
       if (!directory)
         throw toAgentError("not_found", "This repository has no learnings to report on.")
-      return withPrivateFile(JSON.stringify(report), (file) =>
-        run(directory, ["report-usage", file]),
+      const result = await withPrivateFile(JSON.stringify(report), (file) =>
+        run(directory, ["report-usage", file, ...(grantId ? ["--grant", grantId] : [])]),
       )
+      // The store checked the images and the grant first, so Hub keeps only accepted bytes.
+      // Consent withdrawn meanwhile leaves nothing to keep; recovery deletes any late copy.
+      if (grantId && (await input.screenshots!.grantId()) === grantId) {
+        for (const shot of screenshots) {
+          await input.screenshots!.save({
+            grantId,
+            bytes: Buffer.from(String(shot.data), "base64"),
+          })
+        }
+      }
+      return result
     },
 
     submitSession() {

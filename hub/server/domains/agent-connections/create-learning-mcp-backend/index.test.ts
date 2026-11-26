@@ -154,3 +154,71 @@ it("gives no guidance for a repository without a learning store", async () => {
   expect(guidance).toEqual({ guidanceId: null, text: "", learnings: [] })
   expect(runLearningCommand).not.toHaveBeenCalled()
 })
+
+it("refuses screenshots for a repository that has not allowed them", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "replica-agent-backend-")))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  runLearningCommand.mockClear()
+  const backend = createLearningMcpBackend({
+    confirmAccess: () => Promise.resolve(true),
+    connectionId: "connection",
+    learning: {
+      applicationRoot: join(root, "app"),
+      cliPath: "replica-learning",
+      learningDatabaseUrl: "postgresql://learning",
+      nodePath: process.execPath,
+      root: join(root, "learning"),
+      staticDirectories: [],
+    },
+    learningsUrl: "https://hub.example/learnings",
+    repository: { id: "9f8f1d8e-4c1a-4a4b-8d43-6a9f6a6e7f10", githubRepositoryId: 1n },
+    screenshots: { grantId: () => Promise.resolve(null), save: vi.fn() },
+    serialize: (operation) => operation(new AbortController().signal),
+    toAgentError: (code, message) => new Error(`${code}: ${message}`),
+  })
+
+  const report = backend.reportUsage({ used: [{ after: { data: "aW1hZ2U=" } }] })
+
+  await expect(report).rejects.toThrow("unsupported")
+  expect(runLearningCommand).not.toHaveBeenCalled()
+})
+
+it("keeps screenshot bytes only while the repository still allows screenshots", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "replica-agent-backend-")))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  runLearningCommand.mockClear()
+  runLearningCommand.mockResolvedValueOnce({ recorded: 1 }).mockResolvedValueOnce({ recorded: 1 })
+  const grantId = vi
+    .fn()
+    .mockResolvedValueOnce("grant-1")
+    .mockResolvedValueOnce("grant-1")
+    .mockResolvedValueOnce("grant-1")
+    .mockResolvedValueOnce(null)
+  const save = vi.fn()
+  const backend = createLearningMcpBackend({
+    confirmAccess: () => Promise.resolve(true),
+    connectionId: "connection",
+    learning: {
+      applicationRoot: join(root, "app"),
+      cliPath: "replica-learning",
+      learningDatabaseUrl: "postgresql://learning",
+      nodePath: process.execPath,
+      root: join(root, "learning"),
+      staticDirectories: [],
+    },
+    learningsUrl: "https://hub.example/learnings",
+    repository: { id: "9f8f1d8e-4c1a-4a4b-8d43-6a9f6a6e7f10", githubRepositoryId: 1n },
+    screenshots: { grantId, save },
+    serialize: (operation) => operation(new AbortController().signal),
+    toAgentError: (code, message) => new Error(`${code}: ${message}`),
+  })
+
+  await backend.reportUsage({ used: [{ after: { data: "aW1hZ2U=" } }] })
+  await backend.reportUsage({ used: [{ after: { data: "aW1hZ2U=" } }] })
+
+  expect(runLearningCommand.mock.calls[0]![0]).toEqual(
+    expect.arrayContaining(["--grant", "grant-1"]),
+  )
+  expect(save).toHaveBeenCalledOnce()
+  expect(save).toHaveBeenCalledWith({ grantId: "grant-1", bytes: Buffer.from("image") })
+})

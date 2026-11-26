@@ -191,6 +191,7 @@ try {
               agentConnections = {
                 applicationOrigin: agentApplicationOrigin,
                 databaseUrl,
+                ...(storage ? { artifactStorage: storage } : {}),
                 learning: learningConfiguration,
               }
             }
