@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
+import { createServer } from "node:http"
 import { describe, it } from "node:test"
 
+import { MAX_BROWSER_PREVIEW_URL_LENGTH } from "../agent-commands/index.mjs"
 import { startCanvasServer } from "./index.mjs"
 import { withContext } from "../test-support/with-context/index.mjs"
 
@@ -139,6 +141,12 @@ describe("browser prototype preview", () => {
   it("opens and reloads a long saved-options target through the real HTTP request boundary", async () => {
     await withContext(async (context) => {
       const launched = []
+      const prototype = createServer((_request, response) => {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+        response.end("<!doctype html><title>Prototype</title>")
+      })
+      await new Promise((resolve) => prototype.listen(0, "127.0.0.1", resolve))
+      const prototypeUrl = `http://127.0.0.1:${prototype.address().port}/`
       const canvas = await startCanvasServer(
         context,
         { send: assert.fail },
@@ -150,6 +158,7 @@ describe("browser prototype preview", () => {
         },
       )
       try {
+        await canvas.setContext({ ...context, normalizedUrl: prototypeUrl })
         const { token } = config(await (await fetch(canvas.url)).text())
         function open(url) {
           return fetch(new URL("/api/prototype/open", canvas.url), {
@@ -158,15 +167,27 @@ describe("browser prototype preview", () => {
             body: JSON.stringify({ url }),
           })
         }
-        assert.equal((await open(context.normalizedUrl)).status, 200)
-        const target = new URL("/items#selected", context.normalizedUrl)
+        assert.equal((await open(prototypeUrl)).status, 200)
+        const target = new URL("/items#selected", prototypeUrl)
         target.searchParams.set("search", "x".repeat(7000))
         const controls = new URLSearchParams({
-          "rc.page.title": JSON.stringify("&".repeat(2600)),
+          "rc.page.title": JSON.stringify("&".repeat(2000)),
         })
-        assert.ok(Buffer.byteLength(controls.toString()) <= 8192)
         target.searchParams.set("rc.page.title", controls.get("rc.page.title"))
-        assert.ok(target.href.length > 2048 && target.href.length <= 16384)
+        target.searchParams.set("padding", "")
+        target.searchParams.set(
+          "padding",
+          "x".repeat(MAX_BROWSER_PREVIEW_URL_LENGTH - target.href.length),
+        )
+        assert.equal(target.href.length, MAX_BROWSER_PREVIEW_URL_LENGTH)
+        const oversizedTarget = new URL(prototypeUrl)
+        oversizedTarget.searchParams.set("padding", "")
+        oversizedTarget.searchParams.set(
+          "padding",
+          "x".repeat(MAX_BROWSER_PREVIEW_URL_LENGTH - oversizedTarget.href.length + 1),
+        )
+        assert.equal(oversizedTarget.href.length, MAX_BROWSER_PREVIEW_URL_LENGTH + 1)
+        assert.equal((await open(oversizedTarget.href)).status, 422)
         const currentWrapper = new URL(launched[0])
         currentWrapper.searchParams.set("url", target.href)
         assert.ok(Buffer.byteLength(currentWrapper.pathname + currentWrapper.search) > 16384)
@@ -179,12 +200,18 @@ describe("browser prototype preview", () => {
         )
         const launchedWrapper = new URL(launched.at(-1))
         assert.equal(launchedWrapper.searchParams.get("url"), target.href)
-        assert.equal(config(await reload.text()).prototypeUrl, target.href)
+        const browserConfig = config(await reload.text())
+        assert.equal(browserConfig.prototypeUrl, target.href)
+        const iframeUrl = new URL(`${target.pathname}${target.search}`, browserConfig.previewUrl)
+        const iframe = await fetch(iframeUrl)
+        assert.equal(iframe.status, 200)
+        assert.match(await iframe.text(), /<title>Prototype<\/title>/)
         const reopened = await fetch(launchedWrapper)
         assert.equal(reopened.status, 200)
         assert.equal(config(await reopened.text()).prototypeUrl, target.href)
       } finally {
         await canvas.close()
+        await new Promise((resolve) => prototype.close(resolve))
       }
     })
   })

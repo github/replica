@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto"
 import { readHubObject } from "../read-hub-object/index.mjs"
 // Allow the 8 KiB Controls query plus the underlying prototype route.
 export const MAX_RELOAD_ADDRESS_LENGTH = 16_384
+// Leave space for HTTP headers when a local preview server receives the route.
+export const MAX_BROWSER_PREVIEW_URL_LENGTH = 14_000
 export function agentCommands() {
   let pending = null
   const queue = []

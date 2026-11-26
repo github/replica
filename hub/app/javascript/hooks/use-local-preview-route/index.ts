@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent } from "react"
 
-import { REVIEW_ROUTE_SCHEMA } from "@utils/review-anchor/schemas"
+import { PREVIEW_ROUTE_SCHEMA } from "./constants"
 
 import type { Props } from "./types"
 
@@ -34,7 +34,7 @@ export function useLocalPreviewRoute({ frameRef, previewUrl, onRouteChange }: Pr
         !("route" in data)
       )
         return
-      const route = REVIEW_ROUTE_SCHEMA.safeParse(data.route)
+      const route = PREVIEW_ROUTE_SCHEMA.safeParse(data.route)
       if (route.success)
         reportRoute(route.data, "replaceRoute" in data && data.replaceRoute === true)
     }

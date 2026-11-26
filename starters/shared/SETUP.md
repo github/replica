@@ -10,7 +10,7 @@ installed Replica canvas.
 
 For CLI plugins or manually copied extensions, follow the plugin's [update instructions](https://github.com/github/replica/blob/main/.github/extensions/replica-prototype/README.md#update-or-switch-source). Keep one active provider and preserve credential/artifact directories and existing value files.
 
-Each preview gets a separate loopback proxy that injects the bundled bridge. Reopening a panel reuses its proxy; closing it stops only that proxy, not the prototype server. The address bar and external-browser action retain the original URL, including path, query and hash.
+Each preview gets a separate loopback proxy that injects the bundled bridge. Reopening a panel reuses its proxy; closing it stops only that proxy, not the prototype server. **Open in browser** opens a token-protected local wrapper URL, not the prototype URL. The wrapper shows the current preview through the same proxy, with **Options** expanded by default. Keep the Replica canvas open while using the wrapper: closing it or restarting the extension stops the wrapper, and choosing another server invalidates its target. The wrapper URL is a local access link, not a shareable or published prototype.
 
 ### Check the connection
 

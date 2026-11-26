@@ -1,7 +1,10 @@
 import { createHash, randomBytes } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:http"
-import { MAX_RELOAD_ADDRESS_LENGTH } from "../agent-commands/index.mjs"
+import {
+  MAX_BROWSER_PREVIEW_URL_LENGTH,
+  MAX_RELOAD_ADDRESS_LENGTH,
+} from "../agent-commands/index.mjs"
 import { projectControlsStatus } from "../controls-status/index.mjs"
 import { currentCanvasContext } from "../create-canvas-context/index.mjs"
 import { getPrototypeState } from "../get-prototype-state/index.mjs"
@@ -667,7 +670,7 @@ async function routeRequest(
     return
   }
   if (request.method === "POST" && requestUrl.pathname === "/api/prototype/open") {
-    const { url: value } = await readJson(request)
+    const { url: value } = await readJson(request, MAX_BROWSER_PREVIEW_URL_LENGTH + 1024)
     const target = prototypeBrowserUrl(value, context)
     const wrapper = new URL(`http://${request.headers.host}/browser`)
     wrapper.searchParams.set("document", browserDocumentToken)
@@ -1074,7 +1077,7 @@ function readPublishTarget(input) {
 function prototypeBrowserUrl(value, context) {
   if (!context.normalizedUrl)
     throw httpError(409, "Connect a prototype before opening its address.")
-  if (typeof value !== "string" || value.length > MAX_RELOAD_ADDRESS_LENGTH)
+  if (typeof value !== "string" || value.length > MAX_BROWSER_PREVIEW_URL_LENGTH)
     throw httpError(422, "Enter a valid prototype URL.")
   let target
   try {

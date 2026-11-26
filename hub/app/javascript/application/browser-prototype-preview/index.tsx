@@ -5,6 +5,7 @@ import type { ControlsPanelLayout } from "@components/prototype-controls-panel/t
 import { usePreviewNavigation } from "@hooks/use-canvas-preview-navigation"
 import { useControlsConnection } from "@hooks/use-prototype-controls-connection"
 import { useLocalPreviewRoute } from "@hooks/use-local-preview-route"
+import { MAXIMUM_PREVIEW_URL_LENGTH } from "@hooks/use-local-preview-route/constants"
 import { copy } from "@utils/prototype-canvas/en"
 
 import type { BrowserPreviewConfig } from "./types"
@@ -23,6 +24,8 @@ export function BrowserPrototypePreview({ config }: { config: BrowserPreviewConf
     usePreviewNavigation({ ...config, shellRef, cancelClick })
   const saveAddress = useCallback((destination: string) => {
     try {
+      if (destination.length > MAXIMUM_PREVIEW_URL_LENGTH)
+        throw new Error("The prototype address is too long to save.")
       const wrapper = new URL(window.location.href)
       wrapper.searchParams.set("url", destination)
       window.history.replaceState(window.history.state, "", wrapper)
