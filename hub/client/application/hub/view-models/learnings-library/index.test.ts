@@ -250,6 +250,7 @@ describe("learningsLibrary()", () => {
       },
     ]
     const score = {
+      source: "automated" as const,
       reasoning: "The form kept its labels.",
       issue: null,
       build: { prototypeId: "17", prototypeName: "Checkout", number: 3 },
@@ -283,6 +284,7 @@ describe("learningsLibrary()", () => {
           {
             ...score,
             id: "score_supports",
+            source: "reviewer_confirmed",
             efficiency: 3,
             followed: "followed",
             scoredAt: "2026-10-12T00:00:00Z",
@@ -298,6 +300,7 @@ describe("learningsLibrary()", () => {
       ["inconclusive", "The form kept its labels."],
     ])
     expect(result.selected?.outcomes?.[0]).toMatchObject({
+      reviewerConfirmed: true,
       buildPath: "/repositories/2001/prototypes/17?build=3",
       beforeScreenshotUrl: null,
       afterScreenshotUrl: `/api/repositories/2001/learnings/screenshots/${"b".repeat(64)}`,

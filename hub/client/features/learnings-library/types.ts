@@ -35,11 +35,12 @@ export interface LearningHistoryEntry {
   reason: string | null
 }
 
-/** Everything the detail view shows for the selected learning. */
 /** How one later Build did with a learning's guidance. */
 export interface LearningOutcome {
   id: string
   result: "supports" | "concern" | "inconclusive"
+  /** True when the person who gave the feedback confirmed the change worked. */
+  reviewerConfirmed: boolean
   summary: string
   buildLabel: string
   buildPath: string
@@ -48,6 +49,7 @@ export interface LearningOutcome {
   afterScreenshotUrl: string | null
 }
 
+/** Everything the detail view shows for the selected learning. */
 export interface LearningDetail {
   id: string
   status: LearningStatus

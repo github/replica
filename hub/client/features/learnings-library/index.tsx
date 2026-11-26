@@ -576,7 +576,9 @@ function OutcomeList({ outcomes }: { outcomes: LearningOutcome[] }) {
                 <strong>{outcomeLabels[outcome.result]}</strong>
               </span>
               <span aria-hidden="true">·</span>
-              <span>Automated assessment</span>
+              <span>
+                {outcome.reviewerConfirmed ? "Reviewer-confirmed" : "Automated assessment"}
+              </span>
               <span aria-hidden="true">·</span>
               <a href={outcome.buildPath}>{outcome.buildLabel}</a>
               <span aria-hidden="true">·</span>

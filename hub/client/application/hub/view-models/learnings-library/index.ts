@@ -88,6 +88,7 @@ function outcomes(items: LearningOutcomeResponse[], repositoryId: string): Learn
     id: item.id,
     result:
       item.followed !== "followed" ? "inconclusive" : item.efficiency >= 3 ? "supports" : "concern",
+    reviewerConfirmed: item.source === "reviewer_confirmed",
     summary: item.issue ?? item.reasoning,
     buildLabel: `${item.build.prototypeName}, Build ${item.build.number}`,
     buildPath: `/repositories/${repositoryId}/prototypes/${item.build.prototypeId}?build=${item.build.number}`,

@@ -225,6 +225,7 @@ const activeDetail: LearningDetail = {
     {
       id: "score-3",
       result: "supports",
+      reviewerConfirmed: true,
       summary: "The form kept a single primary button named for its action.",
       buildLabel: "Checkout, Build 12",
       buildPath: "/repositories/2001/prototypes/17?build=12",
@@ -235,6 +236,7 @@ const activeDetail: LearningDetail = {
     {
       id: "score-2",
       result: "concern",
+      reviewerConfirmed: false,
       summary: "The rule did not say which button wins when a form has two equal actions.",
       buildLabel: "Signup, Build 4",
       buildPath: "/repositories/2001/prototypes/18?build=4",
@@ -245,6 +247,7 @@ const activeDetail: LearningDetail = {
     {
       id: "score-1",
       result: "inconclusive",
+      reviewerConfirmed: false,
       summary: "The change did not touch a form, so the guidance did not apply.",
       buildLabel: "Checkout, Build 11",
       buildPath: "/repositories/2001/prototypes/17?build=11",
