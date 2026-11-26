@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
 
 import { RepositoryWorkspace } from "@features/repository-workspace"
 import type { RepositoryWorkspaceData } from "@features/repository-workspace/types"
@@ -42,16 +43,51 @@ const settings: EvaluationSettingsPageData = {
   },
 }
 
+/** Keeps each story's changes in its own state, as Hub would after saving. */
+function EvaluationSettingsStory({
+  busy,
+  data,
+}: {
+  busy: boolean
+  data: EvaluationSettingsPageData
+}) {
+  const [current, setCurrent] = useState(data)
+  return (
+    // The budget form posts to Hub, so the story saves the value itself instead.
+    <div
+      onSubmit={(event) => {
+        event.preventDefault()
+        const limit = new FormData(event.target).get("monthlyBudgetCredits")
+        if (typeof limit !== "string") return
+        setCurrent((value) => ({ ...value, budget: { ...value.budget, limitCredits: limit } }))
+      }}
+    >
+      <RepositoryWorkspace data={workspace}>
+        <EvaluationSettingsPage
+          busy={busy}
+          data={current}
+          onChange={({ enabled, screenshots }) =>
+            setCurrent((value) => ({
+              ...value,
+              evaluations: {
+                ...value.evaluations,
+                ...(enabled === undefined ? {} : { enabled }),
+                ...(screenshots === undefined ? {} : { screenshotsAllowed: screenshots }),
+              },
+            }))
+          }
+        />
+      </RepositoryWorkspace>
+    </div>
+  )
+}
+
 const meta = {
   title: "Hub/Pages/Learnings/Evaluation settings",
   component: EvaluationSettingsPage,
   parameters: { layout: "fullscreen" },
   args: { busy: false, data: settings, onChange: () => {} },
-  render: (args) => (
-    <RepositoryWorkspace data={workspace}>
-      <EvaluationSettingsPage {...args} />
-    </RepositoryWorkspace>
-  ),
+  render: ({ busy, data }) => <EvaluationSettingsStory busy={busy} data={data} />,
 } satisfies Meta<typeof EvaluationSettingsPage>
 
 export default meta

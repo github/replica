@@ -8,9 +8,14 @@ import { HubSwitch } from "@components/hub-switch"
 import type { EvaluationSettingsChange, EvaluationSettingsPageData } from "./types"
 import "./styles.css"
 
+// Budgets keep up to nine decimal places, so small limits must not round to zero.
+function amount(value: number) {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 9 })
+}
+
 function credits(value: string) {
-  const amount = Number(value)
-  return `${amount.toLocaleString()} ${amount === 1 ? "credit" : "credits"}`
+  const number = Number(value)
+  return `${amount(number)} ${number === 1 ? "credit" : "credits"}`
 }
 
 /**
@@ -46,7 +51,7 @@ export function EvaluationSettingsPage({
   ) : (
     <div className="evaluation-settings__usage">
       <Text as="span" id="evaluation-budget-usage" size="200" variant="muted">
-        {used.toLocaleString()} of {credits(budget.limitCredits)} used
+        {amount(used)} of {credits(budget.limitCredits)} used
       </Text>
       <meter
         aria-labelledby="evaluation-budget-usage"
