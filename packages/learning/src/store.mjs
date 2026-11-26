@@ -3747,6 +3747,82 @@ class LearningStore {
   }
 
   /**
+   * How agents' uses of one learning were scored, oldest first, so a host can show what was
+   * observed. Each outcome names the version the agent received and the commit it reported.
+   * A score of a version whose evidence no longer permits review is left out.
+   */
+  async outcomesFor(context, { memoryId } = {}) {
+    assertContext(context)
+    if (typeof memoryId !== "string" || !RECORD_ID.test(memoryId))
+      throw new LearningError("invalid_input", "Name the learning with its memory ID.")
+    const scores = (await this.#read("scores", context)).filter(
+      (record) => record.memoryId === memoryId,
+    )
+    if (!scores.length) return []
+    const used = new Map(
+      (
+        await this.#read("usedLearnings", context, {
+          ids: scores.map((record) => record.usedLearningId),
+        })
+      ).map((record) => [record.id, record]),
+    )
+    const reports = new Map(
+      (
+        await this.#read("usageReports", context, {
+          ids: scores.map((record) => record.usageReportId),
+        })
+      ).map((record) => [record.id, record]),
+    )
+    const deliveries = new Map(
+      (
+        await this.#read("deliveries", context, {
+          ids: [...used.values()].map((record) => record.deliveryId),
+        })
+      ).map((record) => [record.id, record]),
+    )
+    const shots = new Map(
+      (await this.#read("screenshots", context))
+        .filter((record) => reports.has(record.usageReportId))
+        .map((record) => [record.id, record]),
+    )
+    const delivered = await this.#deliveredVersions(context, "review")
+    function screenshot(id) {
+      const record = shots.get(id)
+      if (!record) return undefined
+      const { sha256, route, consentGrantId } = record
+      return { sha256, route, ...(consentGrantId ? { consentGrantId } : {}) }
+    }
+    return scores
+      .sort((a, b) => a.scoredAt.localeCompare(b.scoredAt))
+      .flatMap((score) => {
+        const record = used.get(score.usedLearningId)
+        const report = reports.get(score.usageReportId)
+        const delivery = record && deliveries.get(record.deliveryId)
+        const match = delivery && delivered(memoryId, delivery)
+        if (!report || !match?.allowed) return []
+        const before = screenshot(record.beforeScreenshotId)
+        const after = screenshot(record.afterScreenshotId)
+        return [
+          {
+            id: score.id,
+            usedLearningId: score.usedLearningId,
+            version: match.version.version,
+            commitSha: report.commitSha,
+            ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
+            efficiency: score.efficiency,
+            followed: score.followed,
+            reasoning: score.reasoning,
+            ...(score.issue ? { issue: score.issue } : {}),
+            inputs: score.inputs,
+            scoredAt: score.scoredAt,
+            ...(before ? { before } : {}),
+            ...(after ? { after } : {}),
+          },
+        ]
+      })
+  }
+
+  /**
    * The score already kept for one scoring attempt, or null. A host checks this before asking
    * Copilot, so retrying a finished attempt spends nothing.
    */

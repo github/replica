@@ -1615,6 +1615,14 @@ export function memoryProviderConformance({ name, createProvider }) {
       await store.addGrant(designer(), { ...grantInput(), purposes: ["evaluation"] })
       const inputs = await store.evaluationInputs(agent(), { usedLearningId: used.id })
       assert.equal(inputs.learning.text, delivery.text)
+      const outcomes = await store.outcomesFor(designer(), { memoryId: proposal.id })
+      assert.deepEqual(
+        outcomes.map((outcome) => [outcome.version, outcome.commitSha, outcome.issue]),
+        [
+          [inputs.learning.version, "a".repeat(40), "The rule did not say where the label goes."],
+          [inputs.learning.version, "a".repeat(40), undefined],
+        ],
+      )
       assert.equal((await store.verify(designer())).ok, true)
     })
 

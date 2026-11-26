@@ -1167,6 +1167,30 @@ export interface LearningStore {
       bytes: Uint8Array | null
     }>
   }>
+  /**
+   * How agents' uses of one learning were scored, oldest first. Scores of a version whose
+   * evidence no longer permits review are left out.
+   */
+  outcomesFor(
+    context: LearningContext,
+    request: { memoryId: string },
+  ): Promise<
+    Array<{
+      id: string
+      usedLearningId: string
+      version: number
+      commitSha: string
+      prototypeId?: string
+      efficiency: 1 | 2 | 3 | 4
+      followed: "followed" | "not_followed" | "unclear"
+      reasoning: string
+      issue?: string
+      inputs: Array<"screenshots" | "build_diff">
+      scoredAt: string
+      before?: { sha256: string; route: string; consentGrantId?: string }
+      after?: { sha256: string; route: string; consentGrantId?: string }
+    }>
+  >
   /** The score already kept for one scoring attempt, or null when it has none. */
   scoreFor(
     context: LearningContext,

@@ -124,6 +124,7 @@ Use
                                   commit, with optional before and after screenshots;
                                   --grant names the consent that allows them
   usage --commit <sha>            List what agents reported using for one commit
+  outcomes <memory-id>            List how agents' uses of one learning were scored
   score <used-learning-id> --operation-id <uuid> [--diff-file <file>]
         [--screenshots <dir>]
                                   Score how well one used learning helped, with
@@ -333,6 +334,7 @@ export async function main(
           "recall",
           "report-usage",
           "usage",
+          "outcomes",
           "score",
           "delete",
           "expire-guidance",
@@ -446,6 +448,8 @@ async function run(session) {
       return reportUsage(session)
     case "usage":
       return usage(session)
+    case "outcomes":
+      return outcomes(session)
     case "score":
       return score(session)
     case "delete":
@@ -1491,6 +1495,23 @@ function totals(calls) {
     outputTokens: calls.reduce((sum, call) => sum + call.outputTokens, 0),
     nanoAiu: calls.reduce((sum, call) => sum + call.nanoAiu, 0),
   }
+}
+
+async function outcomes(session) {
+  const memoryId = argument(session, 1, "memory ID")
+  const { store } = await open(session)
+  const items = await store.outcomesFor(context(session, actor(session)), { memoryId })
+  session.out(
+    { outcomes: items },
+    items.length
+      ? items
+          .map(
+            (item) =>
+              `${item.scoredAt}  v${item.version}  ${item.commitSha.slice(0, 12)}  efficiency ${item.efficiency}, ${item.followed.replace("_", " ")}`,
+          )
+          .join("\n")
+      : "No scored uses of this learning yet.",
+  )
 }
 
 /**
