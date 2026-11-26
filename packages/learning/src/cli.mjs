@@ -29,6 +29,7 @@ import {
 } from "./screenshots.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
+import { createCopilotDrafter, proposeUpdates } from "./updates.mjs"
 import { parseTimeOption, timestampFromMilliseconds } from "./time.mjs"
 import decisionModelCatalog from "./decision/models.json" with { type: "json" }
 import { MAX_QUESTION_LEARNINGS, brandCheckQuestions } from "./decision/questions.mjs"
@@ -108,6 +109,12 @@ Review (a person decides; --by github:<login>)
   supersede <old-id>... --with <new-id> --by <id> [--reason <text>]
                                   Only for a learning that recall uses and that
                                   replaces nothing yet
+  updates <memory-id>             List suggested new wording for a learning
+  apply-update <proposal-id> --by <id> (--reason <text> | --reason-file <file>)
+               --operation-id <uuid> [--title-file <file>] [--content-file <file>]
+                                  Make the suggested wording, or your edit of it,
+                                  the learning's next version
+  dismiss-update <proposal-id> --by <id> (--reason <text> | --reason-file <file>)
 
 Use
   recall [--task <text> | --task-file <file>] [--limit <n>] [--budget <chars>]
@@ -133,6 +140,9 @@ Use
                                   a store that does not keep them;
                                   --reviewer-verified-at says when a reviewer
                                   confirmed the work addressed their feedback
+  propose-update <memory-id>      Suggest new wording for an accepted learning when
+                                  scored uses keep showing the same issue; Copilot
+                                  drafts it only when the evidence is enough
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
   mcp [--actor <agent:name>] [--grant <grant-id>]...
                                   Serve the learning tools to a coding agent over
@@ -339,6 +349,10 @@ export async function main(
           "usage",
           "outcomes",
           "score",
+          "propose-update",
+          "updates",
+          "apply-update",
+          "dismiss-update",
           "delete",
           "expire-guidance",
           "delete-repository",
@@ -455,6 +469,14 @@ async function run(session) {
       return outcomes(session)
     case "score":
       return score(session)
+    case "propose-update":
+      return proposeUpdate(session)
+    case "updates":
+      return updates(session)
+    case "apply-update":
+      return applyUpdate(session)
+    case "dismiss-update":
+      return dismissUpdate(session)
     case "delete":
       return deleteMemory(session)
     case "expire-guidance":
@@ -1490,6 +1512,98 @@ async function score(session) {
       `Usage: ${usage.requests} request(s), ${aiCredits(usage.nanoAiu)} AI credits as Copilot reported them.`,
     ].join("\n"),
   )
+}
+
+/**
+ * Suggest new wording for one accepted learning and report what it cost. Copilot drafts as
+ * itself, and only when the evidence is enough, so most runs cost nothing.
+ */
+async function proposeUpdate(session) {
+  const memoryId = argument(session, 1, "memory ID")
+  const { store } = await open(session)
+  const drafter = createCopilotDrafter({ token: session.env.COPILOT_GITHUB_TOKEN || undefined })
+  let result
+  try {
+    result = await proposeUpdates(store, context(session, { kind: "agent", id: "agent:copilot" }), {
+      drafter,
+      memoryId,
+    })
+  } catch (error) {
+    if (session.values.json && error instanceof LearningError)
+      session.out({
+        usage: totals(error.details?.usage ?? []),
+        error: { code: error.code, message: error.message },
+      })
+    throw error
+  } finally {
+    await drafter.close().catch(() => {})
+  }
+  const usage = totals(result.usage)
+  const ids = result.proposals.map((item) => item.id).join(", ")
+  const summary = {
+    insufficient_evidence: "Not enough scored uses show the same issue yet.",
+    up_to_date: "No new scored uses since the last suggestion.",
+    no_change: "Copilot found no wording change the evidence supports.",
+    proposed: `Suggested ${result.proposals.length} update(s): ${ids}.`,
+  }[result.state]
+  session.out(
+    { state: result.state, proposals: result.proposals, usage },
+    `${summary}\nUsage: ${usage.requests} request(s), ` +
+      `${aiCredits(usage.nanoAiu)} AI credits as Copilot reported them.`,
+  )
+}
+
+async function updates(session) {
+  const memoryId = argument(session, 1, "memory ID")
+  const { store } = await open(session)
+  const items = await store.updatesFor(context(session, actor(session)), { memoryId })
+  session.out(
+    { updates: items },
+    items.length
+      ? items
+          .map(
+            (item) =>
+              `${item.id}  v${item.version}  ${item.state}  ` +
+              (item.withheld ? "(withheld)" : quoted(item.issue, 500)),
+          )
+          .join("\n")
+      : "No suggested updates for this learning.",
+  )
+}
+
+async function applyUpdate(session) {
+  const id = argument(session, 1, "proposal ID")
+  const reason = await reasonOf(session)
+  const principal = person(session)
+  const { store } = await open(session)
+  const result = await store.applyUpdate(context(session, principal), id, {
+    title: await optionalFile(session, "title-file"),
+    content: await optionalFile(session, "content-file"),
+    reason,
+    operationId: session.values["operation-id"],
+  })
+  session.out(
+    result,
+    result.stored
+      ? `Applied ${id} as version ${result.update.decision.appliedVersion}.`
+      : `${id} was already applied.`,
+  )
+}
+
+async function dismissUpdate(session) {
+  const id = argument(session, 1, "proposal ID")
+  const reason = await reasonOf(session)
+  const principal = person(session)
+  const { store } = await open(session)
+  const result = await store.dismissUpdate(context(session, principal), id, { reason })
+  session.out(result, result.stored ? `Dismissed ${id}.` : `${id} was already dismissed.`)
+}
+
+/** A file's text without its final line break, or undefined when the option is absent. */
+async function optionalFile(session, option) {
+  const file = session.values[option]
+  if (file === undefined) return undefined
+  return decodeUtf8(await readFile(path.resolve(session.cwd, file)), file).replace(/\r?\n$/, "")
 }
 
 /** One model call list as totals a host can add to its monthly budget. */
