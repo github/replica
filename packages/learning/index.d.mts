@@ -1167,6 +1167,11 @@ export interface LearningStore {
       bytes: Uint8Array | null
     }>
   }>
+  /** The score already kept for one scoring attempt, or null when it has none. */
+  scoreFor(
+    context: LearningContext,
+    request: { usedLearningId: string; operationId: string },
+  ): Promise<ScoreRecord | null>
   /**
    * Keep an evaluator's score for one used learning. A retry with the same operationId
    * stores nothing new and returns the first score.

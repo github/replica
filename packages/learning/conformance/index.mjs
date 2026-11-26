@@ -1597,6 +1597,24 @@ export function memoryProviderConformance({ name, createProvider }) {
       const rescored = await store.recordScore(agent(), { ...score, efficiency: 4 })
       assert.deepEqual([scored.stored, rescored.stored], [true, false])
       assert.equal(rescored.score.efficiency, 2)
+      const raced = await Promise.all(
+        [3, 4].map((efficiency) =>
+          store.recordScore(agent(), {
+            ...score,
+            operationId: "44444444-4444-4444-8444-444444444444",
+            efficiency,
+          }),
+        ),
+      )
+      assert.deepEqual(raced.map((result) => result.stored).sort(), [false, true])
+      assert.equal(raced[0].score.digest, raced[1].score.digest)
+      // Review comments were shared for review and instruction only, not evaluation.
+      await assert.rejects(store.evaluationInputs(agent(), { usedLearningId: used.id }), {
+        code: "unavailable",
+      })
+      await store.addGrant(designer(), { ...grantInput(), purposes: ["evaluation"] })
+      const inputs = await store.evaluationInputs(agent(), { usedLearningId: used.id })
+      assert.equal(inputs.learning.text, delivery.text)
       assert.equal((await store.verify(designer())).ok, true)
     })
 

@@ -3637,9 +3637,16 @@ class LearningStore {
     const [delivery] = await this.#read("deliveries", context, { ids: [used.deliveryId] })
     if (!report || !delivery)
       throw new LearningError("not_found", `Used learning ${usedLearningId} lost its report.`)
-    const version = (await this.#memories(context, [used.memoryId]))
-      .get(used.memoryId)
-      ?.versions.findLast((item) => item.contentDigest === delivery.contentDigest)
+    const delivered = (await this.#deliveredVersions(context, "evaluation"))(
+      used.memoryId,
+      delivery,
+    )
+    if (!delivered?.allowed)
+      throw new LearningError(
+        "unavailable",
+        `The evidence behind used learning ${usedLearningId} no longer allows evaluation.`,
+      )
+    const { version } = delivered
     const ids = [used.beforeScreenshotId, used.afterScreenshotId].filter(Boolean)
     const screenshots = []
     for (const shot of ids.length ? await this.#read("screenshots", context, { ids }) : []) {
@@ -3661,11 +3668,7 @@ class LearningStore {
     }
     return {
       usedLearning: { id: used.id, memoryId: used.memoryId, usageReportId: report.id },
-      learning: {
-        version: version?.version ?? null,
-        title: version?.title ?? null,
-        text: delivery.text,
-      },
+      learning: { version: version.version, title: version.title, text: delivery.text },
       report: {
         commitSha: report.commitSha,
         ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
@@ -3693,9 +3696,8 @@ class LearningStore {
       route,
     } = {},
   ) {
-    assertContext(context)
-    if (typeof operationId !== "string" || !OPERATION_ID.test(operationId))
-      throw new LearningError("invalid_input", "Name the scoring attempt with a UUID operation ID.")
+    const existing = await this.scoreFor(context, { usedLearningId, operationId })
+    if (existing) return { id: existing.id, stored: false, score: existing }
     if (!Number.isInteger(efficiency) || efficiency < 1 || efficiency > 4)
       throw new LearningError("invalid_input", "A score is a whole number from 1 to 4.")
     if (!FOLLOWED.includes(followed))
@@ -3706,8 +3708,6 @@ class LearningStore {
     if (!used)
       throw new LearningError("not_found", `No used learning ${usedLearningId} in this repository.`)
     const id = derivedId("score", { usedLearningId, operationId })
-    const [stored] = await this.#read("scores", context, { ids: [id] })
-    if (stored) return { id, stored: false, score: stored }
     const score = sealRecord({
       schemaVersion: SCHEMA_VERSIONS.score,
       id,
@@ -3727,15 +3727,38 @@ class LearningStore {
       scoredAt: this.#now(),
     })
     assertValid("score", score)
-    await this.#provider.appendBatch(
-      { scores: [score] },
-      {
-        audit: this.#auditEntries(context, "usage.score", [
-          { kind: "score", id, digest: score.digest },
-        ]),
-      },
-    )
-    return { id, stored: true, score }
+    try {
+      const result = await this.#provider.appendBatch(
+        { scores: [score] },
+        {
+          audit: this.#auditEntries(context, "usage.score", [
+            { kind: "score", id, digest: score.digest },
+          ]),
+        },
+      )
+      return { id, stored: result.scores.appended === 1, score }
+    } catch (error) {
+      // Another attempt with the same operation ID stored first; its score is the one kept.
+      if (error?.code !== "conflict") throw error
+      const winner = await this.scoreFor(context, { usedLearningId, operationId })
+      if (!winner) throw error
+      return { id, stored: false, score: winner }
+    }
+  }
+
+  /**
+   * The score already kept for one scoring attempt, or null. A host checks this before asking
+   * Copilot, so retrying a finished attempt spends nothing.
+   */
+  async scoreFor(context, { usedLearningId, operationId } = {}) {
+    assertContext(context)
+    if (typeof usedLearningId !== "string" || !RECORD_ID.test(usedLearningId))
+      throw new LearningError("invalid_input", "Name the used learning to evaluate.")
+    if (typeof operationId !== "string" || !OPERATION_ID.test(operationId))
+      throw new LearningError("invalid_input", "Name the scoring attempt with a UUID operation ID.")
+    const id = derivedId("score", { usedLearningId, operationId })
+    const [stored] = await this.#read("scores", context, { ids: [id] })
+    return stored ?? null
   }
 
   /**
