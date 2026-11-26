@@ -58,6 +58,7 @@ export function createLearningMcpBackend(input: {
   learning: LearningSettings
   learningsUrl: string
   repository: { id: string; githubRepositoryId: bigint }
+  requestScore?(commitSha: string): Promise<void>
   serialize<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   screenshots?: {
     grantId(): Promise<string | null>
@@ -179,7 +180,10 @@ export function createLearningMcpBackend(input: {
       }
     },
 
-    async reportUsage(report: { used: { before?: Screenshot; after?: Screenshot }[] }) {
+    async reportUsage(report: {
+      commitSha?: unknown
+      used: { before?: Screenshot; after?: Screenshot }[]
+    }) {
       const screenshots = report.used.flatMap((item) =>
         [item.before, item.after].filter((shot) => shot !== undefined),
       )
@@ -199,6 +203,10 @@ export function createLearningMcpBackend(input: {
       const directory = await storeDirectory()
       if (!directory)
         throw toAgentError("not_found", "This repository has no learnings to report on.")
+      // Asked first so a report that lands is never missed. A request whose report failed
+      // finds nothing to score and is dropped.
+      if (typeof report.commitSha === "string" && /^[0-9a-f]{40}$/.test(report.commitSha))
+        await input.requestScore?.(report.commitSha)
       const result = await withPrivateFile(JSON.stringify(report), (file) =>
         run(directory, ["report-usage", file, ...(grantId ? ["--grant", grantId] : [])]),
       )

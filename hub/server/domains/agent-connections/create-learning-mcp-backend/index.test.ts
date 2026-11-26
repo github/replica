@@ -222,3 +222,31 @@ it("keeps screenshot bytes only while the repository still allows screenshots", 
   expect(save).toHaveBeenCalledOnce()
   expect(save).toHaveBeenCalledWith({ grantId: "grant-1", bytes: Buffer.from("image") })
 })
+
+it("asks Hub to score the commit an agent reports usage for", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "replica-agent-backend-")))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  runLearningCommand.mockResolvedValueOnce({ recorded: 1 })
+  const requestScore = vi.fn()
+  const backend = createLearningMcpBackend({
+    confirmAccess: () => Promise.resolve(true),
+    connectionId: "connection",
+    learning: {
+      applicationRoot: join(root, "app"),
+      cliPath: "replica-learning",
+      learningDatabaseUrl: "postgresql://learning",
+      nodePath: process.execPath,
+      root: join(root, "learning"),
+      staticDirectories: [],
+    },
+    learningsUrl: "https://hub.example/learnings",
+    repository: { id: "9f8f1d8e-4c1a-4a4b-8d43-6a9f6a6e7f10", githubRepositoryId: 1n },
+    requestScore,
+    serialize: (operation) => operation(new AbortController().signal),
+    toAgentError: (code, message) => new Error(`${code}: ${message}`),
+  })
+
+  await backend.reportUsage({ commitSha: "a".repeat(40), used: [] })
+
+  expect(requestScore).toHaveBeenCalledWith("a".repeat(40))
+})

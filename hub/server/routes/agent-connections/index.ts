@@ -23,6 +23,7 @@ import { withLearningExecutionLock } from "../../integrations/postgres/with-lear
 import { findAgentRepository } from "../../repositories/agent-connections/find-agent-repository/index.ts"
 import { createAgentScreenshot } from "../../repositories/agent-screenshots/create-agent-screenshot/index.ts"
 import { getRepositoryEvaluationSetting } from "../../repositories/evaluation-settings/get-repository-evaluation-setting/index.ts"
+import { recordLearningScoreRequest } from "../../repositories/learning-score-requests/record-learning-score-request/index.ts"
 import type { PrismaClient } from "../../generated/prisma/client.ts"
 import type { AgentConnectionRouteDependencies } from "./types.ts"
 
@@ -206,6 +207,9 @@ export function agentConnectionRoutes(
         learning,
         learningsUrl: new URL(`/repositories/${repository.id}/learnings`, applicationOrigin).href,
         repository: { id: repository.id, githubRepositoryId: repository.githubRepositoryId },
+        async requestScore(commitSha) {
+          await recordLearningScoreRequest(prisma, { repositoryId: repository.id, commitSha })
+        },
         async serialize(operation) {
           try {
             return await withLearningExecutionLock({
