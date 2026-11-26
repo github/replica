@@ -6,6 +6,7 @@ import { z } from "zod"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
+import { formatAiCredits } from "../../../utils/format-ai-credits/index.ts"
 import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 
 const grantListSchema = z.array(
@@ -51,11 +52,6 @@ const consolidateSchema = z
     overBudget: z.number().int().nonnegative().optional(),
   })
   .loose()
-
-function credits(nanoAiu: number) {
-  const padded = nanoAiu.toString().padStart(10, "0")
-  return `${padded.slice(0, -9)}.${padded.slice(-9)}`.replace(/\.?0+$/, "") || "0"
-}
 
 export async function processLearningRun(
   runId: string,
@@ -314,7 +310,7 @@ export async function processLearningRun(
               commentsLabeled: partial.data.labeled,
               commentsRemaining: partial.data.remaining,
               copilotRequests: partial.data.usage.requests,
-              aiCredits: credits(partial.data.usage.nanoAiu),
+              aiCredits: formatAiCredits(partial.data.usage.nanoAiu),
             })
           }
         }
@@ -325,7 +321,7 @@ export async function processLearningRun(
         commentsLabeled: labeled.labeled,
         commentsRemaining: labeled.remaining,
         copilotRequests: labeled.usage.requests,
-        aiCredits: credits(labeled.usage.nanoAiu),
+        aiCredits: formatAiCredits(labeled.usage.nanoAiu),
       })
       if (
         current.scheduled

@@ -89,6 +89,7 @@ const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     decision.reconcileDeletions,
     learning.recover,
     learning.schedule,
+    learning.score,
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
     createJobProcessor(githubBuildImportRetry, retryGitHubBuildsAwaitingImport),
     createJobProcessor(githubWorkflowRunDiscovery, discoverGitHubWorkflowRunsJob),

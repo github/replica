@@ -18,6 +18,7 @@ const prisma = {
   learningDecisionOperation: { findMany: vi.fn() },
   repository: { findUnique: vi.fn() },
   reviewComment: { findMany: vi.fn(), updateMany: vi.fn() },
+  learningScoreRequest: { deleteMany: vi.fn(), findMany: vi.fn() },
 }
 
 vi.mock("../../../integrations/prisma", () => ({ prisma }))
@@ -116,6 +117,7 @@ describe("createLearningJobProcessors()", () => {
       prisma.agentScreenshot.groupBy.mockResolvedValue([])
       prisma.repositoryEvaluationSetting.findMany.mockResolvedValue([])
       prisma.learningDecisionOperation.findMany.mockResolvedValue([])
+      prisma.learningScoreRequest.findMany.mockResolvedValue([])
       prisma.reviewComment.findMany.mockResolvedValue([
         {
           publicId: 101,

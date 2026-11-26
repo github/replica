@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { Logger } from "pino"
 
+import { readGitHubAppConfiguration } from "../../authentication/read-github-app-configuration/index.ts"
 import { resolveLocalSignInEnvironment } from "../../authentication/resolve-local-sign-in-environment/index.ts"
 import { getCopilotConnectionStatus } from "../../copilot-connection/get-copilot-connection-status/index.ts"
 import { ReviewCommentError } from "../../review-comments/errors.ts"
@@ -14,6 +15,8 @@ import { automaticLearningRunPriority } from "../jobs/priorities.ts"
 import { recoverLearningRunsJob } from "../jobs/recover-learning-runs.ts"
 import { redactReviewCommentJob } from "../jobs/redact-review-comment.ts"
 import { scheduleLearningRunsJob } from "../jobs/schedule-learning-runs.ts"
+import { scoreAppliedLearningsJob } from "../jobs/score-applied-learnings.ts"
+import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 import { prepareLearningStore } from "../prepare-learning-store/index.ts"
 import { processLearningRun } from "../process-learning-run/index.ts"
 import { processReviewCommentRedaction } from "../process-review-comment-redaction/index.ts"
@@ -24,6 +27,7 @@ import { recordFinishedLearningRun } from "../record-finished-learning-run/index
 import { readAutomaticLearningRunsEnabled } from "../read-automatic-learning-runs-enabled/index.ts"
 import { readLearningConfiguration } from "../read-learning-configuration/index.ts"
 import { scheduleLearningRuns } from "../schedule-learning-runs/index.ts"
+import { scoreAppliedLearnings } from "../score-applied-learnings/index.ts"
 import { createConfiguredArtifactStorage } from "../../artifacts/create-configured-artifact-storage/index.ts"
 import { createJobProcessor } from "../../../integrations/bullmq/create-job-processor/index.ts"
 import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/index.ts"
@@ -32,11 +36,22 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { CopilotCredentialError } from "../../../integrations/github/create-installation-access-token/errors.ts"
+import { createGitHubActionsClient } from "../../../integrations/github/create-github-actions-client/index.ts"
+import { GitHubCommitLookupError } from "../../../integrations/github/errors.ts"
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { deleteAgentScreenshot } from "../../../repositories/agent-screenshots/delete-agent-screenshot/index.ts"
+import { findConsentedAgentScreenshots } from "../../../repositories/agent-screenshots/find-consented-agent-screenshots/index.ts"
 import { listAgentScreenshotGrants } from "../../../repositories/agent-screenshots/list-agent-screenshot-grants/index.ts"
 import { listGrantAgentScreenshots } from "../../../repositories/agent-screenshots/list-grant-agent-screenshots/index.ts"
 import { getRepositoryEvaluationSetting } from "../../../repositories/evaluation-settings/get-repository-evaluation-setting/index.ts"
+import { initializeEvaluationSetting } from "../../../repositories/evaluation-settings/initialize-evaluation-setting/index.ts"
+import { finishLearningEvaluationRun } from "../../../repositories/learning-evaluation-runs/finish-learning-evaluation-run/index.ts"
+import { startLearningEvaluationRun } from "../../../repositories/learning-evaluation-runs/start-learning-evaluation-run/index.ts"
+import { sumLearningEvaluationCredits } from "../../../repositories/learning-evaluation-runs/sum-learning-evaluation-credits/index.ts"
+import { deleteExpiredLearningScoreRequests } from "../../../repositories/learning-score-requests/delete-expired-learning-score-requests/index.ts"
+import { deleteLearningScoreRequest } from "../../../repositories/learning-score-requests/delete-learning-score-request/index.ts"
+import { findLearningScoreRequest } from "../../../repositories/learning-score-requests/find-learning-score-request/index.ts"
+import { listReadyLearningScoreRequests } from "../../../repositories/learning-score-requests/list-ready-learning-score-requests/index.ts"
 import { getCopilotConnectionState } from "../../../repositories/copilot-connection-states/get-copilot-connection-state/index.ts"
 import { advanceCopilotConnectionState } from "../../../repositories/copilot-connection-states/advance-copilot-connection-state/index.ts"
 import { lockCopilotConnectionState } from "../../../repositories/copilot-connection-states/lock-copilot-connection-state/index.ts"
@@ -61,6 +76,7 @@ import { listDeletedReviewComments } from "../../../repositories/review-comments
 import { markReviewCommentLearningRedacted } from "../../../repositories/review-comments/mark-review-comment-learning-redacted/index.ts"
 import { findRepositoryGitHubId } from "../../../repositories/repository-access/find-repository-github-id/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { startOfUtcMonth } from "../../../utils/start-of-utc-month/index.ts"
 
 export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logger: Logger) {
   let databaseDependenciesPromise:
@@ -131,10 +147,10 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     ).connected
   }
 
-  async function processRun(runId: string, scheduled: boolean) {
-    const { configuration, databaseUrl, prisma, source } = await dependencies()
-    const stored = await getLearningRun(prisma, runId)
-    if (!stored || stored.scheduled !== scheduled) return
+  // Learning runs and scoring both fetch a fresh Copilot credential and record a refusal
+  // only against the connection that credential came from, so a newer connection made
+  // meanwhile is never marked as refused.
+  function createCopilotCredentialSession() {
     let credentialSnapshot:
       | {
           connectionId: string
@@ -143,79 +159,9 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
           credentialProvider: string
         }
       | undefined
-    return await processLearningRun(runId, {
-      expectedScheduled: scheduled,
-      claim: (id, startedAt, expectedScheduled) =>
-        claimLearningRun(prisma, id, startedAt, expectedScheduled),
-      capture: (repositoryId) => source.captureCompleteSnapshot({ repositoryId }),
-      finish: (id, input) =>
-        recordFinishedLearningRun(prisma, id, (transaction) =>
-          finishLearningRun(transaction, id, input),
-        ),
-      getRun: (id) => getLearningRun(prisma, id),
-      hasPendingUserRun: () => hasPendingUserLearningRun(prisma),
-      isRepositoryAvailable: (repositoryId) =>
-        prisma.$transaction(async (transaction) => {
-          await lockGitHubRepositoryAccessState(transaction)
-          return isLearningRunRepositoryAvailable(transaction, repositoryId, true)
-        }),
-      now: () => new Date(),
-      authorizeRepositoryAdministration: (membershipId, repositoryId) =>
-        authorizeRepositoryAdministration(prisma, { membershipId, repositoryId }),
-      prepare: async (repositoryId) =>
-        prepareLearningStore({
-          applicationRoot: process.cwd(),
-          learningDatabaseUrl: configuration.learningDatabaseUrl,
-          repositoryKey: repositoryId,
-          repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
-          root: configuration.root,
-          staticDirectories: configuration.staticDirectories,
-        }),
-      refuseCredential: async () => {
-        if (!credentialSnapshot) return
-        const snapshot = credentialSnapshot
-        await prisma.$transaction(async (transaction) => {
-          const state = await lockCopilotConnectionState(transaction)
-          const connection = await getCopilotConnection(transaction)
-          if (
-            !state ||
-            !connection ||
-            state.generation !== snapshot.generation ||
-            connection.id !== snapshot.connectionId ||
-            connection.credentialProvider !== snapshot.credentialProvider ||
-            connection.credentialDigest !== snapshot.credentialDigest
-          ) {
-            return
-          }
-          if (
-            !(await recordCopilotCredentialRefusal(transaction, {
-              credentialDigest: snapshot.credentialDigest,
-              credentialProvider: snapshot.credentialProvider,
-              refusedAt: new Date(),
-            }))
-          ) {
-            return
-          }
-          await advanceCopilotConnectionState(transaction)
-          await createSecurityAudit(transaction, {
-            actorMembershipId: connection.connectedByMembershipId,
-            connectionId: connection.id,
-            credentialProvider: snapshot.credentialProvider,
-            id: randomUUID(),
-            phase: "denied",
-            reason: "credential_refused",
-            type: "copilot_connection",
-          })
-        })
-      },
-      runCommand: (arguments_, options) =>
-        runLearningCommand(arguments_, {
-          cliPath: configuration.cliPath,
-          learningDatabaseUrl: configuration.learningDatabaseUrl,
-          nodePath: configuration.nodePath,
-          ...options,
-        }),
+    return {
       credential: async () => {
+        const { configuration, prisma } = await dependencies()
         const connection = await getCopilotConnection(prisma)
         const state = await getCopilotConnectionState(prisma)
         if (!state) return null
@@ -261,6 +207,89 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
           throw error
         }
       },
+      refuseCredential: async () => {
+        if (!credentialSnapshot) return
+        const snapshot = credentialSnapshot
+        const { prisma } = await dependencies()
+        await prisma.$transaction(async (transaction) => {
+          const state = await lockCopilotConnectionState(transaction)
+          const connection = await getCopilotConnection(transaction)
+          if (
+            !state ||
+            !connection ||
+            state.generation !== snapshot.generation ||
+            connection.id !== snapshot.connectionId ||
+            connection.credentialProvider !== snapshot.credentialProvider ||
+            connection.credentialDigest !== snapshot.credentialDigest
+          ) {
+            return
+          }
+          if (
+            !(await recordCopilotCredentialRefusal(transaction, {
+              credentialDigest: snapshot.credentialDigest,
+              credentialProvider: snapshot.credentialProvider,
+              refusedAt: new Date(),
+            }))
+          ) {
+            return
+          }
+          await advanceCopilotConnectionState(transaction)
+          await createSecurityAudit(transaction, {
+            actorMembershipId: connection.connectedByMembershipId,
+            connectionId: connection.id,
+            credentialProvider: snapshot.credentialProvider,
+            id: randomUUID(),
+            phase: "denied",
+            reason: "credential_refused",
+            type: "copilot_connection",
+          })
+        })
+      },
+    }
+  }
+
+  async function processRun(runId: string, scheduled: boolean) {
+    const { configuration, databaseUrl, prisma, source } = await dependencies()
+    const stored = await getLearningRun(prisma, runId)
+    if (!stored || stored.scheduled !== scheduled) return
+    const copilot = createCopilotCredentialSession()
+    return await processLearningRun(runId, {
+      expectedScheduled: scheduled,
+      claim: (id, startedAt, expectedScheduled) =>
+        claimLearningRun(prisma, id, startedAt, expectedScheduled),
+      capture: (repositoryId) => source.captureCompleteSnapshot({ repositoryId }),
+      finish: (id, input) =>
+        recordFinishedLearningRun(prisma, id, (transaction) =>
+          finishLearningRun(transaction, id, input),
+        ),
+      getRun: (id) => getLearningRun(prisma, id),
+      hasPendingUserRun: () => hasPendingUserLearningRun(prisma),
+      isRepositoryAvailable: (repositoryId) =>
+        prisma.$transaction(async (transaction) => {
+          await lockGitHubRepositoryAccessState(transaction)
+          return isLearningRunRepositoryAvailable(transaction, repositoryId, true)
+        }),
+      now: () => new Date(),
+      authorizeRepositoryAdministration: (membershipId, repositoryId) =>
+        authorizeRepositoryAdministration(prisma, { membershipId, repositoryId }),
+      prepare: async (repositoryId) =>
+        prepareLearningStore({
+          applicationRoot: process.cwd(),
+          learningDatabaseUrl: configuration.learningDatabaseUrl,
+          repositoryKey: repositoryId,
+          repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
+          root: configuration.root,
+          staticDirectories: configuration.staticDirectories,
+        }),
+      refuseCredential: copilot.refuseCredential,
+      runCommand: (arguments_, options) =>
+        runLearningCommand(arguments_, {
+          cliPath: configuration.cliPath,
+          learningDatabaseUrl: configuration.learningDatabaseUrl,
+          nodePath: configuration.nodePath,
+          ...options,
+        }),
+      credential: copilot.credential,
       updateProgress: (id, input) => updateLearningRunProgress(prisma, id, input),
       withLock: (operation) => withLearningExecutionLock({ databaseUrl, run: operation }),
     })
@@ -321,6 +350,22 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
           deleteAgentScreenshotsJob,
           { repositoryId: screenshots.repositoryId, grantId: screenshots.grantId },
           `learning-screenshots-${screenshots.repositoryId}-${screenshots.grantId}`,
+        )
+      }
+      // Agents can report usage before or after the Build for that commit finishes, so
+      // requests wait here until both exist. Unbuilt ones are dropped after 30 days.
+      await deleteExpiredLearningScoreRequests(
+        prisma,
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      )
+      // Scoring is automatic work, so it waits behind anything a person asked for.
+      for (const request of await listReadyLearningScoreRequests(prisma)) {
+        await enqueueRecoverableJob(
+          scheduledQueue,
+          scoreAppliedLearningsJob,
+          request,
+          `learning-score-${request.repositoryId}-${request.commitSha}`,
+          { priority: automaticLearningRunPriority },
         )
       }
       for (const operation of await listLearningDecisionOperations(prisma)) {
@@ -505,5 +550,118 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     })
   })
 
-  return { run, scheduledRun, recover, redact, schedule, deleteScreenshots }
+  const score = createJobProcessor(scoreAppliedLearningsJob, async (request, context) => {
+    const { configuration, databaseUrl, prisma } = await dependencies()
+    const repository = { repositoryId: request.repositoryId, commitSha: request.commitSha }
+    // Read before the store's usage, so a report that lands while scoring runs raises the
+    // revision and keeps its request for another pass.
+    const pending = await findLearningScoreRequest(prisma, repository)
+    if (!pending) return
+    const copilot = createCopilotCredentialSession()
+    try {
+      const result = await scoreAppliedLearnings({
+        commitSha: request.commitSha,
+        credential: copilot.credential,
+        deleteRequest: () =>
+          deleteLearningScoreRequest(prisma, { ...repository, revision: pending.revision }),
+        finish: (runId, input) => finishLearningEvaluationRun(prisma, runId, input),
+        hasPendingUserRun: () => hasPendingUserLearningRun(prisma),
+        // Scoring needs the store's evaluation grant, which a repository turned on before
+        // grants existed gets on its next settings save, and a repository Hub can still
+        // reach.
+        isEnabled: () =>
+          prisma.$transaction(async (transaction) => {
+            await lockGitHubRepositoryAccessState(transaction)
+            const setting = await getRepositoryEvaluationSetting(transaction, request.repositoryId)
+            return (
+              Boolean(setting?.enabled && setting.evaluationGrantId) &&
+              (await isLearningRunRepositoryAvailable(transaction, request.repositoryId, true))
+            )
+          }),
+        now: () => new Date(),
+        prepare: async () =>
+          learningStoreArguments(
+            await prepareLearningStore({
+              applicationRoot: process.cwd(),
+              learningDatabaseUrl: configuration.learningDatabaseUrl,
+              repositoryKey: request.repositoryId,
+              repositoryScope: await getLearningRepositoryScope(prisma, request.repositoryId),
+              root: configuration.root,
+              staticDirectories: configuration.staticDirectories,
+            }),
+          ),
+        readDiff: async () => {
+          const credentials = readGitHubAppConfiguration(
+            resolveLocalSignInEnvironment(environment),
+          ).appCredentials
+          const githubRepositoryId = (await findRepositoryGitHubId(prisma, request.repositoryId))
+            ?.githubRepositoryId
+          if (!credentials || !githubRepositoryId) return null
+          try {
+            return await createGitHubActionsClient({
+              appId: credentials.appId,
+              installationId: credentials.installationId,
+              privateKey: credentials.privateKey,
+              githubRepositoryId: Number(githubRepositoryId),
+            }).getCommitDiff(request.commitSha)
+          } catch (error) {
+            // A commit GitHub no longer has is scored on what remains.
+            if (
+              error instanceof GitHubCommitLookupError &&
+              (error.statusCode === 404 || error.statusCode === 422)
+            )
+              return null
+            throw error
+          }
+        },
+        readScreenshot: async (sha256) => {
+          const consented = await findConsentedAgentScreenshots(prisma, {
+            repositoryId: request.repositoryId,
+            sha256s: [sha256],
+          })
+          const storageKey = consented?.storageKeys.get(sha256)
+          if (!storageKey) return null
+          const read = await (await artifactStorage()).read(storageKey)
+          if (read.status === "ok") return read.bytes
+          if (read.status === "not-found") return null
+          // An outage would change the score, so the attempt is retried later instead.
+          throw new Error(`Hub could not read an agent screenshot: ${read.status}.`)
+        },
+        refuseCredential: copilot.refuseCredential,
+        runCommand: (arguments_, options) =>
+          runLearningCommand(arguments_, {
+            cliPath: configuration.cliPath,
+            learningDatabaseUrl: configuration.learningDatabaseUrl,
+            nodePath: configuration.nodePath,
+            ...options,
+          }),
+        start: (usedLearningId) =>
+          startLearningEvaluationRun(prisma, {
+            repositoryId: request.repositoryId,
+            usedLearningId,
+          }),
+        withinBudget: async () => {
+          const budget = (await initializeEvaluationSetting(prisma)).monthlyBudgetCredits
+          const used = await sumLearningEvaluationCredits(prisma, startOfUtcMonth(new Date()))
+          return used ? used.lessThan(budget) : budget.greaterThan(0)
+        },
+        withLock: (operation) => withLearningExecutionLock({ databaseUrl, run: operation }),
+      })
+      if (result === "deferred") return await context.defer(30_000)
+      if (result === "paused")
+        logger.info(
+          repository,
+          "Applied learning scoring is paused until Copilot or budget returns",
+        )
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "Another learning operation is still running."
+      )
+        return await context.defer(30_000)
+      throw error
+    }
+  })
+
+  return { run, scheduledRun, recover, redact, schedule, deleteScreenshots, score }
 }

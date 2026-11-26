@@ -33,7 +33,13 @@ describe("learning worker configuration", () => {
     ])
     const scheduled = getJobProcessors("scheduled").map(({ name }) => name)
     expect(scheduled).toContain("learning.recover-runs")
-    expect(scheduled).toEqual(expect.arrayContaining(["learning.run", "learning.schedule-runs"]))
+    expect(scheduled).toEqual(
+      expect.arrayContaining([
+        "learning.run",
+        "learning.schedule-runs",
+        "learning.score-applied-learnings",
+      ]),
+    )
     expect(jobSchedules).toContainEqual(
       expect.objectContaining({
         id: "learning-run-recovery",
