@@ -14,6 +14,7 @@ import { createPortal } from "react-dom"
 import { HubCounter } from "@components/hub-counter"
 import { ShortcutTooltip } from "@components/shortcut-tooltip"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
+import { PrototypeCanvasFixPill } from "@components/prototype-canvas-fix-pill"
 import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
 import { useReviewError } from "@hooks/use-review-error"
 import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
@@ -21,6 +22,7 @@ import { isMacPlatform } from "@utils/is-mac-platform"
 import { isSubmitShortcut } from "@utils/is-submit-shortcut"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
 import { canvasReviewError } from "@utils/canvas-review-error"
+import { countPendingImprovements } from "@utils/count-pending-improvements"
 import { copy } from "./en"
 import { improvementThreadView } from "./thread-view"
 import { usePreviewSelection } from "./use-preview-selection"
@@ -55,6 +57,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const [selectedSource, setSelectedSource] = useState<Source | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [draft, setDraft] = useState("")
+  const [submitting, setSubmitting] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [message, setMessage] = useState("")
@@ -74,7 +77,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const notesCount = notes.filter((note) => note.status !== "resolved").length
   const active = canvas.active !== false
   const notesOpen = panelOpen && active && !canvas.hubOpen
-  const canSave = Boolean(draft.trim()) && !saved.busy && !selectionChanged
+  const canSave = Boolean(draft.trim()) && !submitting && !selectionChanged
   const saveShortcutModifier = isMacPlatform() ? copy.saveShortcutMac : copy.saveShortcutOther
   const onInteractionChange = canvas.onInteractionChange
 
@@ -118,6 +121,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     onProblem: setMessage,
     onToggle: toggleSelection,
   })
+  const threads = notes.map((note) => improvementThreadView(note, preview.resolutions.get(note.id)))
+  const pending = countPendingImprovements(threads)
 
   const handleShortcut = useEffectEvent((event: KeyboardEvent) => {
     if (
@@ -199,6 +204,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }
 
   function closeComposer() {
+    if (submitting) return
     if (draft !== "") {
       setDiscarding(true)
       return
@@ -207,20 +213,30 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     cancelPreviewSelection()
   }
 
-  async function save() {
-    if (!selection || !draft.trim() || saved.busy || selectionChanged) return
-    if (
-      !(await saved.change("create", {
-        identity: selection.identity,
-        sourceId: selection.sourceId,
-        body: draft.trim(),
-        anchor: selection.anchor,
-      }))
-    )
-      return
-    openNotes()
-    cancelPreviewSelection()
+  async function save(fixNow = false) {
+    if (!selection || !draft.trim() || submitting || selectionChanged) return
+    const input = {
+      identity: selection.identity,
+      sourceId: selection.sourceId,
+      body: draft.trim(),
+      anchor: selection.anchor,
+    }
+    setSubmitting(true)
+    let stored: boolean
+    try {
+      stored = fixNow
+        ? (await saved.createAndFix(input)).changed
+        : await saved.change("create", input)
+    } finally {
+      setSubmitting(false)
+    }
+    if (!stored) return
+    setDraft("")
     setSelection(null)
+    if (fixNow) {
+      setPanelOpen(false)
+      cancelPreviewSelection()
+    } else void beginSelection()
     setMessage(copy.saved)
   }
 
@@ -279,9 +295,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
           setPanelOpen(false)
           notesToggleRef.current?.focus()
         }}
-        threads={notes.map((note) => improvementThreadView(note, preview.resolutions.get(note.id)))}
+        threads={threads}
         busy={saved.busy || !saved.state}
-        activeBatch={Boolean(saved.state?.activeBatch)}
         error={
           error ||
           syncError ||
@@ -307,6 +322,11 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
             status: "resolved",
           })
         }
+        onFixSelected={(threads) =>
+          saved.change("fix", {
+            noteIds: threads.map(({ id, revision }) => ({ id, revision })),
+          })
+        }
         onDelete={(thread) =>
           saved.change("delete", {
             id: thread.id,
@@ -322,6 +342,16 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
           })
         }
       />
+      {active && annotating && !canvas.hubOpen ? (
+        <PrototypeCanvasFixPill
+          count={pending}
+          disabled={!saved.state || threadInteraction || Boolean(selection)}
+          busy={saved.busy}
+          onFix={() => {
+            void saved.change("fix")
+          }}
+        />
+      ) : null}
       <p className="visually-hidden" role="status">
         {saved.state ? message : copy.storageLoading}
       </p>
@@ -356,6 +386,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
                 value={draft}
                 maxLength={10000}
                 rows={4}
+                readOnly={submitting}
                 placeholder={copy.placeholder}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -368,6 +399,15 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               />
             </FormControl>
             <div className="improvement-demo__dialog-actions">
+              <Button
+                type="button"
+                size="small"
+                variant="secondary"
+                disabled={!canSave}
+                onClick={() => void save(true)}
+              >
+                {copy.fixNow}
+              </Button>
               <Button
                 type="submit"
                 size="small"

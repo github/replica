@@ -1,8 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect } from "storybook/test"
 
 import { replicaBrowseData } from "@/storybook/fixtures/replica-browse"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 import { octocat } from "@/storybook/fixtures/users"
+import { prototypeLinkCopy } from "@utils/prototype-share-link/en"
 
 import { PrototypeWorkspaceHeader } from "."
 import type { PrototypeWorkspaceHeaderData } from "./types"
@@ -77,6 +79,36 @@ type Story = StoryObj<typeof meta>
 
 export const Ready: Story = {}
 
+export const BuildMenuOpen: Story = {
+  args: {
+    data: {
+      ...data,
+      buildOptions: [
+        ...data.buildOptions,
+        {
+          number: 2,
+          label: "v2",
+          path: "/repositories/2001/prototypes/1?build=2",
+          state: "successful",
+        },
+        {
+          number: 3,
+          label: "v3",
+          path: "/repositories/2001/prototypes/1/builds/3",
+          state: "failed",
+          stateLabel: "Failed to build",
+        },
+      ],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /Choose build/ }))
+    await expect(
+      canvas.getByRole("menuitem", { name: prototypeLinkCopy.copyBuildNumber(2) }),
+    ).toBeVisible()
+  },
+}
+
 export const ReplicaBrowse: Story = {
   args: {
     data: replicaBrowseData,
@@ -94,16 +126,6 @@ export const UnreadComments: Story = {
   },
 }
 
-export const Narrow: Story = {
-  decorators: [
-    (Story) => (
-      <div style={{ containerType: "inline-size", width: "24rem" }}>
-        <Story />
-      </div>
-    ),
-  ],
-}
-
 export const NewerBuildFailed: Story = {
   args: {
     data: {
@@ -117,6 +139,44 @@ export const NewerBuildFailed: Story = {
           path: "/repositories/2001/prototypes/1/builds/2",
           state: "failed",
           stateLabel: "Failed to build",
+        },
+      ],
+    },
+  },
+}
+
+export const BuildStates: Story = {
+  args: {
+    data: {
+      ...data,
+      buildOptions: [
+        {
+          number: 4,
+          label: "v4",
+          path: "/repositories/2001/prototypes/1/builds/4",
+          state: "queued",
+          stateLabel: "Queued",
+        },
+        {
+          number: 3,
+          label: "v3",
+          path: "/repositories/2001/prototypes/1/builds/3",
+          state: "running",
+          stateLabel: "Running",
+        },
+        {
+          number: 2,
+          label: "v2",
+          path: "/repositories/2001/prototypes/1/builds/2",
+          state: "failed",
+          stateLabel: "Failed to build",
+        },
+        {
+          number: 1,
+          label: "v1",
+          path: "/repositories/2001/prototypes/1?build=1",
+          state: "successful",
+          stateLabel: "Successful",
         },
       ],
     },
@@ -145,17 +205,6 @@ const longBuildStatus = {
 
 export const LongBuildStatus: Story = {
   args: { data: longBuildStatus },
-}
-
-export const NarrowLongBuildStatus: Story = {
-  args: { data: longBuildStatus },
-  decorators: [
-    (Story) => (
-      <div style={{ containerType: "inline-size", width: "20rem" }}>
-        <Story />
-      </div>
-    ),
-  ],
 }
 
 export const ManyBuilds: Story = {

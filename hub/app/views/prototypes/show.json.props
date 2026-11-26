@@ -57,7 +57,7 @@ json.prototypeId @prototype.id
 json.controlsIdentity preview_controls_identity(@prototype, context: [ "authenticated", Current.user.id ])
 json.branchName @prototype.branch_name
 json.branchPath repository_prototype_path(@repository.route_id, @prototype)
-json.buildPinned params.key?(:build)
+json.buildPinned params.key?(:build) && params[:build] != "latest"
 json.prototypeName @document_title
 json.prototypeDescription @prototype.description
 json.showPrototypeInfo @show_prototype_info
@@ -65,7 +65,7 @@ json.historyLabel t("prototypes.show.history")
 json.historyPath repository_prototype_builds_path \
   @repository.route_id,
   @prototype,
-  **(params.key?(:build) ? { build: @selected_build.number } : {})
+  **(@selected_build && params.key?(:build) ? { build: @selected_build.number } : {})
 json.moreActionsLabel t("prototypes.show.more_actions")
 json.openInNewTabLabel t("prototypes.show.open_in_new_tab")
 json.minimizeHubLabel t("prototypes.show.minimize_hub")

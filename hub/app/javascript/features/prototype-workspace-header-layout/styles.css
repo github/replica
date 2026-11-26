@@ -168,6 +168,9 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
 }
 
 .review-shell__build-menu [role="menu"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
   box-sizing: border-box;
   width: max-content;
   min-width: 0;
@@ -176,7 +179,24 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
 }
 
 .review-shell__build-option {
+  grid-column: 1;
   grid-template-columns: min-content minmax(0, 1fr);
+}
+
+.review-shell__build-option--without-copy {
+  grid-column: 1 / -1;
+}
+
+.review-shell__build-menu .review-shell__build-copy {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  justify-content: center;
+  width: var(--brand-control-small-size);
+  min-width: var(--brand-control-small-size);
+  height: var(--brand-control-small-size);
+  min-height: var(--brand-control-small-size);
+  padding: 0;
 }
 
 .review-shell__build-option > a > span,
@@ -193,7 +213,7 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
   display: flex;
   width: 100%;
   min-width: 0;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--base-size-16);
   white-space: nowrap;
@@ -204,11 +224,13 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
 }
 
 .review-shell__build-status {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--hub-fg-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.review-shell__build-status-failed {
+  color: var(--hub-fg-danger);
 }
 
 @container (max-width: 48rem) {
