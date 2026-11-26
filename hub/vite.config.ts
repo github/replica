@@ -8,6 +8,14 @@ import {
   controlsValidatorPath,
 } from "./controls-validator-plugin.ts"
 
+// Agents reach the MCP and OAuth endpoints at the root, so these go to Express too.
+const hubProxy = {
+  "/api": { target: "http://127.0.0.1:3001", ws: true },
+  "^/(?:mcp|register|authorize|token|revoke|\\.well-known/oauth-[a-z-]+)(?:/|$)": {
+    target: "http://127.0.0.1:3001",
+  },
+}
+
 export default defineConfig({
   plugins: [reactRouter(), controlsValidatorPlugin()],
   ssr: {
@@ -20,12 +28,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: { "/api": { target: "http://127.0.0.1:3001", ws: true } },
+    proxy: hubProxy,
   },
   preview: {
     port: 5173,
     strictPort: true,
-    proxy: { "/api": { target: "http://127.0.0.1:3001", ws: true } },
+    proxy: hubProxy,
   },
   resolve: { alias: { ...viteAliases, [controlsValidatorModule]: controlsValidatorPath } },
   optimizeDeps: { include: [controlsValidatorModule] },
