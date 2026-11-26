@@ -56,7 +56,10 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `usage --commit <sha>` | Lists the usage reports for one full commit SHA. Each used learning names its ID, the version the agent received, its title and text, and the digest, capture details, and consent grant of any before and after screenshot. Title and text are empty once the learning's evidence no longer allows review. A host uses it to show what was applied in the Build made from that commit |
 | `score <used-learning-id> --operation-id <uuid>` | Asks Copilot how efficiently one used learning helped, from 1 to 4, and whether the agent followed it, then keeps the score. See [Score applied learnings](#score-applied-learnings) |
 | `outcomes <memory-id>` | Lists how agents' uses of one learning were scored, oldest first. Each outcome names the version the agent received, the commit it reported, the efficiency from 1 to 4, whether the agent followed the learning, the evaluator's reasoning, and any before and after screenshot. Scores of a version whose evidence no longer permits review are left out |
-| `delete <memory-id> --reason <text>` | Removes a learning for good: every version, the records of its deliveries and use, and their screenshots. A learning that is part of a replacement, or that a stored proposal would replace, cannot be deleted; retire it instead |
+| `propose-update <memory-id>` | Suggests new wording for an accepted learning when scored uses keep showing the same issue. See [Suggest learning updates](#suggest-learning-updates) |
+| `updates <memory-id>` | Lists a learning's suggested updates, oldest first, each `open`, `applied`, `dismissed`, or `stale` |
+| `apply-update <proposal-id> --operation-id <uuid>`, `dismiss-update <proposal-id>` | Records a person's decision on a suggested update. `apply-update` makes the suggested wording, or the person's edit of it from `--title-file` and `--content-file`, the learning's next version |
+| `delete <memory-id> --reason <text>` | Removes a learning for good: every version, the records of its deliveries and use, their screenshots, and its suggested updates. A learning that is part of a replacement, or that a stored proposal would replace, cannot be deleted; retire it instead |
 | `expire-guidance [--days <n>]` | Removes guidance records older than `--days`, 365 by default, that no usage report names |
 | `delete-repository --confirm <owner/name>` | Removes every record this repository's store holds, including its audit trail. Naming the repository again guards against deleting the wrong store. Copies outside the store, such as exports, are not touched |
 | `mcp` | Serves the learning tools to a coding agent over standard input and output, as [Connect an agent](#connect-an-agent) describes |
@@ -183,6 +186,7 @@ The JSON Schemas in [`contracts/v1`](contracts/v1) are the normative contract. E
 | `guidance`, `delivered-learning` | One recall by an agent, and each learning version it received with its exact text |
 | `usage-report`, `used-learning` | An agent's report of which delivered learnings it used for a commit |
 | `screenshot` | One screenshot in a usage report, named by the SHA-256 of its PNG bytes |
+| `update-proposal`, `update-decision` | Suggested new wording for a learning, with the scores behind it, and a person's decision to apply or dismiss it |
 | `audit-entry` | One operation, with IDs and digests but no content |
 
 Each digest is `sha256:` plus the SHA-256 of the record's RFC 8785 canonical JSON. [`contracts/v1/vectors/canonical-json.json`](contracts/v1/vectors/canonical-json.json) holds shared vectors for other languages. Times are UTC with six fractional digits, so text order is time order. [`contracts/v1/examples`](contracts/v1/examples) holds a valid example of every record, and [`contracts/v1/invalid`](contracts/v1/invalid) holds records that must fail, each with its reason.
@@ -288,6 +292,14 @@ A score of 1 or 2 also names the main issue. A learning is scored only while the
 Every score uses the strongest route Copilot offers, so scores stay comparable. It asks for Copilot Fusion at its max tier first. When Fusion is unavailable or does not take effect, it asks Copilot Auto which model it would choose and uses that model at its highest reasoning effort. Each score records the route it used. Inputs are treated as untrusted data, and the session has no tools, as in labeling.
 
 The host names each attempt with `--operation-id`, so a retry keeps the first score. The output includes the usage in AI credits; with `--json`, a failed attempt still prints the usage it spent, so a host can keep to its budget. Deleting a learning deletes its scores.
+
+## Suggest learning updates
+
+`replica-learning propose-update <memory-id>` suggests new wording for an accepted learning when scored uses keep showing the same problem. For example, if agents followed "Keep form labels visible" in two Builds but still put labels beside the fields, it might suggest "Show a visible label above every form field" and say why.
+
+Only scores of the current version count, and only scores whose evidence included the Build's diff or a reviewer's confirmation. Each Build counts once, by its commit. Copilot is asked only when, in at least two Builds, the agent followed the learning and still scored 1 or 2 with an issue. It sees the newest 500 issues, groups them, names each group, and drafts the full new wording. A group becomes a suggestion only when it spans at least two Builds, more Builds than went well with a score of 3 or 4, and its wording differs from the current text. A run that finds too little evidence, or no new low or high scores since the last suggestion, spends nothing. A run where Copilot suggests nothing is not recorded, so a host runs it again only after new scores arrive.
+
+A person decides with `apply-update` or `dismiss-update`. Applying records the wording, or the person's edit of it, as the learning's next version, the same way `edit` does. The host names each apply with `--operation-id`, so a retry finishes an apply that stopped partway. A suggestion goes `stale` when the learning changes, when it is no longer accepted, when a score it relied on is gone or no longer shown, when the learning is superseded or in conflict, or when a newer suggestion names the same issue. A dismissed issue is suggested again only with at least two Builds first scored after the dismissal, one confirmed by a reviewer. Drafting needs the evaluation purpose, since it sends the learning to Copilot. The route, usage reporting, and untrusted-input handling match [scoring](#score-applied-learnings).
 
 ## Bring your own consolidator
 
