@@ -104,7 +104,11 @@ Review (a person decides; --by github:<login>)
 Use
   recall [--task <text> | --task-file <file>] [--limit <n>] [--budget <chars>]
          [--session-id <id> [--session-label <text>]] [--preview --by <id>]
+         [--shared-file <file>]
                                   --task-file - reads the task from standard input;
+                                  --shared-file adds accepted learnings other
+                                  repositories shared to a preview, as a JSON
+                                  list of records;
                                   --preview shows a person what an agent would get,
                                   unaudited
   report-usage <report.json> --actor <id>
@@ -171,6 +175,7 @@ const OPTIONS = {
   with: { type: "string" },
   task: { type: "string" },
   "task-file": { type: "string" },
+  "shared-file": { type: "string" },
   limit: { type: "string" },
   "max-requests": { type: "string" },
   since: { type: "string" },
@@ -1324,6 +1329,8 @@ async function recall(session) {
   if (preview && !session.values.by)
     throw new UsageError("Name the person who previews recall with --by github:<login>.")
   const principal = preview ? person(session) : actor(session)
+  const sharedFile = session.values["shared-file"]
+  const shared = sharedFile === undefined ? [] : await readJsonFile(session, sharedFile)
   const { store } = await open(session)
   const result = await store.recall(context(session, principal), {
     task,
@@ -1331,6 +1338,7 @@ async function recall(session) {
     budgetChars: positive(session.values.budget, "--budget", 6000),
     preview,
     session: sessionOption(session),
+    shared,
   })
   session.out(result, result.text)
 }

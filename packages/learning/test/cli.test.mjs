@@ -24,6 +24,7 @@ import {
   weekTwoLog,
 } from "../conformance/fixtures.mjs"
 import { main } from "../src/cli.mjs"
+import { sealMemory } from "../src/records.mjs"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-cli-"))
@@ -1043,6 +1044,36 @@ describe("replica-learning CLI: guard rails", () => {
     assert.match(
       (await cli(repo, ["recall", "--task-file", "missing.txt"])).stderr,
       /Cannot read missing\.txt/,
+    )
+  })
+
+  it("previews learnings other repositories shared from a file", async () => {
+    const repo = checkout("shared-file")
+    const example = path.join(here, "../contracts/v1/examples/memory-record.accepted.example.json")
+    const moved = sealMemory({
+      ...JSON.parse(readFileSync(example, "utf8")),
+      scope: { repository: "acme/marketing-prototypes" },
+    })
+    const shared = sealMemory({
+      ...moved,
+      accepted: { ...moved.accepted, contentDigest: moved.contentDigest },
+    })
+    writeFileSync(path.join(repo, "shared.json"), JSON.stringify([shared]))
+    writeFileSync(path.join(repo, "one.json"), JSON.stringify(shared))
+    const preview = ["recall", "--preview", "--by", "github:ana-designer", "--json"]
+
+    const recalled = await ok(repo, [...preview, "--shared-file", "shared.json"])
+    assert.deepEqual(
+      recalled.json().memories.map((memory) => memory.id),
+      [shared.id],
+    )
+    assert.match(
+      (await cli(repo, [...preview, "--shared-file", "one.json"])).stderr,
+      /invalid_input.*must be a list/,
+    )
+    assert.match(
+      (await cli(repo, ["recall", "--shared-file", "shared.json"])).stderr,
+      /invalid_input.*can only be previewed/,
     )
   })
 

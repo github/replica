@@ -281,6 +281,33 @@ function assertDeletionReason(reason) {
     )
 }
 
+/**
+ * The learnings other repositories shared, checked before a person previews them. Each must
+ * be an intact accepted record from another scope, so a damaged or edited copy is refused. A
+ * shared learning with the same ID as any of this repository's own, in any state, is left
+ * out. Two sources can share the same ID, so only the first copy is kept.
+ */
+function sharedForRecall(context, shared, ownIds) {
+  if (!Array.isArray(shared))
+    throw new LearningError("invalid_input", "Shared learnings must be a list of records.")
+  const seen = new Set()
+  const result = []
+  for (const record of shared) {
+    assertValid("memoryRecord", record)
+    if (record.state !== "accepted" || !record.accepted)
+      throw new LearningError("invalid_input", `Shared learning ${record.id} is not accepted.`)
+    if (sameScope(record.scope, context.scope))
+      throw new LearningError(
+        "invalid_input",
+        `Shared learning ${record.id} belongs to this repository.`,
+      )
+    if (ownIds.has(record.id) || seen.has(record.id)) continue
+    seen.add(record.id)
+    result.push(record)
+  }
+  return result
+}
+
 /** A checked session name, or undefined when none is given. */
 function sessionOf(session) {
   if (session === undefined) return undefined
@@ -3208,18 +3235,35 @@ class LearningStore {
    * A recall also stores a guidance record, and one delivery per learning with the exact text
    * the agent got, so a later usage report can say which of them the agent used. via says
    * where the request came from, and session names the agent session when the agent knows it.
+   *
+   * shared holds accepted learnings that other repositories shared with this one. The host
+   * reads them from their own stores and decides they are still in effect; recall checks that
+   * each is intact and ranks it with this repository's own learnings. Only a preview takes
+   * them, because a stored delivery would outlive the source store's own deletion and audit.
    */
   async recall(
     context,
-    { task, limit = 20, budgetChars = 6000, preview = false, via = "local", session } = {},
+    {
+      task,
+      limit = 20,
+      budgetChars = 6000,
+      preview = false,
+      via = "local",
+      session,
+      shared = [],
+    } = {},
   ) {
     assertContext(context)
     if (!Number.isSafeInteger(limit) || limit < 1)
       throw new LearningError("invalid_input", "The recall limit must be a positive safe integer.")
     if (preview) requireHuman(context, "preview recall")
+    if (!preview && Array.isArray(shared) && shared.length > 0)
+      throw new LearningError("invalid_input", "Shared learnings can only be previewed.")
     const named = sessionOf(session)
     const { items } = await this.#statuses(context)
-    const usable = items.filter((item) => item.status.recallEligible).map((item) => item.record)
+    const own = items.filter((item) => item.status.recallEligible).map((item) => item.record)
+    const ownIds = new Set(items.map((item) => item.record.id))
+    const usable = [...own, ...sharedForRecall(context, shared, ownIds)]
     const { selected, text, blocks } = renderRecall(rankForRecall(usable, { task }), {
       limit,
       budgetChars,

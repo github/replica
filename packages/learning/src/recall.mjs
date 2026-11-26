@@ -150,6 +150,7 @@ export function renderRecall(
     blocks.push(block)
     selected.push({
       id: record.id,
+      scope: record.scope,
       kind: record.kind,
       content: record.content,
       contentDigest: record.contentDigest,

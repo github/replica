@@ -360,6 +360,8 @@ export type StoredRecord =
 
 export interface RecalledMemory {
   id: string
+  /** The repository the learning belongs to, another one's for a shared learning */
+  scope: Scope
   kind: MemoryKind
   content: string
   contentDigest: Digest
@@ -1048,6 +1050,12 @@ export interface LearningStore {
       /** Where the agent asked from, "local" by default. */
       via?: "local" | "hub"
       session?: AgentSessionRef
+      /**
+       * Accepted learnings other repositories shared with this one, read by the host from
+       * their own stores. Each must be intact and from another scope. Only a preview takes
+       * them.
+       */
+      shared?: MemoryRecord[]
     },
   ): Promise<{
     /** Absent for a preview, which stores nothing. */
