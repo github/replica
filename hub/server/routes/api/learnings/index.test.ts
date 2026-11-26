@@ -10,6 +10,7 @@ import { LearningCommandError } from "../../../integrations/learning/run-learnin
 import { LearningsError } from "./errors.ts"
 import { post as postDecision } from "./decision/post/index.ts"
 import { get as getLearnings } from "./get/index.ts"
+import { get as getEvaluations } from "./evaluations/get/index.ts"
 import { get as getLearningHistory } from "./history/get/index.ts"
 import { post as postRun } from "./runs/post/index.ts"
 import { post as postShare } from "./share/post/index.ts"
@@ -59,6 +60,13 @@ function dependencies(
     listActivity: vi.fn().mockResolvedValue([]),
     decide: vi.fn().mockResolvedValue({ notice: "Learning accepted." }),
     share: vi.fn().mockResolvedValue({ notice: "Shared across Hub." }),
+    getEvaluationSettings: vi.fn().mockResolvedValue({
+      monthlyBudgetCredits: "0",
+      enabled: false,
+      screenshots: { allowed: false, changedBy: null, changedAt: null },
+    }),
+    changeEvaluationSettings: vi.fn().mockResolvedValue({ notice: "Evaluation settings saved." }),
+    changeEvaluationBudget: vi.fn().mockResolvedValue({ notice: "Budget saved." }),
     redactComment: vi.fn().mockResolvedValue(undefined),
     serializeReviewCommentDeletion: (operation) => operation(),
     ...overrides,
@@ -866,4 +874,23 @@ describe("learning routes", () => {
       )
     },
   )
+  it("hides evaluation settings from a member who administers neither Hub nor the repository", async () => {
+    const deps = dependencies({
+      authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/evaluations",
+      getEvaluations(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/evaluations`,
+          { headers },
+        )
+
+        expect(response.status).toBe(403)
+      },
+    )
+  })
 })

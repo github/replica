@@ -329,6 +329,7 @@ const eventSchema = z.discriminatedUnion("type", [
         "learning_run",
         "learning_decision",
         "learning_share",
+        "learning_evaluation",
       ]),
       reason: z.literal("authority_missing"),
       repositoryId: z.uuid(),

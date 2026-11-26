@@ -15,6 +15,12 @@ import { learningRunJob } from "../../../../domains/learning/jobs/learning-run.t
 import { redactReviewCommentJob } from "../../../../domains/learning/jobs/redact-review-comment.ts"
 import type { ReviewCommentLearningSource } from "../../../../domains/learning/review-comment-learning-source/types.ts"
 import { readLearningConfiguration } from "../../../../domains/learning/read-learning-configuration/index.ts"
+import { changeScreenshotConsent } from "../../../../domains/learning/change-screenshot-consent/index.ts"
+import { deleteAgentScreenshotsJob } from "../../../../domains/learning/jobs/delete-agent-screenshots.ts"
+import { getRepositoryEvaluationSetting } from "../../../../repositories/evaluation-settings/get-repository-evaluation-setting/index.ts"
+import { initializeEvaluationSetting } from "../../../../repositories/evaluation-settings/initialize-evaluation-setting/index.ts"
+import { saveRepositoryEvaluationSetting } from "../../../../repositories/evaluation-settings/save-repository-evaluation-setting/index.ts"
+import { updateEvaluationBudget } from "../../../../repositories/evaluation-settings/update-evaluation-budget/index.ts"
 import { createJobQueue } from "../../../../integrations/bullmq/create-job-queue/index.ts"
 import { enqueueJob } from "../../../../integrations/bullmq/enqueue-job/index.ts"
 import { LearningCommandError } from "../../../../integrations/learning/run-learning-command/errors.ts"
@@ -149,6 +155,34 @@ export async function createLearningsRouteDependencies(
       shared.push(...(await Promise.all(batch.map(readSource))).flat())
     }
     return shared
+  }
+
+  /**
+   * Queues removal of the screenshots a withdrawn grant allowed. A failed enqueue is only
+   * logged because the worker's recovery pass finds every withdrawn grant again.
+   */
+  async function queueScreenshotDeletion(input: {
+    databaseUrl: string
+    grantId: string
+    repositoryId: string
+  }) {
+    const { grantId, repositoryId } = input
+    const queue = createJobQueue({ name: "on-demand", databaseUrl: input.databaseUrl, logger })
+    try {
+      await enqueueJob(
+        queue,
+        deleteAgentScreenshotsJob,
+        { repositoryId, grantId },
+        { jobId: `learning-screenshots-${repositoryId}-${grantId}` },
+      )
+    } catch (error) {
+      logger.warn(
+        { errorType: error instanceof Error ? error.name : "UnknownError", repositoryId },
+        "Screenshot consent was withdrawn but its screenshot removal could not be queued",
+      )
+    } finally {
+      await queue.close()
+    }
   }
 
   async function getCopilot() {
@@ -501,6 +535,141 @@ export async function createLearningsRouteDependencies(
       } finally {
         await queue.close()
       }
+    },
+    getEvaluationSettings: async (repositoryId) => {
+      const budget = await initializeEvaluationSetting(prisma)
+      const setting = await getRepositoryEvaluationSetting(prisma, repositoryId)
+      return {
+        monthlyBudgetCredits: budget.monthlyBudgetCredits.toString(),
+        enabled: setting?.enabled ?? false,
+        screenshots: {
+          allowed: Boolean(setting?.screenshotGrantId),
+          changedBy: setting?.screenshotsChangedByMembership?.user.profile?.login ?? null,
+          changedAt: setting?.screenshotsChangedAt?.toISOString() ?? null,
+        },
+      }
+    },
+    changeEvaluationSettings: async ({ actorMembershipId, sessionDigest, ...input }) => {
+      async function deny(): Promise<never> {
+        await createSecurityAudit(prisma, {
+          id: randomUUID(),
+          type: "repository_administration_denied",
+          actorMembershipId,
+          operation: "learning_evaluation",
+          reason: "authority_missing",
+          repositoryId: input.repositoryId,
+        })
+        throw new LearningsError(
+          403,
+          "repository_administrator_required",
+          "Repository administrator access is required.",
+        )
+      }
+      // Each step re-locks the person's session, so losing access between steps stops
+      // the change rather than finishing it on authority they no longer hold.
+      function withAuthority<Result>(
+        operation: (transaction: Prisma.TransactionClient) => Promise<Result>,
+      ) {
+        return runRepositoryAuthorityTransaction(async (transaction) =>
+          (await lockRepositoryAdministratorSession(transaction, {
+            membershipId: actorMembershipId,
+            repositoryId: input.repositoryId,
+            sessionDigest,
+          }))
+            ? { value: await operation(transaction) }
+            : null,
+        )
+      }
+      try {
+        // Consent lives in the learning store, so one change at a time keeps Hub's
+        // record and the store's grant from drifting apart.
+        await withLearningExecutionLock({
+          databaseUrl,
+          protectSessionAuthority: true,
+          run: async (signal) => {
+            const read = await withAuthority(async (transaction) => ({
+              repositoryScope: await getLearningRepositoryScope(transaction, input.repositoryId),
+              setting: await getRepositoryEvaluationSetting(transaction, input.repositoryId),
+            }))
+            if (!read) return deny()
+            const { repositoryScope, setting } = read.value
+            const enabled = input.enabled ?? setting?.enabled ?? false
+            const grantId = setting?.screenshotGrantId ?? null
+            // Screenshots only serve evaluations, so turning evaluations off withdraws
+            // them too.
+            const allowed = enabled && (input.screenshots ?? Boolean(grantId))
+            if (input.screenshots && !enabled) {
+              throw new LearningsError(
+                409,
+                "evaluations_disabled",
+                "Turn on automated evaluations before allowing screenshots.",
+              )
+            }
+            if (enabled !== (setting?.enabled ?? false)) {
+              if (
+                !(await withAuthority((transaction) =>
+                  saveRepositoryEvaluationSetting(transaction, input.repositoryId, { enabled }),
+                ))
+              ) {
+                return deny()
+              }
+            }
+            if (allowed === Boolean(grantId)) return
+            const nextGrantId = await changeScreenshotConsent({
+              ...configuration,
+              actor: input.actor,
+              allowed,
+              grantId,
+              repositoryId: input.repositoryId,
+              repositoryScope,
+              signal,
+            })
+            const saved = await withAuthority((transaction) =>
+              saveRepositoryEvaluationSetting(transaction, input.repositoryId, {
+                screenshotGrantId: nextGrantId,
+                screenshotsChangedAt: new Date(),
+                screenshotsChangedByMembershipId: actorMembershipId,
+              }),
+            )
+            if (!saved) return deny()
+            if (grantId && !allowed)
+              await queueScreenshotDeletion({
+                databaseUrl,
+                grantId,
+                repositoryId: input.repositoryId,
+              })
+          },
+        })
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "Another learning operation is still running."
+        ) {
+          throw new LearningsError(
+            409,
+            "learning_execution_busy",
+            "Another learning operation is still running.",
+            { cause: error },
+          )
+        }
+        throw error
+      }
+      return { notice: "Evaluation settings saved." }
+    },
+    changeEvaluationBudget: async ({ actorMembershipId, monthlyBudgetCredits }) => {
+      const saved = await runRepositoryAuthorityTransaction(async (transaction) => {
+        if (!(await isEffectiveAdministrator(transaction, actorMembershipId))) return false
+        await updateEvaluationBudget(transaction, monthlyBudgetCredits)
+        return true
+      })
+      if (!saved) {
+        throw new LearningsError(
+          403,
+          "hub_administrator_required",
+          "Hub administrator access is required.",
+        )
+      }
+      return { notice: "Budget saved." }
     },
     serializeReviewCommentDeletion: (operation) =>
       withLearningExecutionLock({

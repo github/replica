@@ -256,7 +256,12 @@ export interface LearningRunAudit extends SecurityAuditEvent {
 export interface RepositoryAdministrationDeniedAudit extends SecurityAuditEvent {
   type: "repository_administration_denied"
   actorMembershipId: string
-  operation: "learning_overview" | "learning_run" | "learning_decision" | "learning_share"
+  operation:
+    | "learning_overview"
+    | "learning_run"
+    | "learning_decision"
+    | "learning_share"
+    | "learning_evaluation"
   reason: "authority_missing"
   repositoryId: string
 }

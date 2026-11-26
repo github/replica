@@ -70,6 +70,9 @@ import { get as handleLearningHistoryGet } from "./api/learnings/history/get/ind
 import { post as handleLearningRunPost } from "./api/learnings/runs/post/index.ts"
 import { post as handleLearningDecisionPost } from "./api/learnings/decision/post/index.ts"
 import { post as handleLearningSharePost } from "./api/learnings/share/post/index.ts"
+import { get as handleLearningEvaluationsGet } from "./api/learnings/evaluations/get/index.ts"
+import { patch as handleLearningEvaluationsPatch } from "./api/learnings/evaluations/patch/index.ts"
+import { patch as handleEvaluationBudgetPatch } from "./api/learnings/evaluation-budget/patch/index.ts"
 import type { RouteDependencies } from "./types.ts"
 import { mountPrivatePreview } from "./private-preview/index.ts"
 import { get as handleDecisionModelGet } from "./api/decision-model/get/index.ts"
@@ -384,6 +387,22 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         requireOrigin(learnings.applicationOrigin),
         express.json({ limit: "1kb", strict: true }),
         handleLearningSharePost(learnings),
+      )
+      app.get(
+        "/api/repositories/:repositoryId/learnings/evaluations",
+        handleLearningEvaluationsGet(learnings),
+      )
+      app.patch(
+        "/api/repositories/:repositoryId/learnings/evaluations",
+        requireOrigin(learnings.applicationOrigin),
+        express.json({ limit: "1kb", strict: true }),
+        handleLearningEvaluationsPatch(learnings),
+      )
+      app.patch(
+        "/api/learnings/evaluation-budget",
+        requireOrigin(learnings.applicationOrigin),
+        express.json({ limit: "1kb", strict: true }),
+        handleEvaluationBudgetPatch(learnings),
       )
     }
     if (authentication.administrators) {

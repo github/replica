@@ -49,6 +49,12 @@ export interface LearningActivityDay {
   suggestions: number
 }
 
+export interface EvaluationSettings {
+  monthlyBudgetCredits: string
+  enabled: boolean
+  screenshots: { allowed: boolean; changedBy: string | null; changedAt: string | null }
+}
+
 export interface LearningsRouteDependencies {
   applicationOrigin: string
   automaticRunsEnabled: boolean
@@ -67,7 +73,12 @@ export interface LearningsRouteDependencies {
   }): Promise<boolean>
   auditRepositoryAdministrationDenial(input: {
     actorMembershipId: string
-    operation: "learning_overview" | "learning_run" | "learning_decision" | "learning_share"
+    operation:
+      | "learning_overview"
+      | "learning_run"
+      | "learning_decision"
+      | "learning_share"
+      | "learning_evaluation"
     repositoryId: string
   }): Promise<void>
   getOverview(input: { repositoryId: string; viewer: string }): Promise<{
@@ -115,6 +126,19 @@ export interface LearningsRouteDependencies {
     actorMembershipId: string
     shared: boolean
     sessionDigest: string
+  }): Promise<{ notice: string }>
+  getEvaluationSettings(repositoryId: string): Promise<EvaluationSettings>
+  changeEvaluationSettings(input: {
+    repositoryId: string
+    actor: string
+    actorMembershipId: string
+    sessionDigest: string
+    enabled?: boolean
+    screenshots?: boolean
+  }): Promise<{ notice: string }>
+  changeEvaluationBudget(input: {
+    actorMembershipId: string
+    monthlyBudgetCredits: string
   }): Promise<{ notice: string }>
   redactComment(input: {
     repositoryId: string
