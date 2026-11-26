@@ -26,11 +26,16 @@ const states: Array<{ label: string; state: BuildState }> = [
 ]
 
 export const States: Story = {
-  render: () => (
+  render: (args) => (
     <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
       {states.map((state) => (
-        <BuildStateLabel key={state.state} {...state} />
+        <BuildStateLabel key={state.state} {...state} appearance={args.appearance} />
       ))}
     </div>
   ),
+}
+
+export const SoftBackground: Story = {
+  ...States,
+  args: { appearance: "soft" },
 }

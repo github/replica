@@ -213,7 +213,7 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
   display: flex;
   width: 100%;
   min-width: 0;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--base-size-16);
   white-space: nowrap;
@@ -224,11 +224,13 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
 }
 
 .review-shell__build-status {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--hub-fg-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.review-shell__build-status-failed {
+  color: var(--hub-fg-danger);
 }
 
 @container (max-width: 48rem) {

@@ -9,6 +9,7 @@ import {
   PencilIcon,
   RepoForkedIcon,
   SunIcon,
+  XCircleIcon,
   XIcon,
 } from "@primer/octicons-react"
 import { ActionMenu, Tooltip } from "@primer/react-brand/esm"
@@ -18,6 +19,7 @@ import type { CSSProperties, KeyboardEvent, MouseEvent } from "react"
 
 import { BuildStateLabel } from "@components/build-state-label"
 import { HubIconButton } from "@components/hub-icon-button"
+import { HubSpinner } from "@components/hub-spinner"
 import { HubUserAvatar } from "@components/hub-user-avatar"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { PrototypeReviewControls } from "@features/prototype-review-controls"
@@ -255,6 +257,7 @@ export function PrototypeWorkspaceHeader({
                     value={String(build.number)}
                     className={`review-shell__build-option${build.state !== "successful" ? " review-shell__build-option--without-copy" : ""}`}
                     aria-current={build.number === data.selectedBuild?.number ? "page" : undefined}
+                    aria-label={build.stateLabel ? `${build.label} ${build.stateLabel}` : undefined}
                     onClick={(event) => {
                       if (
                         !visit ||
@@ -280,8 +283,21 @@ export function PrototypeWorkspaceHeader({
                   >
                     <span className="review-shell__build-option-content">
                       <span className="review-shell__build-option-label">{build.label}</span>
-                      {build.stateLabel ? (
-                        <span className="review-shell__build-status">{build.stateLabel}</span>
+                      {build.stateLabel &&
+                      (build.state === "queued" ||
+                        build.state === "running" ||
+                        build.state === "failed") ? (
+                        <span className="review-shell__build-status" title={build.stateLabel}>
+                          {build.state === "failed" ? (
+                            <XCircleIcon
+                              aria-hidden="true"
+                              size={16}
+                              className="review-shell__build-status-failed"
+                            />
+                          ) : (
+                            <HubSpinner decorative size="small" />
+                          )}
+                        </span>
                       ) : null}
                     </span>
                   </ActionMenu.Item>,
