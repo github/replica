@@ -3,6 +3,7 @@ import { Button, Heading, Text } from "@primer/react-brand"
 
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { CopyableCodeBlock } from "@components/copyable-code-block"
+import { HubAlert } from "@components/hub-alert"
 import { HubToast } from "@components/hub-toast"
 
 import type { AgentConnectionsPageData } from "./types"
@@ -30,6 +31,16 @@ export function AgentConnectionsPage({
             Connect {data.requestingAgent} to Hub?
           </Heading>
           <Text as="p">
+            Hub cannot confirm this agent&apos;s name. Approving sends access to{" "}
+            <code>{data.destination}</code>.
+          </Text>
+          {data.localDestination ? null : (
+            <HubAlert
+              title={`${data.destination} is not on your computer. Approve only if you started this connection and trust that address.`}
+              variant="warning"
+            />
+          )}
+          <Text as="p">
             You are signed in as <strong>@{data.signedInAs}</strong>. This agent can read guidance
             and report which learnings it applied for repositories you can access. Hub checks access
             on every request; only people can accept or change learnings.
@@ -40,6 +51,7 @@ export function AgentConnectionsPage({
           </Text>
           <Text as="p">{data.expiresLabel}</Text>
           <form action={data.decisionPath} className="agent-connections__actions" method="post">
+            <input type="hidden" name="session" value={data.session} />
             <Button disabled={busy} name="decision" type="submit" value="cancel" variant="subtle">
               Cancel
             </Button>

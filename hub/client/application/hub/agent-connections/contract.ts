@@ -1,7 +1,13 @@
 import { z } from "zod"
 
 export const agentAuthorizationSchema = z
-  .object({ agent: z.string().min(1), signedInAs: z.string().min(1), expiresAt: z.iso.datetime() })
+  .object({
+    agent: z.string().min(1),
+    redirectUri: z.url(),
+    session: z.string().min(1).max(255),
+    signedInAs: z.string().min(1),
+    expiresAt: z.iso.datetime(),
+  })
   .strict()
 
 export const agentDecisionSchema = z.object({ redirectUrl: z.url() }).strict()

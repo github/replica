@@ -57,6 +57,9 @@ const connections: AgentConnectionsPageData = {
 const approval: AgentConnectionsPageData = {
   view: "approval",
   requestingAgent: "Visual Studio Code",
+  destination: "127.0.0.1:33418",
+  localDestination: true,
+  session: "session-octocat",
   signedInAs: "octocat",
   expiresLabel: "This request expires at 3:15:00 PM.",
   decisionPath: "/agents/approve/7c9e6679-7425-40de-944b-e07fc1f90ae7",
@@ -101,4 +104,7 @@ export const Revoked: Story = {
 }
 export const ApprovalRequest: Story = {
   args: { data: approval },
+}
+export const RemoteApprovalRequest: Story = {
+  args: { data: { ...approval, destination: "agent.example.net", localDestination: false } },
 }

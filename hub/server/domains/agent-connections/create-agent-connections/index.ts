@@ -82,7 +82,13 @@ export function createAgentConnections(database: PrismaClient) {
 
     async readAuthorization(id: string) {
       const pending = await findPendingAgentAuthorization(database, id)
-      return pending && { clientName: pending.client.name, expiresAt: pending.expiresAt }
+      return (
+        pending && {
+          clientName: pending.client.name,
+          expiresAt: pending.expiresAt,
+          redirectUri: pending.redirectUri,
+        }
+      )
     },
 
     async decideAuthorization(id: string, browser: CanvasBrowser, approve: boolean) {

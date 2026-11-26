@@ -29,9 +29,13 @@ export async function clientLoader({ request, params }: Route.ClientLoaderArgs) 
       agentAuthorizationSchema,
       { signal: request.signal },
     )
+    const destination = new URL(authorization.redirectUri)
     const page: AgentConnectionsPageData = {
       view: "approval",
       requestingAgent: authorization.agent,
+      destination: destination.host,
+      localDestination: ["localhost", "127.0.0.1", "[::1]"].includes(destination.hostname),
+      session: authorization.session,
       signedInAs: authorization.signedInAs,
       expiresLabel: `This request expires at ${new Date(authorization.expiresAt).toLocaleTimeString()}.`,
       decisionPath: browserPath,
@@ -48,14 +52,19 @@ export async function clientLoader({ request, params }: Route.ClientLoaderArgs) 
 export async function clientAction({ request, params }: Route.ClientActionArgs) {
   const { id, browserPath } = authorizationPath(params.authorizationId)
   if (request.method !== "POST") throw new Response("Method not allowed.", { status: 405 })
-  const decision = (await request.formData()).get("decision")
+  const form = await request.formData()
+  const decision = form.get("decision")
   if (decision !== "approve" && decision !== "cancel")
     throw new Response("Choose whether to approve this agent.", { status: 422 })
   try {
     const { redirectUrl } = await requestJson(
       new URL(`/api/agent-connections/authorizations/${id}/${decision}`, request.url),
       agentDecisionSchema,
-      { method: "POST", signal: request.signal },
+      {
+        method: "POST",
+        body: JSON.stringify({ session: form.get("session") }),
+        signal: request.signal,
+      },
     )
     // The agent listens on its own address, so the browser leaves Hub to finish.
     return redirect(redirectUrl)

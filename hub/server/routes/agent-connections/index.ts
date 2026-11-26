@@ -95,6 +95,11 @@ export function agentConnectionRoutes(
       const id = String(request.params.authorizationId)
       const session = await browser(request)
       if (!session) return status(response, 401, "Sign in to continue.")
+      // The page names the account it loaded with. If another tab switched accounts since,
+      // the person has not seen who they would be granting access as.
+      const shown = (request.body as { session?: unknown } | undefined)?.session
+      if (shown !== session.sessionId)
+        return status(response, 409, "You switched accounts. Review this request again.")
       const redirectUrl = uuidPattern.test(id)
         ? await (await load()).connections.decideAuthorization(id, session, approve)
         : null
@@ -119,6 +124,8 @@ export function agentConnectionRoutes(
         return status(response, 410, "This request expired. Connect again from your agent.")
       response.json({
         agent: pending.clientName,
+        redirectUri: pending.redirectUri,
+        session: session.sessionId,
         signedInAs: session.viewer.login,
         expiresAt: pending.expiresAt.toISOString(),
       })

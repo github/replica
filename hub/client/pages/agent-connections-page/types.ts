@@ -18,6 +18,11 @@ export type AgentConnectionsPageData =
   | {
       view: "approval"
       requestingAgent: string
+      /** Where the agent asked Hub to send its access, such as "127.0.0.1:33418". */
+      destination: string
+      /** Whether that address is on the person's own computer. */
+      localDestination: boolean
+      session: string
       signedInAs: string
       expiresLabel: string
       decisionPath: string
