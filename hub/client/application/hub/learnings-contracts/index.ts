@@ -4,6 +4,7 @@ import { recordIdentifierSchema, repositorySchema } from "@application/hub/contr
 
 import type {
   AcceptedLearningResponse,
+  LearningActivityDayResponse,
   LearningDecisionInput,
   LearningEvidenceResponse,
   LearningHistoryResponse,
@@ -152,6 +153,18 @@ export const learningRunResponseSchema = z
   })
   .strict() satisfies z.ZodType<LearningRunResponse>
 
+const learningActivityDayResponseSchema = z
+  .object({
+    date: z.iso.date(),
+    runState: z.enum(["succeeded", "failed"]),
+    startedAt: timestamp,
+    startedBy: learningRunResponseSchema.shape.startedBy,
+    commentsAnalyzed: count,
+    commentsTagged: count,
+    suggestions: count,
+  })
+  .strict() satisfies z.ZodType<LearningActivityDayResponse>
+
 export const learningsResponseSchema = z.discriminatedUnion("accessDenied", [
   z
     .object({
@@ -209,6 +222,8 @@ export const learningsResponseSchema = z.discriminatedUnion("accessDenied", [
       shared: z.array(sharedLearningResponseSchema),
       recall: z.object({ text: z.string(), count }).strict(),
       runs: z.array(learningRunResponseSchema).max(10),
+      activity: z.array(learningActivityDayResponseSchema).max(366),
+      today: z.iso.date(),
     })
     .strict(),
 ]) satisfies z.ZodType<LearningsResponse>

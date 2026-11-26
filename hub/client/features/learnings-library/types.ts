@@ -1,3 +1,5 @@
+import type { LearningActivityDay } from "@features/learning-activity-grid/types"
+
 /** A review comment behind a learning, from this repository's prototypes. */
 export interface LearningEvidence {
   eventId: string
@@ -60,6 +62,10 @@ export interface LearningDetail {
 }
 
 export interface LearningsLibraryData {
+  /** Days with a learning run this UTC year. Other past days had no run. */
+  activity: LearningActivityDay[]
+  /** UTC date treated as today, which picks the activity grid's year. */
+  today: string
   status: LearningStatus
   counts: Record<LearningStatus, number>
   statusPaths: Record<LearningStatus, string>

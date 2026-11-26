@@ -26,6 +26,7 @@ import { HubSwitch } from "@components/hub-switch"
 import { HubUserAvatar } from "@components/hub-user-avatar"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
+import { LearningActivityGrid } from "@features/learning-activity-grid"
 import { ReviewRelativeTime } from "@features/review-relative-time"
 
 import type {
@@ -123,103 +124,106 @@ function LearningList({ data }: { data: LearningsLibraryData }) {
   const searchPath = new URL(data.listPath, window.location.origin).pathname
 
   return (
-    <section className="learning-library" aria-labelledby="learning-list-heading">
-      <Heading as="h2" size="5" id="learning-list-heading" tabIndex={-1}>
-        Browse learnings
-      </Heading>
-      <div className="learning-library__toolbar">
-        <nav className="learning-library__filters" aria-label="Learning status">
-          {statuses.map((status) => (
-            <a
-              aria-current={data.status === status ? "true" : undefined}
-              className="learning-library__filter"
-              href={data.statusPaths[status]}
-              key={status}
-            >
-              <StatusIcon status={status} />
-              {statusLabels[status]}
-              <HubCounter>{data.counts[status]}</HubCounter>
-            </a>
-          ))}
-        </nav>
-        <form action={searchPath} className="learning-library__search" method="get" role="search">
-          <input type="hidden" name="status" value={data.status} />
-          <FormControl fullWidth id="learning-search">
-            <FormControl.Label visuallyHidden>Search learnings</FormControl.Label>
-            <TextInput
-              // Back and forward change the applied search without remounting the
-              // list, so a new search resets what was typed.
-              key={data.query}
-              defaultValue={data.query}
-              fullWidth
-              leadingVisual={<SearchIcon />}
-              maxLength={200}
-              name="q"
-              placeholder="Search learnings"
-              type="search"
-            />
-          </FormControl>
-        </form>
-      </div>
-      {data.learnings.length ? (
-        <div className="learning-library__table-wrap">
-          <table className="learning-library__table">
-            <thead>
-              <tr>
-                <th scope="col">Learning</th>
-                <th scope="col">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.learnings.map((learning) => (
-                <tr key={learning.id}>
-                  <td>
-                    <div className="learning-library__learning-cell">
-                      <StatusIcon
-                        className={`learning-library__state-icon learning-library__state-icon--${learning.status}`}
-                        status={learning.status}
-                      />
-                      <div>
-                        <a
-                          className="learning-library__learning-link"
-                          data-learning-id={learning.id}
-                          href={learning.detailPath}
-                        >
-                          {learning.title}
-                        </a>
-                        {learning.source ? (
-                          <span className="learning-library__source">
-                            Shared from {learning.source}
-                          </span>
-                        ) : null}
-                        <p>{learning.guidance}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    {learning.updatedAt ? <ReviewRelativeTime value={learning.updatedAt} /> : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <>
+      <LearningActivityGrid activity={data.activity} today={data.today} />
+      <section className="learning-library" aria-labelledby="learning-list-heading">
+        <Heading as="h2" size="5" id="learning-list-heading" tabIndex={-1}>
+          Browse learnings
+        </Heading>
+        <div className="learning-library__toolbar">
+          <nav className="learning-library__filters" aria-label="Learning status">
+            {statuses.map((status) => (
+              <a
+                aria-current={data.status === status ? "true" : undefined}
+                className="learning-library__filter"
+                href={data.statusPaths[status]}
+                key={status}
+              >
+                <StatusIcon status={status} />
+                {statusLabels[status]}
+                <HubCounter>{data.counts[status]}</HubCounter>
+              </a>
+            ))}
+          </nav>
+          <form action={searchPath} className="learning-library__search" method="get" role="search">
+            <input type="hidden" name="status" value={data.status} />
+            <FormControl fullWidth id="learning-search">
+              <FormControl.Label visuallyHidden>Search learnings</FormControl.Label>
+              <TextInput
+                // Back and forward change the applied search without remounting the
+                // list, so a new search resets what was typed.
+                key={data.query}
+                defaultValue={data.query}
+                fullWidth
+                leadingVisual={<SearchIcon />}
+                maxLength={200}
+                name="q"
+                placeholder="Search learnings"
+                type="search"
+              />
+            </FormControl>
+          </form>
         </div>
-      ) : (
-        <HubEmptyState
-          heading={`No ${statusLabels[data.status].toLowerCase()} learnings`}
-          description={data.query ? "Try another search." : emptyMessages[data.status]}
-        />
-      )}
-      {data.pageCount > 1 ? (
-        <Pagination
-          aria-label="Learnings pages"
-          className="learning-library__pagination"
-          currentPage={data.page}
-          hrefBuilder={pageHref}
-          pageCount={data.pageCount}
-        />
-      ) : null}
-    </section>
+        {data.learnings.length ? (
+          <div className="learning-library__table-wrap">
+            <table className="learning-library__table">
+              <thead>
+                <tr>
+                  <th scope="col">Learning</th>
+                  <th scope="col">Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.learnings.map((learning) => (
+                  <tr key={learning.id}>
+                    <td>
+                      <div className="learning-library__learning-cell">
+                        <StatusIcon
+                          className={`learning-library__state-icon learning-library__state-icon--${learning.status}`}
+                          status={learning.status}
+                        />
+                        <div>
+                          <a
+                            className="learning-library__learning-link"
+                            data-learning-id={learning.id}
+                            href={learning.detailPath}
+                          >
+                            {learning.title}
+                          </a>
+                          {learning.source ? (
+                            <span className="learning-library__source">
+                              Shared from {learning.source}
+                            </span>
+                          ) : null}
+                          <p>{learning.guidance}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      {learning.updatedAt ? <ReviewRelativeTime value={learning.updatedAt} /> : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <HubEmptyState
+            heading={`No ${statusLabels[data.status].toLowerCase()} learnings`}
+            description={data.query ? "Try another search." : emptyMessages[data.status]}
+          />
+        )}
+        {data.pageCount > 1 ? (
+          <Pagination
+            aria-label="Learnings pages"
+            className="learning-library__pagination"
+            currentPage={data.page}
+            hrefBuilder={pageHref}
+            pageCount={data.pageCount}
+          />
+        ) : null}
+      </section>
+    </>
   )
 }
 

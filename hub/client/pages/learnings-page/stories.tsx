@@ -4,6 +4,7 @@ import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-head
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { keepFormsLocal } from "@/storybook/keep-forms-local"
 import type { DecisionModelPanelData } from "@features/decision-model-panel/types"
+import type { LearningActivityDay } from "@features/learning-activity-grid/types"
 import type {
   LearningDetail,
   LearningEvidence,
@@ -263,7 +264,36 @@ const rejectedDetail: LearningDetail = {
   share: null,
 }
 
+/**
+ * Builds weekday runs from Jan 1 to the story's today, with a few skipped days and one
+ * failed run so the year grid shows the states people will meet.
+ */
+function createActivity(): LearningActivityDay[] {
+  const dayMilliseconds = 24 * 60 * 60 * 1000
+  const start = Date.UTC(2026, 0, 1)
+  const end = Date.UTC(2026, 10, 20)
+  const days: LearningActivityDay[] = []
+  for (let time = start, index = 0; time <= end; time += dayMilliseconds, index += 1) {
+    const weekday = new Date(time).getUTCDay()
+    if (weekday === 0 || weekday === 6 || index % 9 === 4) continue
+    const date = new Date(time).toISOString().slice(0, 10)
+    const failed = date === "2026-10-19"
+    days.push({
+      date,
+      runState: failed ? "failed" : "succeeded",
+      startedAt: `${date}T16:30:00Z`,
+      startedBy: index % 10 === 3 ? "@mona" : "the daily schedule",
+      commentsAnalyzed: 2 + ((index * 7) % 13),
+      commentsTagged: failed ? 0 : (index * 5) % 6,
+      suggestions: failed || index % 4 ? 0 : 1 + (index % 3),
+    })
+  }
+  return days
+}
+
 const library: LearningsLibraryData = {
+  activity: createActivity(),
+  today: "2026-11-20",
   status: "suggested",
   counts: { suggested: 1, active: 1, rejected: 1 },
   statusPaths: {
@@ -827,9 +857,26 @@ export const FirstVisit: Story = {
         status: "active",
         counts: { suggested: 0, active: 0, rejected: 0 },
         learnings: [],
+        activity: [],
       },
       recall: { text: "", count: 0 },
       runs: [],
+    },
+  },
+}
+
+export const FailedLearningRun: Story = {
+  args: {
+    data: {
+      ...data,
+      library: {
+        ...library,
+        activity: library.activity.map((day, index) =>
+          index === library.activity.length - 1
+            ? { ...day, runState: "failed" as const, suggestions: 0 }
+            : day,
+        ),
+      },
     },
   },
 }

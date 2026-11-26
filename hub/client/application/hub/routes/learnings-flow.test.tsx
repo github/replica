@@ -130,6 +130,18 @@ function learningsResponse() {
         usage: null,
       },
     ],
+    activity: [
+      {
+        date: "2026-11-10",
+        runState: "succeeded" as const,
+        startedAt: "2026-11-10T12:00:00.000Z",
+        startedBy: { type: "user" as const, login: "octocat" },
+        commentsAnalyzed: 4,
+        commentsTagged: 2,
+        suggestions: 1,
+      },
+    ],
+    today: "2026-11-10",
   }
 }
 
@@ -517,6 +529,8 @@ describe("Learnings frontend integration", () => {
     ).not.toBeInTheDocument()
   })
 
+  // Waits through the page's real polling delays, which run close to the default
+  // timeout when the whole browser suite shares one CI runner.
   it("keeps the decision panel while an accepted training request becomes authoritative", async () => {
     const server = stubHubFetch(...learningsWorkspace())
     let trainingAccepted = false
@@ -625,7 +639,7 @@ describe("Learnings frontend integration", () => {
       ),
     ).toBeVisible()
     expect(screen.queryByText(/Training was accepted/)).not.toBeInTheDocument()
-  })
+  }, 15_000)
 
   it("shows an uncorrelated learning lock instead of attributing it to a running job", async () => {
     const server = stubHubFetch(...learningsWorkspace())
@@ -1009,7 +1023,7 @@ describe("Learnings frontend integration", () => {
     expect(historyRequests).not.toHaveBeenCalled()
   })
 
-  it("shows a Hub administrator without repository authority a read-only library", async () => {
+  it("shows a Hub administrator without repository authority a read-only library with its activity", async () => {
     const server = stubHubFetch(
       ...learningsWorkspace(),
       http.get("/api/repositories/2001/learnings", () =>
@@ -1028,6 +1042,8 @@ describe("Learnings frontend integration", () => {
     expect(await screen.findByRole("heading", { name: "Browse learnings" })).toBeVisible()
     expect(screen.queryByRole("heading", { name: "Recent runs" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
+    // Runs stay private to repository administrators, but every member sees daily activity.
+    expect(screen.getByText(/Run completed · Started by @octocat/)).toBeVisible()
   })
 
   it("shows access denied without exposing learning data or decision controls", async () => {

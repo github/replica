@@ -163,6 +163,16 @@ export function learningsLibrary(
   const selectedId = params.get("learning")
   const selected = selectedId ? records.find((record) => record.id === selectedId) : undefined
   return {
+    activity: state.activity.map(({ startedBy, ...day }) => ({
+      ...day,
+      startedBy:
+        startedBy.type === "daily"
+          ? "the daily schedule"
+          : startedBy.type === "user"
+            ? `@${startedBy.login}`
+            : null,
+    })),
+    today: state.today,
     status,
     counts,
     statusPaths: {

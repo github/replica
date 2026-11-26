@@ -1,0 +1,308 @@
+/* Grid areas keep the measure list beside the graph on wide screens and above it on
+   narrow ones, without changing keyboard order. The graph takes two rows so the
+   calendar and its legend each get one, letting the list center on the calendar.
+   The run summary spans both columns so no empty space sits beside it.
+   The month label sizes live here because the measure list also needs them. */
+.learning-activity {
+  --calendar-month-height: 1rem;
+  --calendar-gap: 0.125rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "heading ."
+    "graph measures"
+    "graph ."
+    "summary summary";
+  align-items: start;
+  gap: 1rem 2rem;
+  padding: 1.25rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-default);
+}
+
+.learning-activity h2,
+.learning-activity h3,
+.learning-activity p {
+  margin: 0;
+}
+
+.learning-activity__heading {
+  display: grid;
+  grid-area: heading;
+  gap: 0.375rem;
+}
+
+/* Shrinks to the graph's width so the legend sits under its right edge, as on
+   GitHub. */
+.learning-activity__graph {
+  display: grid;
+  grid-area: graph;
+  grid-template-rows: subgrid;
+  gap: 0.75rem;
+  justify-self: start;
+  max-width: 100%;
+}
+
+.learning-activity > .learning-activity__run-summary {
+  grid-area: summary;
+}
+
+/* A vertical list beside the graph, like the year picker on GitHub profiles. It moves
+   down half the month label row so it centers on the squares, not on the labels. */
+.learning-activity__metric-switch {
+  display: grid;
+  grid-area: measures;
+  align-self: center;
+  gap: 0.25rem;
+  min-width: 11rem;
+  translate: 0 calc((var(--calendar-month-height) + var(--calendar-gap)) / 2);
+}
+
+.learning-activity__metric-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  border-radius: var(--hub-radius-medium);
+  background: transparent;
+  color: var(--hub-fg-muted);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.learning-activity__metric-button {
+  justify-content: flex-start;
+  text-align: start;
+}
+
+.learning-activity__metric-button:hover {
+  background: var(--hub-canvas-subtle);
+  color: var(--hub-fg-default);
+}
+
+.learning-activity__metric-button[aria-pressed="true"] {
+  background: var(--hub-primary-bg);
+  color: var(--hub-primary-fg);
+}
+
+.learning-activity__metric-button:focus-visible,
+.learning-activity__day:focus-visible {
+  outline: 2px solid var(--hub-focus);
+  outline-offset: 2px;
+}
+
+/* The padding gives the selected day's outline room; a scroll box would clip it. */
+.learning-activity__calendar-scroll {
+  overflow-x: auto;
+  padding: 0.25rem;
+}
+
+/* One grid holds the labels, months and squares so rows stay aligned as squares grow.
+   Squares widen to fill the space, then stop at the cap. They never shrink below the
+   minimum, so a narrow screen scrolls sideways instead of squeezing the weeks. */
+.learning-activity__calendar {
+  --cell-min: 0.625rem;
+  --cell-max: 0.875rem;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: auto repeat(var(--weeks), minmax(var(--cell-min), var(--cell-max)));
+  grid-template-rows: var(--calendar-month-height) repeat(7, auto);
+  gap: var(--calendar-gap);
+  justify-content: start;
+  min-width: min-content;
+}
+
+/* These wrappers only group markup; their children take part in the calendar grid. */
+.learning-activity__weekday-labels,
+.learning-activity__week {
+  display: contents;
+}
+
+/* A tight line height keeps labeled rows no taller than the squares beside them. */
+.learning-activity__weekday-labels > span {
+  align-self: center;
+  padding-inline-end: 0.25rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.625rem;
+  line-height: 1;
+}
+
+.learning-activity__month {
+  color: var(--hub-fg-muted);
+  font-size: 0.625rem;
+  line-height: var(--calendar-month-height);
+  white-space: nowrap;
+}
+
+.learning-activity__day,
+.learning-activity__day-empty,
+.learning-activity__day-upcoming {
+  box-sizing: border-box;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 0.125rem;
+}
+
+.learning-activity__legend-cell {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 0.125rem;
+}
+
+.learning-activity__day {
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--hub-border-default) 65%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--hub-success-emphasis) calc(var(--activity-level, 0) * 100%),
+    var(--hub-canvas-subtle)
+  );
+  cursor: pointer;
+}
+
+/* Days still ahead stay faint so they never read as days without a run. */
+.learning-activity__day-upcoming {
+  border: 1px solid color-mix(in srgb, var(--hub-border-default) 35%, transparent);
+}
+
+.learning-activity__day--failed {
+  box-shadow: inset 0 0 0 1px var(--hub-fg-danger);
+}
+
+/* Squares sit 2px apart, so a flush ring stays clear of the neighboring days. */
+.learning-activity__day:focus-visible,
+.learning-activity__day[aria-pressed="true"] {
+  outline-offset: 0;
+}
+
+.learning-activity__day[aria-pressed="true"] {
+  outline: 2px solid var(--hub-accent);
+}
+
+.learning-activity__footer {
+  display: flex;
+  justify-content: flex-end;
+  color: var(--hub-fg-muted);
+}
+
+.learning-activity__legend {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+}
+
+.learning-activity__legend-cell {
+  display: inline-block;
+  border: 1px solid var(--hub-border-default);
+  background: color-mix(
+    in srgb,
+    var(--hub-success-emphasis) calc(var(--activity-level, 0) * 100%),
+    var(--hub-canvas-subtle)
+  );
+}
+
+.learning-activity__legend-cell.learning-activity__day--level-1 {
+  --activity-level: 0.25;
+}
+
+.learning-activity__legend-cell.learning-activity__day--level-2 {
+  --activity-level: 0.5;
+}
+
+.learning-activity__legend-cell.learning-activity__day--level-3 {
+  --activity-level: 0.75;
+}
+
+.learning-activity__legend-cell.learning-activity__day--level-4 {
+  --activity-level: 1;
+}
+
+/* A divider instead of a card keeps the day's details tied to the calendar above. */
+.learning-activity__run-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hub-border-muted);
+}
+
+.learning-activity__run-summary > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.learning-activity__run-summary > div:first-child > p {
+  color: var(--hub-fg-muted);
+}
+
+/* Keeps the day's counts on one row. Columns size to their labels, so long labels
+   wrap before a count drops to a new line. */
+.learning-activity__run-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 2rem;
+  margin: 0;
+}
+
+/* Big counts sit above their labels so the totals are what people notice first.
+   The markup still puts each label first, so screen readers hear it in that order. */
+.learning-activity__run-metrics > div {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+}
+
+.learning-activity__run-metrics dt {
+  color: var(--hub-fg-muted);
+  font-size: 0.75rem;
+}
+
+.learning-activity__run-metrics dd {
+  grid-row: 1;
+  margin: 0;
+  font-size: var(--brand-text-size-500);
+  font-weight: 600;
+  line-height: 1;
+}
+
+@container (max-width: 48rem) {
+  .learning-activity {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "heading"
+      "measures"
+      "graph"
+      "graph"
+      "summary";
+  }
+
+  .learning-activity__run-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .learning-activity__run-metrics {
+    gap: 1rem;
+    align-self: stretch;
+  }
+
+  .learning-activity__metric-switch {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+    translate: none;
+  }
+
+  .learning-activity__metric-button {
+    flex: 1;
+    justify-content: center;
+    white-space: normal;
+  }
+}

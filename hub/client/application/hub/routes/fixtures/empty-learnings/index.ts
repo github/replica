@@ -20,5 +20,7 @@ export function emptyLearnings(
     shared: [],
     recall: { text: "", count: 0 },
     runs: [],
+    activity: [],
+    today: "2026-12-22",
   }
 }

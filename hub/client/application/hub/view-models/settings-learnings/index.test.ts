@@ -225,6 +225,8 @@ describe("settingsLearnings()", () => {
       shared: [],
       recall: { text: "", count: 0 },
       runs: [],
+      activity: [],
+      today: "2026-12-22",
     }
 
     const result = settingsLearnings(workspace, state, null, location, null)

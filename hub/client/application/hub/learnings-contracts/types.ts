@@ -74,6 +74,17 @@ export interface LearningHistoryResponse {
   otherContradictionsCount: number
 }
 
+/** A day's learning runs, kept for a year after the runs themselves are deleted. */
+export interface LearningActivityDayResponse {
+  date: string
+  runState: "succeeded" | "failed"
+  startedAt: string
+  startedBy: LearningRunResponse["startedBy"]
+  commentsAnalyzed: number
+  commentsTagged: number
+  suggestions: number
+}
+
 export interface LearningRunResponse {
   id: number
   startedAt: string
@@ -124,6 +135,8 @@ export type LearningsResponse =
       shared: SharedLearningResponse[]
       recall: { text: string; count: number }
       runs: LearningRunResponse[]
+      activity: LearningActivityDayResponse[]
+      today: string
     }
 
 export type LearningDecisionInput =

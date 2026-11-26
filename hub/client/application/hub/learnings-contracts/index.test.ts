@@ -118,6 +118,18 @@ describe("Learnings contracts", () => {
           usage: null,
         },
       ],
+      activity: [
+        {
+          date: "2026-11-09",
+          runState: "failed" as const,
+          startedAt: "2026-11-09T12:00:00.000Z",
+          startedBy: { type: "daily" as const },
+          commentsAnalyzed: 0,
+          commentsTagged: 0,
+          suggestions: 0,
+        },
+      ],
+      today: "2026-11-20",
     }
 
     expect(learningsResponseSchema.parse(response)).toEqual(response)
