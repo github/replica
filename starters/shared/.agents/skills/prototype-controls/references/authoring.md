@@ -146,7 +146,7 @@ Use an app API binding when a control should navigate between pages owned by the
 
 `readPage` returns a declared option matching the current route. Define how the selector represents routes outside those options; an undeclared value produces a control error. `writePage` maps the selected option to its route and does nothing when that route is already current. `subscribePage` notifies Replica when the app's router changes and returns a cleanup function. Replace the example names with methods that use the app's existing router; do not read or change framework-internal state.
 
-Define the page API once at module scope and register it from app startup code so it is available when Controls initializes. Keep that same object while pages change. Replacing or removing it in a page component's effect can invalidate Replica's readback after navigation. The control can report an error, restore the previous option and navigate back when the new object initializes.
+Define the page API once at module scope and register it from app startup code so it is available when Controls initializes. Keep that same object while pages change. If a page component replaces or removes the API object after a route change, Replica can no longer read the selected value back. It restores the previous control value and reports a binding error; it does not navigate the app back.
 
 Leave the navigation set without a page `container` or a `when` condition on its selector. A page container can remove the selector during navigation; hiding a conditional control restores its default, which can navigate away from the current page.
 
