@@ -12,6 +12,8 @@ import { getLearningRepositoryScope } from "../get-learning-repository-scope/ind
 import { deleteAgentScreenshotsJob } from "../jobs/delete-agent-screenshots.ts"
 import { learningRunJob } from "../jobs/learning-run.ts"
 import { automaticLearningRunPriority } from "../jobs/priorities.ts"
+import { proposeLearningUpdateJob } from "../jobs/propose-learning-update.ts"
+import { proposeLearningUpdatesJob } from "../jobs/propose-learning-updates.ts"
 import { recoverLearningRunsJob } from "../jobs/recover-learning-runs.ts"
 import { redactReviewCommentJob } from "../jobs/redact-review-comment.ts"
 import { scheduleLearningRunsJob } from "../jobs/schedule-learning-runs.ts"
@@ -19,6 +21,7 @@ import { scoreAppliedLearningsJob } from "../jobs/score-applied-learnings.ts"
 import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 import { prepareLearningStore } from "../prepare-learning-store/index.ts"
 import { processLearningRun } from "../process-learning-run/index.ts"
+import { proposeLearningUpdate } from "../propose-learning-update/index.ts"
 import { processReviewCommentRedaction } from "../process-review-comment-redaction/index.ts"
 import { redactLegacyReviewComment } from "../redact-legacy-review-comment/index.ts"
 import { recoverLearningRunJobs } from "../recover-learning-run-jobs/index.ts"
@@ -52,6 +55,13 @@ import { deleteExpiredLearningScoreRequests } from "../../../repositories/learni
 import { listLearningReviewerVerifications } from "../../../repositories/learning-reviewer-verifications/list-learning-reviewer-verifications/index.ts"
 import { deleteLearningScoreRequest } from "../../../repositories/learning-score-requests/delete-learning-score-request/index.ts"
 import { findLearningScoreRequest } from "../../../repositories/learning-score-requests/find-learning-score-request/index.ts"
+import { deleteLearningUpdateRequest } from "../../../repositories/learning-update-requests/delete-learning-update-request/index.ts"
+import { findLearningUpdateRequest } from "../../../repositories/learning-update-requests/find-learning-update-request/index.ts"
+import { listLearningUpdateRequests } from "../../../repositories/learning-update-requests/list-learning-update-requests/index.ts"
+import { recordLearningUpdateRequest } from "../../../repositories/learning-update-requests/record-learning-update-request/index.ts"
+import { closeAbandonedLearningUpdateRuns } from "../../../repositories/learning-update-runs/close-abandoned-learning-update-runs/index.ts"
+import { finishLearningUpdateRun } from "../../../repositories/learning-update-runs/finish-learning-update-run/index.ts"
+import { startLearningUpdateRun } from "../../../repositories/learning-update-runs/start-learning-update-run/index.ts"
 import { listReadyLearningScoreRequests } from "../../../repositories/learning-score-requests/list-ready-learning-score-requests/index.ts"
 import { getCopilotConnectionState } from "../../../repositories/copilot-connection-states/get-copilot-connection-state/index.ts"
 import { advanceCopilotConnectionState } from "../../../repositories/copilot-connection-states/advance-copilot-connection-state/index.ts"
@@ -551,6 +561,12 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     })
   })
 
+  async function withinBudget(prisma: PrismaClient) {
+    const budget = (await initializeEvaluationSetting(prisma)).monthlyBudgetCredits
+    const used = await sumLearningEvaluationCredits(prisma, startOfUtcMonth(new Date()))
+    return used ? used.lessThan(budget) : budget.greaterThan(0)
+  }
+
   const score = createJobProcessor(scoreAppliedLearningsJob, async (request, context) => {
     const { configuration, databaseUrl, prisma } = await dependencies()
     const repository = { repositoryId: request.repositoryId, commitSha: request.commitSha }
@@ -629,6 +645,8 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
           throw new Error(`Hub could not read an agent screenshot: ${read.status}.`)
         },
         refuseCredential: copilot.refuseCredential,
+        requestUpdate: (memoryId) =>
+          recordLearningUpdateRequest(prisma, { repositoryId: request.repositoryId, memoryId }),
         runCommand: (arguments_, options) =>
           runLearningCommand(arguments_, {
             cliPath: configuration.cliPath,
@@ -643,11 +661,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
             trigger,
           }),
         verifications: () => listLearningReviewerVerifications(prisma, repository),
-        withinBudget: async () => {
-          const budget = (await initializeEvaluationSetting(prisma)).monthlyBudgetCredits
-          const used = await sumLearningEvaluationCredits(prisma, startOfUtcMonth(new Date()))
-          return used ? used.lessThan(budget) : budget.greaterThan(0)
-        },
+        withinBudget: () => withinBudget(prisma),
         withLock: (operation) => withLearningExecutionLock({ databaseUrl, run: operation }),
       })
       if (result === "deferred") return await context.defer(30_000)
@@ -666,5 +680,96 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     }
   })
 
-  return { run, scheduledRun, recover, redact, schedule, deleteScreenshots, score }
+  // The daily job only queues one check per flagged learning, so other scheduled work
+  // runs between checks and one repository's failure doesn't hold up the rest.
+  const proposeUpdates = createJobProcessor(proposeLearningUpdatesJob, async () => {
+    const { databaseUrl, prisma } = await dependencies()
+    const queue = createJobQueue({ name: "scheduled", databaseUrl, logger })
+    try {
+      for (const request of await listLearningUpdateRequests(prisma))
+        await enqueueRecoverableJob(
+          queue,
+          proposeLearningUpdateJob,
+          { requestId: request.id },
+          `learning-update-${request.id}`,
+          { priority: automaticLearningRunPriority },
+        )
+    } finally {
+      await queue.close()
+    }
+  })
+
+  const proposeUpdate = createJobProcessor(proposeLearningUpdateJob, async (input, context) => {
+    const { configuration, databaseUrl, prisma } = await dependencies()
+    const request = await findLearningUpdateRequest(prisma, input.requestId)
+    if (!request) return
+    try {
+      const result = await proposeLearningUpdate(request, {
+        closeAbandoned: (finishedAt) => closeAbandonedLearningUpdateRuns(prisma, finishedAt),
+        credential: async () => {
+          if (!(await copilotUsable())) return null
+          return configuration.copilotCredentialProvider.getCredential()
+        },
+        deleteRequest: (observed) => deleteLearningUpdateRequest(prisma, observed),
+        finish: (runId, finished) => finishLearningUpdateRun(prisma, runId, finished),
+        // Drafting needs the store's evaluation grant, like scoring, and a repository
+        // Hub can still reach.
+        isEnabled: (repositoryId) =>
+          prisma.$transaction(async (transaction) => {
+            await lockGitHubRepositoryAccessState(transaction)
+            const setting = await getRepositoryEvaluationSetting(transaction, repositoryId)
+            return (
+              Boolean(setting?.enabled && setting.evaluationGrantId) &&
+              (await isLearningRunRepositoryAvailable(transaction, repositoryId, true))
+            )
+          }),
+        now: () => new Date(),
+        prepare: async (repositoryId) =>
+          learningStoreArguments(
+            await prepareLearningStore({
+              applicationRoot: process.cwd(),
+              learningDatabaseUrl: configuration.learningDatabaseUrl,
+              repositoryKey: repositoryId,
+              repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
+              root: configuration.root,
+              staticDirectories: configuration.staticDirectories,
+            }),
+          ),
+        runCommand: (arguments_, options) =>
+          runLearningCommand(arguments_, {
+            cliPath: configuration.cliPath,
+            learningDatabaseUrl: configuration.learningDatabaseUrl,
+            nodePath: configuration.nodePath,
+            ...options,
+          }),
+        start: (started) => startLearningUpdateRun(prisma, started),
+        withinBudget: () => withinBudget(prisma),
+        withLock: (operation) => withLearningExecutionLock({ databaseUrl, run: operation }),
+      })
+      if (result === "paused")
+        logger.info(
+          { repositoryId: request.repositoryId },
+          "Learning update suggestions are paused until Copilot or budget returns",
+        )
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "Another learning operation is still running."
+      )
+        return await context.defer(30_000)
+      throw error
+    }
+  })
+
+  return {
+    run,
+    scheduledRun,
+    recover,
+    redact,
+    schedule,
+    deleteScreenshots,
+    score,
+    proposeUpdates,
+    proposeUpdate,
+  }
 }

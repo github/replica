@@ -14,6 +14,7 @@ import {
 } from "../domains/decision-model/jobs/reconcile-runtime-deletions.ts"
 import { createLearningJobProcessors } from "../domains/learning/create-learning-job-processors/index.ts"
 import { scheduledMaintenancePriority } from "../domains/learning/jobs/priorities.ts"
+import { proposeLearningUpdatesJob } from "../domains/learning/jobs/propose-learning-updates.ts"
 import { recoverLearningRunsJob } from "../domains/learning/jobs/recover-learning-runs.ts"
 import { scheduleLearningRunsJob } from "../domains/learning/jobs/schedule-learning-runs.ts"
 import { getLocalBuildJobDefinition } from "../domains/local-builds/get-local-build-job-definition/index.ts"
@@ -90,6 +91,8 @@ const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     learning.recover,
     learning.schedule,
     learning.score,
+    learning.proposeUpdates,
+    learning.proposeUpdate,
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
     createJobProcessor(githubBuildImportRetry, retryGitHubBuildsAwaitingImport),
     createJobProcessor(githubWorkflowRunDiscovery, discoverGitHubWorkflowRunsJob),
@@ -147,6 +150,12 @@ export const jobSchedules: {
     definition: scheduleLearningRunsJob,
     payload: {},
     repeat: { pattern: "0 2 * * *", tz: "UTC" },
+  },
+  {
+    id: "learning-update-daily",
+    definition: proposeLearningUpdatesJob,
+    payload: {},
+    repeat: { pattern: "0 3 * * *", tz: "UTC" },
   },
   {
     id: "github-installation-reconciliation",

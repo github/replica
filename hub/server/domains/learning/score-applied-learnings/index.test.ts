@@ -17,7 +17,13 @@ describe("scoreAppliedLearnings()", () => {
     const runCommand = vi.fn(async (arguments_: string[]) => {
       if (arguments_[0] === "usage") {
         return {
-          reports: [{ used: [{ id: "learning-1", after: { sha256: `sha256:${digest}` } }] }],
+          reports: [
+            {
+              used: [
+                { id: "learning-1", memoryId: "memory-1", after: { sha256: `sha256:${digest}` } },
+              ],
+            },
+          ],
         }
       }
       const diffFile = arguments_[arguments_.indexOf("--diff-file") + 1]!
@@ -26,7 +32,10 @@ describe("scoreAppliedLearnings()", () => {
         diff: await readFile(diffFile, "utf8"),
         screenshots: await readdir(screenshots),
       }
-      return { score: { id: "score-1" }, usage: { requests: 1, nanoAiu: 2_000_000_000 } }
+      return {
+        score: { id: "score-1", memoryId: "memory-1" },
+        usage: { requests: 1, nanoAiu: 2_000_000_000 },
+      }
     })
 
     const result = await scoreAppliedLearnings({
@@ -41,6 +50,7 @@ describe("scoreAppliedLearnings()", () => {
       readDiff: () => Promise.resolve("diff --git a/app.tsx b/app.tsx"),
       readScreenshot,
       refuseCredential: () => Promise.resolve(),
+      requestUpdate: () => Promise.resolve(),
       runCommand,
       start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
       withinBudget: () => Promise.resolve(true),
@@ -70,7 +80,14 @@ describe("scoreAppliedLearnings()", () => {
     const runCommand = vi.fn((arguments_: string[]) => {
       if (arguments_[0] === "usage") {
         return Promise.resolve({
-          reports: [{ used: [{ id: "learning-1" }, { id: "learning-2" }] }],
+          reports: [
+            {
+              used: [
+                { id: "learning-1", memoryId: "memory-1" },
+                { id: "learning-2", memoryId: "memory-2" },
+              ],
+            },
+          ],
         })
       }
       return Promise.reject(new LearningCommandError("unauthorized", "Copilot said no."))
@@ -88,6 +105,7 @@ describe("scoreAppliedLearnings()", () => {
       readDiff: () => Promise.resolve(null),
       readScreenshot: () => Promise.resolve(null),
       refuseCredential,
+      requestUpdate: () => Promise.resolve(),
       runCommand,
       start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
       withinBudget: () => Promise.resolve(true),
@@ -107,7 +125,9 @@ describe("scoreAppliedLearnings()", () => {
     const deleteRequest = vi.fn(() => Promise.resolve())
     const runCommand = vi.fn((arguments_: string[]) => {
       if (arguments_[0] === "usage") {
-        return Promise.resolve({ reports: [{ used: [{ id: "learning-1" }] }] })
+        return Promise.resolve({
+          reports: [{ used: [{ id: "learning-1", memoryId: "memory-learning-1" }] }],
+        })
       }
       return Promise.reject(
         new LearningCommandError("copilot_failed", "Copilot stopped.", {
@@ -128,6 +148,7 @@ describe("scoreAppliedLearnings()", () => {
       readDiff: () => Promise.resolve(null),
       readScreenshot: () => Promise.resolve(null),
       refuseCredential: () => Promise.resolve(),
+      requestUpdate: () => Promise.resolve(),
       runCommand,
       start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
       withinBudget: () => Promise.resolve(true),
@@ -166,6 +187,7 @@ describe("scoreAppliedLearnings()", () => {
       readDiff: () => Promise.resolve(null),
       readScreenshot: () => Promise.resolve(null),
       refuseCredential: () => Promise.resolve(),
+      requestUpdate: () => Promise.resolve(),
       runCommand,
       start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
       withinBudget: () => Promise.resolve(false),
@@ -183,7 +205,9 @@ describe("scoreAppliedLearnings()", () => {
     const deleteRequest = vi.fn(() => Promise.resolve())
     const runCommand = vi.fn((arguments_: string[]) => {
       if (arguments_[0] === "usage") {
-        return Promise.resolve({ reports: [{ used: [{ id: "learning-1" }] }] })
+        return Promise.resolve({
+          reports: [{ used: [{ id: "learning-1", memoryId: "memory-learning-1" }] }],
+        })
       }
       return Promise.reject(new LearningCommandError("cancelled", "The worker stopped."))
     })
@@ -201,6 +225,7 @@ describe("scoreAppliedLearnings()", () => {
         readDiff: () => Promise.resolve(null),
         readScreenshot: () => Promise.resolve(null),
         refuseCredential: () => Promise.resolve(),
+        requestUpdate: () => Promise.resolve(),
         runCommand,
         start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
         withinBudget: () => Promise.resolve(true),
@@ -213,7 +238,7 @@ describe("scoreAppliedLearnings()", () => {
   })
 
   it("scores a learning once more only with its own prototype's verification", async () => {
-    const deleteRequest = vi.fn(() => Promise.resolve())
+    const requestUpdate = vi.fn(() => Promise.resolve())
     const start = vi.fn((usedLearningId: string, trigger: string) =>
       Promise.resolve({ id: `run-${trigger}`, operationId: `op-${trigger}`, state: "RUNNING" }),
     )
@@ -221,18 +246,27 @@ describe("scoreAppliedLearnings()", () => {
       if (arguments_[0] === "usage") {
         return Promise.resolve({
           reports: [
-            { prototypeId: "prototype-2", used: [{ id: "learning-1" }] },
-            { prototypeId: "prototype-1", used: [{ id: "learning-2" }] },
+            {
+              prototypeId: "prototype-2",
+              used: [{ id: "learning-1", memoryId: "memory-learning-1" }],
+            },
+            {
+              prototypeId: "prototype-1",
+              used: [{ id: "learning-2", memoryId: "memory-learning-2" }],
+            },
           ],
         })
       }
-      return Promise.resolve({ score: { id: "score-1" }, usage: { requests: 1, nanoAiu: 0 } })
+      return Promise.resolve({
+        score: { id: "score-1", memoryId: `memory-${arguments_[1]}` },
+        usage: { requests: 1, nanoAiu: 0 },
+      })
     })
 
     await scoreAppliedLearnings({
       commitSha: "a".repeat(40),
       credential: () => Promise.resolve({ githubToken: "token" }),
-      deleteRequest,
+      deleteRequest: () => Promise.resolve(),
       finish: () => Promise.resolve(),
       hasPendingUserRun: () => Promise.resolve(false),
       isEnabled: () => Promise.resolve(true),
@@ -241,6 +275,7 @@ describe("scoreAppliedLearnings()", () => {
       readDiff: () => Promise.resolve(null),
       readScreenshot: () => Promise.resolve(null),
       refuseCredential: () => Promise.resolve(),
+      requestUpdate,
       runCommand,
       start,
       withinBudget: () => Promise.resolve(true),
@@ -267,5 +302,51 @@ describe("scoreAppliedLearnings()", () => {
       ],
       expect.anything(),
     )
+    // Each new score asks the daily job to check its learning's wording.
+    expect(requestUpdate.mock.calls).toEqual([
+      ["memory-learning-1"],
+      ["memory-learning-2"],
+      ["memory-learning-2"],
+    ])
+  })
+
+  it("keeps the run open when the score names a different learning than the one used", async () => {
+    const finish = vi.fn(() => Promise.resolve())
+    const requestUpdate = vi.fn(() => Promise.resolve())
+    const runCommand = vi.fn((arguments_: string[]) => {
+      if (arguments_[0] === "usage") {
+        return Promise.resolve({
+          reports: [{ used: [{ id: "learning-1", memoryId: "memory-learning-1" }] }],
+        })
+      }
+      return Promise.resolve({
+        score: { id: "score-1", memoryId: "memory-other" },
+        usage: { requests: 1, nanoAiu: 0 },
+      })
+    })
+
+    await expect(
+      scoreAppliedLearnings({
+        commitSha: "a".repeat(40),
+        credential: () => Promise.resolve({ githubToken: "token" }),
+        deleteRequest: () => Promise.resolve(),
+        finish,
+        hasPendingUserRun: () => Promise.resolve(false),
+        isEnabled: () => Promise.resolve(true),
+        now: () => new Date(),
+        prepare: () => Promise.resolve([]),
+        readDiff: () => Promise.resolve(null),
+        readScreenshot: () => Promise.resolve(null),
+        refuseCredential: () => Promise.resolve(),
+        requestUpdate,
+        runCommand,
+        start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
+        withinBudget: () => Promise.resolve(true),
+        verifications: () => Promise.resolve([]),
+        withLock,
+      }),
+    ).rejects.toThrow("different learning")
+    expect(requestUpdate).not.toHaveBeenCalled()
+    expect(finish).not.toHaveBeenCalled()
   })
 })

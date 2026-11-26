@@ -23,6 +23,7 @@ const usageSchema = z
                   .min(1)
                   .max(255)
                   .refine((id) => !id.startsWith("-")),
+                memoryId: z.string().min(1).max(255),
                 before: screenshotSchema.optional(),
                 after: screenshotSchema.optional(),
               })
@@ -45,7 +46,7 @@ const spentSchema = z
   .loose()
 const refusedCodes = ["unauthorized", "installation_revoked", "permission_denied"]
 const scoredSchema = spentSchema.extend({
-  score: z.object({ id: z.string().min(1).max(255) }).loose(),
+  score: z.object({ id: z.string().min(1).max(255), memoryId: z.string().min(1).max(255) }).loose(),
 })
 
 /**
@@ -56,7 +57,8 @@ const scoredSchema = spentSchema.extend({
  * when a person is waiting on a learning run, which goes first. When a reviewer verified
  * the commit, each learning is scored once more with that verification, and the first
  * score is kept. A report that names a prototype gets only that prototype's verification,
- * since two prototypes can share a commit.
+ * since two prototypes can share a commit. Each new score flags its learning so the daily
+ * job checks whether its wording should change.
  */
 export async function scoreAppliedLearnings(dependencies: {
   commitSha: string
@@ -75,6 +77,7 @@ export async function scoreAppliedLearnings(dependencies: {
   readDiff(): Promise<string | null>
   readScreenshot(sha256: string): Promise<Uint8Array | null>
   refuseCredential(): Promise<unknown>
+  requestUpdate(memoryId: string): Promise<unknown>
   runCommand(
     arguments_: string[],
     options: { githubToken?: string; signal: AbortSignal; timeoutMs?: number },
@@ -139,8 +142,8 @@ export async function scoreAppliedLearnings(dependencies: {
       }
       const outcome = await dependencies.withLock(async (signal) => {
         // Checked under the lock before each paid call, so turning evaluations off or
-        // removing the repository stops scoring, and two jobs can't both spend the last
-        // of the budget.
+        // removing the repository stops scoring, and two jobs or an update check can't
+        // both spend the last of the budget.
         if (await dependencies.hasPendingUserRun()) return "deferred"
         if (!(await dependencies.isEnabled())) return "disabled"
         if (!(await dependencies.withinBudget())) return "paused"
@@ -164,6 +167,12 @@ export async function scoreAppliedLearnings(dependencies: {
               { ...credential, signal, timeoutMs: 10 * 60 * 1000 },
             ),
           )
+          // The score must be for the learning that was used, so a wrong ID can't send
+          // another learning's text to Copilot. Failing leaves the run to be retried.
+          if (scored.score.memoryId !== used.memoryId)
+            throw new Error("The score names a different learning than the one used.")
+          // Flagged before the run closes, since a closed run is never scored again.
+          await dependencies.requestUpdate(used.memoryId)
           await dependencies.finish(run.id, {
             state: "SUCCEEDED",
             scoreId: scored.score.id,
