@@ -63,6 +63,14 @@ The Learnings page lists a repository's learnings under Suggested, Active, and R
 
 The address holds the whole library state, for example `/repositories/2001/learnings?status=active&q=label&page=2&learning=mem_1`, so the back button and shared links reopen the same view. The page opens on Suggested while any suggestion waits and on Active otherwise. Only an open learning loads its history.
 
+## Sharing learnings
+
+Someone who administers both Hub and a repository can share one of that repository's active learnings with every repository in Hub by turning on "Share across Hub" on the learning. The switch saves right away. For example, sharing "Use one primary button per form" from `github/design-guidelines` adds the same guidance to the recall preview for `github/checkout`, and the `github/checkout` library lists it under Active as "Shared from github/design-guidelines". Members of a receiving repository can read a shared learning but cannot change it or see its review comments and history. Only the source repository can stop sharing it.
+
+Agents in a receiving repository do not get shared learnings yet. The package accepts them only in a person's preview, because a delivered copy would be stored in the receiving repository and outlive the source's own deletion and audit. Delivering them to agents comes with Hub's hosted learning MCP server.
+
+Hub checks that this repository's own agents get the learning before it records the share. Hub reads the source repository's store again each time it builds a receiving repository's recall, so edits, rejections, and stopped shares take effect on the next read. Hub reads up to four source stores at a time and gives each 10 seconds. A source store that cannot be read in time, or for any other reason, is skipped and logged so the receiving repository's own learnings still load. A shared learning whose ID matches one of the receiving repository's own learnings is hidden. A repository that has no learning store of its own yet shows no shared learnings. Rejecting or retiring a learning keeps its share saved, so it is shared again if the learning is accepted again. An administrator can stop the share from the rejected learning first. Stopping a share keeps its record, including who shared and who stopped sharing it, and both actions write security audits.
+
 ## Repository API
 
 The browser contracts are:
@@ -71,6 +79,7 @@ The browser contracts are:
 - `POST /api/repositories/:repositoryId/learnings/runs`
 - `POST /api/repositories/:repositoryId/learnings/:learningId/decision`
 - `GET /api/repositories/:repositoryId/learnings/:learningId/history`
+- `POST /api/repositories/:repositoryId/learnings/:learningId/share`
 
 Every signed-in member who can see a repository can read its Learnings library. That includes proposed, accepted, rejected, and retired learnings, their supporting and opposing evidence, and each learning's decision history. Proposals that are withheld, damaged, in conflict, or waiting for identity review are not listed until they can be reviewed safely. Only repository administrators can decide, request runs, see run history, and see Copilot usage. Members get the same response with those permissions off, no runs, and usage left empty.
 
@@ -81,6 +90,8 @@ Every read checks the session and repository visibility again after asynchronous
 The read response lists the ten newest persisted runs and decimal Copilot usage from runs started during the previous 30 days. It resolves every displayed package event against the current repository snapshot and shows the exact imported event body only when the event, episode, comment, Hub origin, and repository all match. Deleted comments remain visible as redacted evidence without text.
 
 The browser decision route supports accept, reject, retire, edit, and reinstate. Accept and reject require the reviewed `reviewDigest`. Edit and reinstate require the exact version `digest` shown in the library, and edit changes the title, the text, or both. Package `stale_review` failures return `409` rather than applying a changed learning. If the repository becomes hidden while a decision runs, Hub returns a generic not-found response instead of exposing package-store failure details. Every decision except accept requires a reason. Hub writes titles, text, and reasons to private temporary files because command-line arguments must not carry review text. Successful and failed package decisions write typed security audits without storing content, evidence, or reasons.
+
+The share route takes `{ "shared": true }` to share a learning and `{ "shared": false }` to stop sharing it. It requires Hub administration and the source repository's administrator boundary, rechecked in the same transaction that records the change. Sharing a learning that is not active and usable by agents returns `409`.
 
 The run endpoint requires a usable Copilot connection. It captures and digests one complete repeatable-read repository review snapshot, creates or reuses the repository's active run, writes its typed request audit, and enqueues one idempotent on-demand job. An administrator can promote a queued automatic run into an explicit run; running or already explicit work cannot be replaced. Enqueue failure marks a newly created or promoted run failed.
 
