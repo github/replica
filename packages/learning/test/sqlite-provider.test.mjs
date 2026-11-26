@@ -182,6 +182,19 @@ describe("SQLite provider", () => {
         digest: event.digest,
       })),
     ])
+    const activeGrant = sealRecord({
+      ...grant("grant_activeindexed1"),
+      purposes: ["instruction"],
+      expiresAt: "2026-10-10T00:00:00.000000Z",
+    })
+    const expiredGrants = Array.from({ length: 3000 }, (_, index) =>
+      sealRecord({
+        ...grant(`grant_expiredindexed${index}`),
+        purposes: ["instruction"],
+        expiresAt: "2026-10-05T00:00:00.000000Z",
+      }),
+    )
+    await created.appendRecords("grants", [activeGrant, ...expiredGrants])
     const database = new DatabaseSync(created.manifest().storage.location)
     database.exec("analyze")
     const prepare = DatabaseSync.prototype.prepare
@@ -210,6 +223,7 @@ describe("SQLite provider", () => {
     let idReads
     let episodeReads
     let threadReads
+    let consentReads
     try {
       await created.decisionFence(scope)
       fenceReads = queries.splice(0)
@@ -227,6 +241,15 @@ describe("SQLite provider", () => {
         new Set([episode.id, related.id]),
       )
       threadReads = queries.splice(0)
+      const inputs = await created.readDecisionInputs(scope, {
+        evidence: [{ source: "hub_review_comments", at: "2026-10-03T00:00:00.000000Z" }],
+        at: "2026-10-09T12:00:00.000000Z",
+        purpose: "instruction",
+        hubSources: [],
+        eventIds: [selected.id],
+      })
+      assert.deepEqual(inputs.grants, [activeGrant])
+      consentReads = queries.splice(0)
     } catch (error) {
       database.close()
       throw error
@@ -270,6 +293,19 @@ describe("SQLite provider", () => {
             (detail.match(/<expr>=\?/g)?.length ?? 0) >= 4,
         ),
         JSON.stringify(threadPlan),
+      )
+      const grantQuery = consentReads.find(({ sql }) => /\bdecision_grant_sources\b/i.test(sql))
+      assert.ok(grantQuery)
+      const grantPlan = database
+        .prepare(`explain query plan ${grantQuery.sql}`)
+        .all(...grantQuery.values)
+      assert.ok(
+        grantPlan.some(
+          ({ detail }) =>
+            /SEARCH source USING INDEX decision_grant_sources_by_expiry/.test(detail) &&
+            /expires_at>\?/.test(detail),
+        ),
+        JSON.stringify(grantPlan),
       )
     } finally {
       database.close()

@@ -751,7 +751,8 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
             .map((column) => `grant_record.${column}`)
             .join(", ")}
           from json_each(?) as evidence
-          join decision_grant_sources as source
+          -- Start with the evidence and skip expired grants before reading records.
+          cross join decision_grant_sources as source indexed by decision_grant_sources_by_expiry
             on source.scope_key = ? and source.source = json_extract(evidence.value, '$.source')
             and source.purpose = ?
             and source.granted_at <= ? and source.expires_at > ?
@@ -759,7 +760,7 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
               or source.evidence_from <= json_extract(evidence.value, '$.at'))
             and (source.evidence_until is null
               or source.evidence_until > json_extract(evidence.value, '$.at'))
-          join records as grant_record
+          cross join records as grant_record
             on grant_record.stream = 'grants' and grant_record.scope_key = ?
             and grant_record.id = source.grant_id
           order by grant_record.seq
