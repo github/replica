@@ -143,6 +143,27 @@ export const learningHistoryResponseSchema = z
     otherEvidenceCount: count,
     contradictions: z.array(learningEvidenceResponseSchema),
     otherContradictionsCount: count,
+    outcomes: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          efficiency: z.number().int().min(1).max(4),
+          followed: z.enum(["followed", "not_followed", "unclear"]),
+          reasoning: z.string(),
+          issue: z.string().nullable(),
+          scoredAt: timestamp,
+          build: z
+            .object({
+              prototypeId: recordIdentifierSchema,
+              prototypeName: z.string().min(1),
+              number: identifier,
+            })
+            .strict(),
+          before: appliedScreenshotSchema.optional(),
+          after: appliedScreenshotSchema.optional(),
+        })
+        .strict(),
+    ),
   })
   .strict() satisfies z.ZodType<LearningHistoryResponse>
 

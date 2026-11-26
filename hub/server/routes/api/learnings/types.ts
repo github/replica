@@ -6,6 +6,7 @@ import type {
   LearningDecision,
   LearningDecisionRecord,
   LearningEvidence,
+  LearningOutcome,
   LearningSuggestion,
   RejectedLearning,
   SharedLearning,
@@ -17,6 +18,7 @@ export type {
   LearningDecision,
   LearningDecisionRecord,
   LearningEvidence,
+  LearningOutcome,
   LearningSuggestion,
   RejectedLearning,
   SharedLearning,
@@ -98,6 +100,7 @@ export interface LearningsRouteDependencies {
     decisions: LearningDecisionRecord[]
     evidence: LearningEvidence[]
     otherEvidenceCount: number
+    outcomes: LearningOutcome[]
   }>
   getAppliedLearnings(input: {
     repositoryId: string

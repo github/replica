@@ -84,6 +84,21 @@ export interface LearningHistoryResponse {
   otherEvidenceCount: number
   contradictions: LearningEvidenceResponse[]
   otherContradictionsCount: number
+  outcomes: LearningOutcomeResponse[]
+}
+
+/** How one use of a learning was scored, with the Build it judged. */
+export interface LearningOutcomeResponse {
+  id: string
+  /** 4 is best. 1 and 2 come with an issue. */
+  efficiency: number
+  followed: "followed" | "not_followed" | "unclear"
+  reasoning: string
+  issue: string | null
+  scoredAt: string
+  build: { prototypeId: string; prototypeName: string; number: number }
+  before?: { sha256: string; route: string }
+  after?: { sha256: string; route: string }
 }
 
 /** A day's learning runs, kept for a year after the runs themselves are deleted. */

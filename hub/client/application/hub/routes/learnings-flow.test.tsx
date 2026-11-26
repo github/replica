@@ -153,6 +153,7 @@ function emptyHistory() {
       otherEvidenceCount: 0,
       contradictions: [],
       otherContradictionsCount: 0,
+      outcomes: [],
     }),
   )
 }
@@ -352,6 +353,7 @@ describe("Learnings frontend integration", () => {
           otherEvidenceCount: 3,
           contradictions: [],
           otherContradictionsCount: 0,
+          outcomes: [],
         }),
       ),
       emptyHistory(),

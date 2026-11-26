@@ -44,6 +44,7 @@ import { saveLearningShare } from "../../../../repositories/learning-shares/save
 import { withdrawLearningShare } from "../../../../repositories/learning-shares/withdraw-learning-share/index.ts"
 import { lockAdministratorHubSession } from "../../../../repositories/hub-sessions/lock-administrator-hub-session/index.ts"
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
+import { listSuccessfulCommitBuilds } from "../../../../repositories/prototype-index/list-successful-commit-builds/index.ts"
 import { findActiveRepository } from "../../../../repositories/prototype-index/find-active-repository/index.ts"
 import { lockRepositoryAdministratorAuthority } from "../../../../repositories/repository-access/lock-repository-administrator-authority/index.ts"
 import { lockRepositoryAdministratorSession } from "../../../../repositories/repository-access/lock-repository-administrator-session/index.ts"
@@ -171,6 +172,19 @@ export async function createLearningsRouteDependencies(
    * Queues removal of the screenshots a withdrawn grant allowed. A failed enqueue is only
    * logged because the worker's recovery pass finds every withdrawn grant again.
    */
+  // Offer a screenshot only when it was taken under the consent that is on now, so the
+  // same image saved under a later grant can't revive one that was withdrawn.
+  async function consentedScreenshots(
+    repositoryId: string,
+    items: Array<{ before?: { sha256: string }; after?: { sha256: string } }>,
+  ) {
+    const digests = items.flatMap(({ before, after }) =>
+      [before, after].flatMap((screenshot) => (screenshot ? [screenshot.sha256] : [])),
+    )
+    if (!digests.length || !options.artifactStorage) return null
+    return findConsentedAgentScreenshots(prisma, { repositoryId, sha256s: digests })
+  }
+
   async function queueScreenshotDeletion(input: {
     databaseUrl: string
     grantId: string
@@ -307,7 +321,48 @@ export async function createLearningsRouteDependencies(
           "The repository learning scope changed. Try again.",
         )
       }
-      return history
+      const repository = await prisma.repository.findUnique({
+        where: { id: repositoryId },
+        select: { id: true, defaultBranch: true },
+      })
+      const builds = repository
+        ? await listSuccessfulCommitBuilds(prisma, {
+            repository,
+            commitShas: [...new Set(history.outcomes.map((outcome) => outcome.commitSha))],
+          })
+        : []
+      const consented = await consentedScreenshots(repositoryId, history.outcomes)
+      return {
+        ...history,
+        // A score with no Build left to show is hidden rather than shown without context.
+        outcomes: history.outcomes.flatMap(
+          ({ commitSha, prototypeId, before, after, ...outcome }) => {
+            const build = builds.find(
+              (candidate) =>
+                candidate.commitSha === commitSha &&
+                (prototypeId === null || candidate.prototypeId === prototypeId),
+            )
+            if (!build) return []
+            const shownBefore = consentedScreenshot(consented, before)
+            const shownAfter = consentedScreenshot(consented, after)
+            // The scorer's words may describe a screenshot that consent no longer covers.
+            const withheld = Boolean((before && !shownBefore) || (after && !shownAfter))
+            return [
+              {
+                ...outcome,
+                ...(withheld ? { reasoning: "", issue: null } : {}),
+                build: {
+                  prototypeId: build.prototypeId,
+                  prototypeName: build.prototypeName,
+                  number: build.number,
+                },
+                ...(shownBefore ? { before: shownBefore } : {}),
+                ...(shownAfter ? { after: shownAfter } : {}),
+              },
+            ]
+          },
+        ),
+      }
     },
     getAppliedLearnings: async ({ repositoryId, prototypeId, commitSha }) => {
       const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
@@ -324,24 +379,10 @@ export async function createLearningsRouteDependencies(
           "The repository learning scope changed. Try again.",
         )
       }
-      // Offer a screenshot only when it was taken under the consent that is on now, so
-      // the same image saved under a later grant can't revive one that was withdrawn.
-      const digests = applied.flatMap(({ before, after }) =>
-        [before, after].flatMap((screenshot) => (screenshot ? [screenshot.sha256] : [])),
-      )
-      const consented =
-        digests.length && options.artifactStorage
-          ? await findConsentedAgentScreenshots(prisma, { repositoryId, sha256s: digests })
-          : null
-      function shown(screenshot?: { sha256: string; route: string; consentGrantId?: string }) {
-        if (!screenshot || !consented) return undefined
-        if (screenshot.consentGrantId !== consented.grantId) return undefined
-        if (!consented.storageKeys.has(screenshot.sha256)) return undefined
-        return { sha256: screenshot.sha256, route: screenshot.route }
-      }
+      const consented = await consentedScreenshots(repositoryId, applied)
       return applied.map(({ before, after, ...learning }) => {
-        const shownBefore = shown(before)
-        const shownAfter = shown(after)
+        const shownBefore = consentedScreenshot(consented, before)
+        const shownAfter = consentedScreenshot(consented, after)
         return {
           ...learning,
           ...(shownBefore ? { before: shownBefore } : {}),
@@ -938,4 +979,14 @@ export async function createLearningsRouteDependencies(
       }
     },
   }
+}
+
+function consentedScreenshot(
+  consented: Awaited<ReturnType<typeof findConsentedAgentScreenshots>>,
+  screenshot?: { sha256: string; route: string; consentGrantId?: string },
+) {
+  if (!screenshot || !consented) return undefined
+  if (screenshot.consentGrantId !== consented.grantId) return undefined
+  if (!consented.storageKeys.has(screenshot.sha256)) return undefined
+  return { sha256: screenshot.sha256, route: screenshot.route }
 }
