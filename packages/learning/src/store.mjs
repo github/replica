@@ -3414,6 +3414,9 @@ class LearningStore {
         after: after ? without(after, "bytes") : null,
       })),
     })
+    // Checked before a retry returns too, so a host never keeps bytes after consent ends.
+    if (grantId !== undefined || (shots.length && this.#screenshots.requiresGrant))
+      await this.#assertScreenshotGrant(context, grantId, shots)
     const id = derivedId("usage", { scope: context.scope, reportId })
     const [stored] = await this.#read("usageReports", context, { ids: [id] })
     if (stored) {
@@ -3424,8 +3427,6 @@ class LearningStore {
         )
       return { id, reportId, stored: false }
     }
-    if (grantId !== undefined || (shots.length && this.#screenshots.requiresGrant))
-      await this.#assertScreenshotGrant(context, grantId)
     const guidance = await this.#read("guidance", context, { ids: guidanceIds })
     const missing = guidanceIds.filter((guidanceId) => !guidance.some((g) => g.id === guidanceId))
     if (missing.length)
@@ -3528,14 +3529,22 @@ class LearningStore {
     return { id, reportId, stored: result.usageReports.appended === 1 }
   }
 
-  /** Refuse screenshots unless the grant lets agent screenshots be evaluated now. */
-  async #assertScreenshotGrant(context, grantId) {
+  /**
+   * Refuse screenshots unless the grant lets agent screenshots be evaluated now, and each was
+   * captured inside the period the grant covers.
+   */
+  async #assertScreenshotGrant(context, grantId, shots = []) {
     const { eligibility, grants } = await this.#eligibility(context)
     const grant = grants.find((item) => item.id === grantId)
     if (
       !grant ||
       !grant.sources.includes(SCREENSHOT_SOURCE) ||
-      !eligibility.activePurposes(grant).includes("evaluation")
+      !eligibility.activePurposes(grant).includes("evaluation") ||
+      shots.some(
+        ({ capturedAt }) =>
+          (grant.evidenceFrom && capturedAt < grant.evidenceFrom) ||
+          (grant.evidenceUntil && capturedAt >= grant.evidenceUntil),
+      )
     )
       throw new LearningError(
         "unsupported",

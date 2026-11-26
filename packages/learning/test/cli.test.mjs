@@ -754,7 +754,7 @@ describe("replica-learning CLI: a store a host names", () => {
     }
   })
 
-  it("keeps agent screenshots only under an active screenshot consent grant", async () => {
+  it("keeps agent screenshots only under an active grant that covers when they were taken", async () => {
     const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-hosted-"))
     try {
       writeFileSync(path.join(outside, "week-1.json"), JSON.stringify(hostedLog(weekOneLog())))
@@ -848,6 +848,27 @@ describe("replica-learning CLI: a store a host names", () => {
         true,
       )
       assert.equal(existsSync(path.join(outside, "stores", "42", "evidence")), false)
+      const later = (
+        await ok(outside, [
+          "grants",
+          "add",
+          "--purpose",
+          "evaluation",
+          "--source",
+          "agent_screenshots",
+          "--evidence-from",
+          "2026-10-10T00:00:00Z",
+          "--basis",
+          "A repository administrator allowed screenshots taken from October 10.",
+          "--by",
+          "github:ana-designer",
+          ...store,
+          "--json",
+        ])
+      ).json()
+      writeReport("report-2")
+      const early = await cli(outside, [...report, "--grant", later.id])
+      assert.match(early.stderr, /Screenshots are not allowed for this repository/)
       await ok(outside, [
         "grants",
         "withdraw",
@@ -858,9 +879,9 @@ describe("replica-learning CLI: a store a host names", () => {
         "github:ana-designer",
         ...store,
       ])
-      writeReport("report-2")
-      const withdrawn = await cli(outside, [...report, "--grant", screenshots.id])
-      assert.match(withdrawn.stderr, /Screenshots are not allowed for this repository/)
+      writeReport("report-1")
+      const retried = await cli(outside, [...report, "--grant", screenshots.id])
+      assert.match(retried.stderr, /Screenshots are not allowed for this repository/)
     } finally {
       rmSync(outside, { recursive: true, force: true })
     }
