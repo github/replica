@@ -3,6 +3,7 @@ import { recordReviewAnalyticsActivity } from "../../analytics/record-event/inde
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { createReviewCommentRepository } from "../../../repositories/review-comments/create-review-comment-repository/index.ts"
 import type { ReviewPersistenceFailure } from "../../../repositories/review-comments/types.ts"
+import { recordReviewerVerification } from "../../learning/record-reviewer-verification/index.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
 import { applyReviewActivity } from "../apply-review-activity/index.ts"
 import { reviewMentionLogins } from "../create-review-mention-directory/index.ts"
@@ -99,6 +100,13 @@ export function createReviewCommentService(
             kind,
             sourceId,
             threadId,
+          })
+        }
+        if (kind === "resolved") {
+          await recordReviewerVerification(transaction, {
+            threadId,
+            resolverId: input.actor.userId,
+            verifiedAt: new Date(),
           })
         }
       },
