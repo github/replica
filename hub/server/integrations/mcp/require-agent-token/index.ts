@@ -2,11 +2,9 @@ import type { RequestHandler } from "express"
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
 import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js"
 
-import {
-  agentMcpPath,
-  agentOAuthProvider,
-  type AgentOAuthService,
-} from "../create-agent-auth-router/index.ts"
+import { agentOAuthProvider } from "../agent-oauth-provider/index.ts"
+import type { AgentOAuthService } from "../agent-oauth-provider/types.ts"
+import { agentMcpPath } from "../create-agent-auth-router/index.ts"
 
 /**
  * Rejects requests without a live agent token. The response points agents at Hub's OAuth
