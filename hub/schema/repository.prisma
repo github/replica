@@ -10,6 +10,8 @@ model Repository {
   learningShares             LearningShare[]
   evaluationSetting          RepositoryEvaluationSetting?
   agentScreenshots           AgentScreenshot[]
+  learningEvaluationRuns     LearningEvaluationRun[]
+  learningScoreRequests      LearningScoreRequest[]
   decisionModelConfiguration DecisionModelConfiguration?
   decisionReviewSnapshot     DecisionReviewSnapshot?
   decisionTrainingJobs       DecisionTrainingJob[]

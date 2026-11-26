@@ -10,6 +10,7 @@ model RepositoryEvaluationSetting {
 
   // Attribute columns
   enabled              Boolean   @default(false)
+  evaluationGrantId    String?   @map("evaluation_grant_id") @db.VarChar(255)
   screenshotGrantId    String?   @map("screenshot_grant_id") @db.VarChar(255)
   screenshotsChangedAt DateTime? @map("screenshots_changed_at") @db.Timestamptz(3)
 
