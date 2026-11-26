@@ -660,6 +660,7 @@ export const CommentsAndPickAndPolish: Story = {
   ),
   play: async ({ canvas }) => {
     await canvas.findByRole("button", { name: "Open Notes (1)" }, { timeout: 5_000 })
+    await expect(await canvas.findByRole("button", { name: "Fix 1" })).toBeEnabled()
     await canvas.findByRole("button", { name: /^Comments, 3/ }, { timeout: 5_000 })
     await expect(
       canvas.queryByText("Annotation needs the updated Replica preview bridge."),
@@ -674,6 +675,7 @@ export const CommentsWithPickAndPolishSidebar: Story = {
       await canvas.findByRole("button", { name: /^Comments, 3/ }, { timeout: 5_000 }),
     )
     await canvas.findByRole("complementary", { name: "Comments" })
+    await expect(canvas.getByRole("button", { name: "Fix 1" })).toBeVisible()
   },
 }
 
@@ -684,6 +686,7 @@ export const PickAndPolishNotesSidebar: Story = {
       await canvas.findByRole("button", { name: "Open Notes (1)" }, { timeout: 5_000 }),
     )
     await canvas.findByRole("complementary", { name: "Notes" })
+    await expect(canvas.getByRole("button", { name: "Fix 1" })).toBeVisible()
   },
 }
 

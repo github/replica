@@ -1246,7 +1246,7 @@ describe("App()", () => {
     },
   )
 
-  it("shows the same pending request count as Fix all only while picking and hides it at zero", async () => {
+  it("keeps the pending fix pill visible outside selection and hides it when no unsent requests remain", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch, saved } = savedNotesFixture()
     await fetch("/api/improvement-notes", {
@@ -1272,7 +1272,13 @@ describe("App()", () => {
       route: anchor.route,
     })
     await waitFor(() => expect(picker).toBeEnabled())
-    expect(screen.queryByRole("button", { name: /^Fix \d+$/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Fix 3" })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+    await screen.findByRole("complementary", { name: "Hub" })
+    expect(screen.getByRole("button", { name: "Fix 3" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Fix 3" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Close Hub" }))
+    expect(screen.getByRole("button", { name: "Fix 3" })).toBeEnabled()
     fireEvent.click(picker)
     const pill = await screen.findByRole("button", { name: "Fix 3" })
     expect(pill).toBeEnabled()
@@ -1284,7 +1290,7 @@ describe("App()", () => {
     })
     await waitFor(() => expect(picker).toBeEnabled())
     fireEvent.click(picker)
-    expect(screen.queryByRole("button", { name: /^Fix \d+$/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Fix 3" })).toBeVisible()
     fireEvent.click(picker)
     await screen.findByRole("button", { name: "Fix 3" })
     fireEvent.click(screen.getByRole("button", { name: copy.openNotes(1) }))
@@ -1426,7 +1432,7 @@ describe("App()", () => {
       })
       expect(picker).toHaveAttribute("aria-pressed", "false")
       expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
-      expect(screen.queryByRole("button", { name: /^Fix \d+$/ })).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: `Fix ${fixFails ? 2 : 1}` })).toBeEnabled()
       const fixes = fetch.mock.calls.filter(([path]) => path.endsWith("/fix"))
       expect(fixes).toHaveLength(1)
       const body = fixes[0]?.[1]?.body
