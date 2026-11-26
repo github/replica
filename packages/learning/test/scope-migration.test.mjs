@@ -1306,7 +1306,7 @@ it("saves a new proposal after two old names rejected the same theme", async () 
       await store.importHubReviewComments(agent(oldScope), log, { grantIds: [grant.id] })
       await store.annotate(agent(oldScope), weekOneLabels().labels)
       const run = await store.consolidate(agent(oldScope), {
-        consolidator: createRecurrenceConsolidator(),
+        consolidator: createRecurrenceConsolidator({ minPrototypes: 2, minReviewers: 2 }),
         window,
       })
       assert.equal(run.proposals.length, 1)
@@ -1325,7 +1325,7 @@ it("saves a new proposal after two old names rejected the same theme", async () 
         `github.com/${oldScope.repository}`,
       ])
     const run = await store.consolidate(agent(scope), {
-      consolidator: createRecurrenceConsolidator(),
+      consolidator: createRecurrenceConsolidator({ minPrototypes: 2, minReviewers: 2 }),
       window,
     })
     assert.equal(run.proposals.length, 1, JSON.stringify(run.diagnostics))

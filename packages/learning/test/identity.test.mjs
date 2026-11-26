@@ -103,7 +103,7 @@ for (const [name, factory] of [
       )
       assert.equal(comments[0].actor.id, "github-user:github.com/41")
       const run = await store.consolidate(context, {
-        consolidator: createRecurrenceConsolidator(),
+        consolidator: createRecurrenceConsolidator({ minReviewers: 2 }),
         window: WINDOW,
       })
       assert.deepEqual(run.proposals, [])
@@ -177,7 +177,7 @@ for (const [name, factory] of [
       )
       await label(store, context)
       const run = await store.consolidate(context, {
-        consolidator: createRecurrenceConsolidator(),
+        consolidator: createRecurrenceConsolidator({ minReviewers: 2 }),
         window: WINDOW,
       })
       const pending = run.proposals[0]
@@ -245,7 +245,7 @@ for (const [name, factory] of [
       assert.equal(again.addedEvents, 0)
       await label(store, context)
       const rebuilt = await store.consolidate(context, {
-        consolidator: createRecurrenceConsolidator(),
+        consolidator: createRecurrenceConsolidator({ minReviewers: 2 }),
         window: WINDOW,
       })
       assert.deepEqual(rebuilt.proposals, [])

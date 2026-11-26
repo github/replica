@@ -4,8 +4,8 @@ import { PRODUCER, SCHEMA_VERSIONS, without } from "../records.mjs"
 
 export const DEFAULT_RECURRENCE_OPTIONS = Object.freeze({
   minEpisodes: 2,
-  minPrototypes: 2,
-  minReviewers: 2,
+  minPrototypes: 1,
+  minReviewers: 1,
   signals: Object.freeze(["visual_quality", "accessibility"]),
   observations: Object.freeze(["observed"]),
 })

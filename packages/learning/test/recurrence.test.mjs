@@ -118,7 +118,7 @@ describe("recurrence consolidator", () => {
 
   it("holds back a theme below any threshold and says which", async () => {
     const result = await run(
-      {},
+      { minReviewers: 2 },
       view([
         { by: "ana-designer", prototype: 1 },
         { by: "ana-designer", prototype: 2 },

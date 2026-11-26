@@ -159,7 +159,7 @@ const data: LearningsPageData = {
     runLabel: "Find learnings now",
     suggestionsHeading: "Suggestions",
     suggestionsEmpty:
-      "No suggestions yet. Hub suggests a learning when at least two reviewers raise the same point on two prototypes.",
+      "No suggestions yet. Hub suggests a learning when the same point comes up in at least two review threads.",
     evidenceHeading: "What reviewers said",
     contradictionsHeading: "What reviewers disagreed with",
     replacementHeading: "Accepting this replaces the guidance listed below.",
