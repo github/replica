@@ -59,7 +59,7 @@ Repository decisions, runs, and redactions use the PostgreSQL advisory-lock prim
 
 ## Library page
 
-The Learnings page lists a repository's learnings under Suggested, Active, and Rejected, with a search box and 25 learnings per page. Rejected also holds retired learnings. Selecting a learning opens its guidance, review comments, and decision history in place of the list. Repository administrators accept, edit, reject, and accept again from that view; members see the same view without those actions.
+The Learnings page lists a repository's learnings under Suggested, Active, and Rejected, with a search box and 25 learnings per page. Rejected also holds retired learnings. Selecting a learning opens its guidance, review comments, decision history, and [observed outcomes](#observed-outcomes) in place of the list. Repository administrators accept, edit, reject, and accept again from that view; members see the same view without those actions.
 
 Above the list, a year grid shows each day's learning runs in the current UTC year, like GitHub's contribution graph. People can shade the squares by comments analyzed, comments categorized, or suggestions, and select a day to see its counts, whether its last run failed, and who started it. For example, a day with two runs reads "Run failed · Started by @mona" when Mona's later run failed. Every member sees the grid.
 
@@ -168,6 +168,16 @@ When an agent's `report_usage` call names a commit, Hub remembers it. A later re
 - Before each score, Hub checks again that evaluations are still on, the repository is still connected, and budget remains, and it asks for a fresh Copilot credential.
 - When the budget runs out or Copilot is unavailable, the request waits. If Copilot refuses the credential, Hub marks the connection refused, as a learning run does. The recovery pass tries it again each minute and starts scoring once the budget is raised or the next month begins. Requests that never find a successful Build are dropped after 30 days. A storage outage while reading a screenshot also leaves the score to be retried, so it is never scored without that evidence.
 - Scoring holds the learning execution lock for each command, so agent calls may briefly get a busy reply while a score runs. Scoring is automatic work, so it waits behind learning runs a person asked for.
+
+### Observed outcomes
+
+An active learning's detail view lists how later Builds did with its current wording, newest first. Each entry reads a score as one result. A score where the agent didn't clearly follow the guidance is "Inconclusive". Otherwise a score of 3 or 4 "Supports the guidance" and 1 or 2 is a "Possible concern". The entry shows the scorer's issue, or its reasoning when there is no issue, and links to the Build it judged. For example, "Possible concern · Automated assessment · Checkout, Build 12" with "The rule did not say where the label goes."
+
+- Scores of earlier wording are left out, since they say nothing about the guidance agents get now. Retiring and reinstating a learning keeps its wording, so its scores stay.
+- A score with no successful Build people can open is left out.
+- Before and after screenshot links appear only under the screenshot consent that is on now, the same rule as applied learnings.
+- When a screenshot the scorer saw is no longer shown, its written summary is hidden too, because the words may describe that screenshot.
+- An active learning with no scores reads "Not evaluated yet."
 
 Repository changes take the learning execution lock. While other learning work runs, they return `409` and the person tries again. Repository denials write security audits. The browser contracts are:
 
