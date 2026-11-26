@@ -148,8 +148,10 @@ export function createLearningMcpBackend(input: {
       limit?: number
       session?: { id: string; label?: string }
     }) {
+      // Agents check this before capturing, so they never take screenshots Hub refuses.
+      const screenshotsAllowed = Boolean(await input.screenshots?.grantId())
       const directory = await storeDirectory()
-      if (!directory) return { guidanceId: null, text: "", learnings: [] }
+      if (!directory) return { guidanceId: null, text: "", learnings: [], screenshotsAllowed }
       const store = directory
       function recall(taskArguments: string[]) {
         return run(store, [
@@ -173,6 +175,7 @@ export function createLearningMcpBackend(input: {
         guidanceId: result.guidanceId,
         text: result.text,
         learnings: result.memories.map(({ id, deliveryId }) => ({ id, deliveryId })),
+        screenshotsAllowed,
       }
     },
 
@@ -182,6 +185,11 @@ export function createLearningMcpBackend(input: {
       )
       if (screenshots.some((shot) => shot.file !== undefined))
         throw toAgentError("invalid_input", "Hub accepts screenshots only as base64 data.")
+      if (screenshots.length > 0 && !input.screenshots)
+        throw toAgentError(
+          "unsupported",
+          "This Hub has no screenshot storage set up. Send the report without screenshots.",
+        )
       const grantId = screenshots.length > 0 ? ((await input.screenshots?.grantId()) ?? null) : null
       if (screenshots.length > 0 && !grantId)
         throw toAgentError(

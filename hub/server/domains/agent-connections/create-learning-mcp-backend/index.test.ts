@@ -151,7 +151,7 @@ it("gives no guidance for a repository without a learning store", async () => {
 
   const guidance = await backend.getGuidance({ task: "Build a form" })
 
-  expect(guidance).toEqual({ guidanceId: null, text: "", learnings: [] })
+  expect(guidance).toEqual({ guidanceId: null, text: "", learnings: [], screenshotsAllowed: false })
   expect(runLearningCommand).not.toHaveBeenCalled()
 })
 

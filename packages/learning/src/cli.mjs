@@ -122,7 +122,8 @@ Use
   mcp [--actor <agent:name>] [--grant <grant-id>]...
                                   Serve the learning tools to a coding agent over
                                   standard input and output; --grant lets it submit
-                                  sessions, and screenshots must sit in this directory
+                                  sessions and, for a screenshot grant, screenshots,
+                                  which must sit in this directory
 
 Decision model
   decision models                 Base models suggested for checking screenshots
@@ -1512,6 +1513,15 @@ async function serveMcp(session) {
       await store.close()
     }
   }
+  // Of the grants this server started with, the one that allows screenshots now.
+  async function screenshotGrantId(store, ctx) {
+    return (await store.listGrants(ctx)).find(
+      ({ grant, activePurposes }) =>
+        session.values.grant?.includes(grant.id) &&
+        grant.sources.includes("agent_screenshots") &&
+        activePurposes.includes("evaluation"),
+    )?.grant.id
+  }
   const server = mcp.createLearningMcpServer(
     {
       getGuidance: ({ task, limit, session: agentSession }) =>
@@ -1527,11 +1537,20 @@ async function serveMcp(session) {
             guidanceId: result.guidanceId,
             text: result.text,
             learnings: result.memories.map(({ id, deliveryId }) => ({ id, deliveryId })),
+            screenshotsAllowed: Boolean(await screenshotGrantId(store, ctx)),
           }
         }),
       reportUsage: async (report) => {
         const used = await readReportScreenshots(session.cwd, report.used)
-        return withStore((store, ctx) => store.reportUsage(ctx, { ...report, used }))
+        return withStore(async (store, ctx) => {
+          const hasShots = used?.some?.((item) => item?.before || item?.after)
+          const screenshotGrant = hasShots ? await screenshotGrantId(store, ctx) : undefined
+          return store.reportUsage(ctx, {
+            ...report,
+            used,
+            ...(screenshotGrant ? { consentGrantId: screenshotGrant } : {}),
+          })
+        })
       },
       submitSession: (input) => {
         if (!session.values.grant?.length)

@@ -9,7 +9,7 @@ const INSTRUCTIONS = `This server holds the learnings a team accepted from past 
 
 Before you start a task, call get_guidance with a short description of the task and follow the learnings it returns. Keep its guidanceId and each learning's deliveryId.
 
-When a learning may change something visible, capture a screenshot before you edit and another once the change is in place, when screenshots are allowed. After you commit, call report_usage with the commit SHA and only the learnings you actually applied.
+When a learning may change something visible, capture a screenshot before you edit and another once the change is in place, but only when get_guidance returned screenshotsAllowed: true. After you commit, call report_usage with the commit SHA and only the learnings you actually applied.
 
 When the session ends, call submit_session with the conversation so reviewers' feedback can become new learnings.
 
@@ -86,7 +86,7 @@ export function createLearningMcpServer(
     {
       title: "Get guidance",
       description:
-        "Returns the accepted learnings that fit a task, as text to follow plus each learning's id and deliveryId. Records that this guidance was given. Call it before starting work.",
+        "Returns the accepted learnings that fit a task, as text to follow plus each learning's id and deliveryId, and whether report_usage accepts screenshots. Records that this guidance was given. Call it before starting work.",
       inputSchema: {
         task: z.string().optional().describe("A short description of the task."),
         limit: z.number().int().positive().optional().describe("The most learnings to return."),
@@ -100,7 +100,7 @@ export function createLearningMcpServer(
     {
       title: "Report usage",
       description:
-        "Records which delivered learnings you applied in a commit. When screenshots are allowed, capture a before screenshot ahead of the edit and an after screenshot once the change is in place. Sending the same reportId again changes nothing.",
+        "Records which delivered learnings you applied in a commit. When get_guidance said screenshotsAllowed, capture a before screenshot ahead of the edit and an after screenshot once the change is in place. Sending the same reportId again changes nothing.",
       inputSchema: {
         reportId: z.string().describe("An ID you choose, so a retry is not counted twice."),
         guidanceIds: z

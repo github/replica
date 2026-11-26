@@ -1077,6 +1077,11 @@ export interface LearningStore {
       session?: AgentSessionRef
       prototypeId?: string
       used: Array<{ deliveryId: string; before?: UsageScreenshot; after?: UsageScreenshot }>
+      /**
+       * An active evaluation grant for agent screenshots. Required for screenshots when the
+       * screenshot store requiresGrant, as on a host.
+       */
+      consentGrantId?: string
     },
   ): Promise<{ id: string; reportId: string; stored: boolean }>
   /** Remove a learning for good, with its deliveries, use, and screenshots. Needs a person. */
@@ -1148,6 +1153,8 @@ export declare class ProviderConflictError extends LearningError {}
 
 /** Where a store keeps screenshot images; records hold only their sha256. */
 export interface ScreenshotStore {
+  /** True when the host keeps the bytes, so screenshots need a consent grant. */
+  requiresGrant?: boolean
   put(bytes: Uint8Array): Promise<Digest>
   read(digest: Digest): Promise<Uint8Array | null>
   remove(digest: Digest): Promise<void>

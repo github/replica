@@ -42,9 +42,8 @@ export interface LearningMcpBackend {
   getLearning(input: { id: string }): Promise<unknown>
 }
 
-/** A screenshot an agent names by a PNG file's path. */
-export interface McpScreenshot {
-  file: string
+/** A screenshot an agent names by a PNG file's path, or sends as base64 PNG data. */
+export type McpScreenshot = ({ file: string; data?: never } | { data: string; file?: never }) & {
   route: string
   viewport: { width: number; height: number }
   theme: string
