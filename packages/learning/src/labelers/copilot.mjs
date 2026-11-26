@@ -218,8 +218,9 @@ export async function connectCopilot({ token, sdk } = {}) {
     async askBest({ system, prompt, attachments, schema, timeoutMs }) {
       const usage = []
       const message = { prompt, ...(attachments?.length ? { attachments } : {}) }
-      const fusion = await open({ model: "auto", system, experimental: true })
+      let fusion = null
       try {
+        fusion = await open({ model: "auto", system, experimental: true })
         const switched = await fusion.session.setFusionTier("max").catch(() => null)
         if (switched && ["pending", "applied"].includes(switched.status)) {
           const result = await fusion.send(message, schema, timeoutMs)
@@ -232,11 +233,14 @@ export async function connectCopilot({ token, sdk } = {}) {
         // A refused credential fails Auto too; any other Fusion failure falls back to Auto.
         if (error.code === "unauthorized") throw error
       } finally {
-        usage.push(...fusion.usage)
-        await fusion.close()
+        if (fusion) {
+          usage.push(...fusion.usage)
+          await fusion.close()
+        }
       }
-      const auto = await open({ model: "auto", system })
+      let auto = null
       try {
+        auto = await open({ model: "auto", system })
         await auto.send({ prompt: "Reply with OK." }, undefined, timeoutMs)
         const model = auto.chosenModel
         if (!model)
@@ -254,10 +258,10 @@ export async function connectCopilot({ token, sdk } = {}) {
         }
       } catch (error) {
         const failure = copilotError(error)
-        failure.details = { ...failure.details, usage: [...usage, ...auto.usage] }
+        failure.details = { ...failure.details, usage: [...usage, ...(auto?.usage ?? [])] }
         throw failure
       } finally {
-        await auto.close()
+        await auto?.close()
       }
     },
 

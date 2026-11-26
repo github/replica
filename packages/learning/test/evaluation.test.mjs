@@ -6,7 +6,7 @@ import { connectCopilot } from "../src/labelers/copilot.mjs"
 const ANSWER = { efficiency: 4, followed: "followed", reasoning: "The label stayed visible." }
 
 /** A Copilot SDK whose sessions answer from a script and record what they were asked. */
-function fakeSdk({ fusionTier, chosenModel = "gpt-test" }) {
+function fakeSdk({ fusionTier, chosenModel = "gpt-test", refuse = () => false }) {
   const sessions = []
   class CopilotClient {
     async start() {}
@@ -18,6 +18,7 @@ function fakeSdk({ fusionTier, chosenModel = "gpt-test" }) {
       return [{ id: "gpt-test", supportedReasoningEfforts: ["low", "medium", "high", "xhigh"] }]
     }
     async createSession(options) {
+      if (refuse(options)) throw new Error("Session refused.")
       const handlers = []
       const session = {
         options,
@@ -74,6 +75,29 @@ describe("connectCopilot().askBest()", () => {
     assert.deepEqual(sessions[1].model, { model: "gpt-test", reasoningEffort: "xhigh" })
     assert.equal(sessions[1].sent.at(-1).prompt, "Score this.")
     assert.equal(answer.usage.length, 3)
+  })
+
+  it("falls back to Auto when Copilot refuses to open a Fusion session", async () => {
+    const { sdk } = fakeSdk({ refuse: (options) => options.enableExperimentalMode === true })
+    const connection = await connectCopilot({ sdk })
+    const answer = await connection.askBest({ system: "Judge.", prompt: "Score this." })
+    await connection.close()
+
+    assert.deepEqual(answer.route, { kind: "auto", model: "gpt-test", reasoningEffort: "xhigh" })
+  })
+
+  it("still reports the Fusion turn's cost when Auto cannot open a session", async () => {
+    const { sdk } = fakeSdk({
+      fusionTier: undefined,
+      refuse: (options) => options.enableExperimentalMode !== true,
+    })
+    const connection = await connectCopilot({ sdk })
+
+    await assert.rejects(
+      connection.askBest({ system: "Judge.", prompt: "Score this." }),
+      (error) => error.details.usage.length === 1,
+    )
+    await connection.close()
   })
 })
 
