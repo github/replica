@@ -111,6 +111,32 @@ describe("usePrototypeViewerUrl()", () => {
     expect(new URL(result.current.viewerUrl).searchParams.get("build")).toBe("2")
   })
 
+  it("retains a latest link and its saved destination through viewer updates", () => {
+    const destination = "/settings?tab=profile#details"
+    window.history.replaceState(
+      { superglue: "latest-page" },
+      "",
+      `/repositories/2001/prototypes/1?build=latest&return_path=${encodeURIComponent(destination)}&rc.page.title=%22Shared%22&view=minimized#hub`,
+    )
+    const { result } = renderHook(() =>
+      usePrototypeViewerUrl({ selectedBuild, route: null, initiallyMinimized: true }),
+    )
+    const initialUrl = new URL(result.current.viewerUrl)
+    expect(initialUrl.searchParams.get("return_path")).toBe(destination)
+    expect(initialUrl.searchParams.get("build")).toBe("latest")
+    expect(initialUrl.searchParams.get("view")).toBe("minimized")
+
+    act(() => result.current.setMinimized(false))
+    const url = new URL(result.current.viewerUrl)
+    expect(url.searchParams.get("build")).toBe("latest")
+    expect(url.searchParams.get("return_path")).toBe(destination)
+    expect(url.searchParams.get("rc.page.title")).toBe('"Shared"')
+    expect(url.searchParams.has("view")).toBe(false)
+    expect(url.hash).toBe("#hub")
+    expect(window.location.href).toBe(result.current.viewerUrl)
+    expect(window.history.state).toEqual({ superglue: "latest-page" })
+  })
+
   it("shares minimized mode and removes only that mode when maximizing", () => {
     const { result } = renderHook(() =>
       usePrototypeViewerUrl({ selectedBuild, route: null, initiallyMinimized: true }),

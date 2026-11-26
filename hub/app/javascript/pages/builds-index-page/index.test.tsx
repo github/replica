@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react"
-import { describe, it } from "vitest"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { describe, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
@@ -49,6 +49,98 @@ const PAGE_DATA: BuildsIndexPageData = {
 }
 
 describe("BuildsIndexPage()", () => {
+  it("copies fixed preview links only for successful Builds in history", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
+    const successful = PAGE_DATA.builds[0]!
+    render(
+      <BuildsIndexPage
+        controlQuery="rc.shared.state=empty"
+        data={{
+          ...PAGE_DATA,
+          builds: [
+            {
+              ...successful,
+              number: 4,
+              numberLabel: "build 4",
+              state: "running",
+              stateLabel: "Running",
+            },
+            {
+              ...successful,
+              number: 3,
+              numberLabel: "build 3",
+              state: "failed",
+              stateLabel: "Failed",
+            },
+            successful,
+            { ...successful, number: 1, numberLabel: "build 1" },
+          ],
+        }}
+      />,
+      { wrapper: HubThemeProvider },
+    )
+
+    const history = screen.getByRole("list", { name: PAGE_DATA.buildsHeading })
+    expect(within(history).getAllByRole("button", { name: /^Copy link to Build / })).toHaveLength(2)
+    expect(within(history).queryByRole("textbox")).not.toBeInTheDocument()
+    expect(
+      within(history).queryByRole("button", { name: "Copy link to Build 3" }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(history).queryByRole("button", { name: "Copy link to Build 4" }),
+    ).not.toBeInTheDocument()
+    for (const number of [2, 1]) {
+      const expected = new URL(PAGE_DATA.branchPath, window.location.href)
+      expected.searchParams.set("build", String(number))
+      expected.searchParams.set("rc.shared.state", '"empty"')
+      expected.searchParams.set("view", "minimized")
+      const copy = within(history).getByRole("button", { name: `Copy link to Build ${number}` })
+      expect(copy).toHaveTextContent("")
+      fireEvent.click(copy)
+      await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(expected.toString()))
+      expect(
+        await within(history).findByRole("button", { name: `Link to Build ${number} copied` }),
+      ).toBeInTheDocument()
+    }
+    expect(within(history).queryByRole("textbox")).not.toBeInTheDocument()
+  })
+
+  it("offers the numbered Build link when clipboard copying fails", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("Clipboard unavailable"))
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
+    render(<BuildsIndexPage data={PAGE_DATA} />, { wrapper: HubThemeProvider })
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link to Build 2" }))
+
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent(/could not copy/i)
+    expect(within(alert).getByRole("link")).toHaveAttribute(
+      "href",
+      new URL(
+        "/repositories/2001/prototypes/1?build=2&view=minimized",
+        window.location.href,
+      ).toString(),
+    )
+    expect(screen.queryByRole("button", { name: "Link to Build 2 copied" })).not.toBeInTheDocument()
+  })
+
+  it("uses the supplied non-fullscreen preference for a numbered Build link", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
+    render(<BuildsIndexPage data={PAGE_DATA} fullScreenPreview={false} />, {
+      wrapper: HubThemeProvider,
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link to Build 2" }))
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledExactlyOnceWith(
+        new URL("/repositories/2001/prototypes/1?build=2", window.location.href).toString(),
+      ),
+    )
+  })
+
   it("shows build history in the repository review workspace", () => {
     const { container } = render(<BuildsIndexPage data={PAGE_DATA} />, {
       wrapper: HubThemeProvider,

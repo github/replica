@@ -5,6 +5,7 @@ import { expect } from "storybook/test"
 import { ShareLinksPage } from "."
 import { shareCopy } from "@hooks/use-canvas-share-links/en"
 import type { ShareLink, SharingState } from "@hooks/use-canvas-share-links/types"
+import { prototypeShareLink } from "@utils/prototype-share-link"
 
 const createdAt = new Date()
 const expiresAt = new Date(createdAt.getTime() + 7 * 24 * 60 * 60 * 1000)
@@ -162,10 +163,10 @@ export const FullScreenPreviewOff: Story = {
   args: { state: { ...state, links: [link] } },
   play: async ({ canvas, userEvent }) => {
     const checkbox = canvas.getByRole("checkbox", { name: shareCopy.fullScreenPreview })
-    await userEvent.click(checkbox)
+    if (checkbox instanceof HTMLInputElement && checkbox.checked) await userEvent.click(checkbox)
     await expect(checkbox).not.toBeChecked()
     await expect(canvas.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
-      state.context!.prototype.build!.url,
+      prototypeShareLink(state.context!.prototype.build!.url, "latest"),
     )
   },
 }

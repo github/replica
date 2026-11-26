@@ -82,7 +82,9 @@ describe("PublicationDemo()", () => {
     const label = await screen.findByRole("textbox", { name: "Label" })
     await screen.findByRole("textbox", { name: "Usability review, Build #1 URL" })
     fireEvent.change(label, { target: { value: "Partner review" } })
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "never" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Expires after" }), {
+      target: { value: "never" },
+    })
     fireEvent.click(screen.getByRole("button", { name: "Create share link" }))
     const url = await screen.findByRole("textbox", { name: "Partner review, Build #1 URL" })
     expect(url).toHaveValue("https://hub.example.com/share/12345678-1234-1234-1234-000000000003")

@@ -14,6 +14,8 @@ import { shareCopy } from "@hooks/use-canvas-share-links/en"
 import type { SharingState } from "@hooks/use-canvas-share-links/types"
 import { withControlQuery } from "@utils/prototype-controls-url/with-control-query"
 import { withViewMode } from "@utils/prototype-controls-url/with-view-mode"
+import { prototypeShareLink } from "@utils/prototype-share-link"
+import { useShareFullScreenPreview } from "@hooks/use-share-full-screen-preview"
 
 import "./styles.css"
 
@@ -59,7 +61,7 @@ export function ShareLinksPage({
   const [expiration, setExpiration] = useState("seven_days")
   const [validation, setValidation] = useState("")
   const [now, setNow] = useState(Date.now)
-  const [fullScreenPreview, setFullScreenPreview] = useState(true)
+  const previewPreference = useShareFullScreenPreview()
   const fullScreenPreviewId = useId()
   const listRef = useRef<HTMLUListElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -98,7 +100,12 @@ export function ShareLinksPage({
     return withControlQuery(url, controlsQuery)
   }
   const internalShareUrl =
-    internalUrl && !controlsBlocked ? withViewMode(sharedUrl(internalUrl), fullScreenPreview) : null
+    internalUrl && build && !controlsBlocked
+      ? withViewMode(
+          sharedUrl(prototypeShareLink(internalUrl, "latest")),
+          previewPreference.fullScreenPreview,
+        )
+      : null
   const recoveryLink =
     sharingEnabled &&
     state.stale &&
@@ -204,7 +211,7 @@ export function ShareLinksPage({
                   {shareCopy.internal}
                 </Heading>
                 <p>{shareCopy.internalDescription}</p>
-                {internalShareUrl ? (
+                {internalShareUrl && build ? (
                   <>
                     <div className="share-link-item__actions canvas-share-internal-actions">
                       <CopyableTextInput
@@ -226,11 +233,12 @@ export function ShareLinksPage({
                     </div>
                     <FormControl id={fullScreenPreviewId}>
                       <Checkbox
-                        checked={fullScreenPreview}
-                        onChange={(event) => setFullScreenPreview(event.target.checked)}
+                        checked={previewPreference.fullScreenPreview}
+                        onChange={(event) => previewPreference.onChange(event.target.checked)}
                       />
                       <FormControl.Label>{shareCopy.fullScreenPreview}</FormControl.Label>
                     </FormControl>
+                    {previewPreference.error ? <p role="alert">{previewPreference.error}</p> : null}
                   </>
                 ) : !internalUrl ? (
                   <p role="status">{shareCopy.internalUnavailable}</p>

@@ -1,6 +1,6 @@
 import { LinkExternalIcon } from "@primer/octicons-react"
 import { Checkbox, FormControl, Heading } from "@primer/react-brand/esm"
-import { useId, useState } from "react"
+import { useId } from "react"
 
 import { CopyableTextInput } from "@components/copyable-text-input"
 import { HubAlert } from "@components/hub-alert"
@@ -14,24 +14,30 @@ import { ShareControlSettings } from "@features/prototype-canvas-share-links/sha
 import { withControlQuery } from "@utils/prototype-controls-url/with-control-query"
 import { withViewMode } from "@utils/prototype-controls-url/with-view-mode"
 import type { useShareControlSettings } from "@hooks/use-prototype-share-control-settings"
+import { prototypeShareLink } from "@utils/prototype-share-link"
+import type { useShareFullScreenPreview } from "@hooks/use-share-full-screen-preview"
 
 /** Creates and lists the active public links for one Prototype. */
 export function ShareLinksIndexPage({
   data,
   sourceControlQuery = "",
   controlSettings,
+  previewPreference,
 }: {
   data: ShareLinksIndexPageData
   sourceControlQuery?: string
   controlSettings?: ReturnType<typeof useShareControlSettings>
+  previewPreference: ReturnType<typeof useShareFullScreenPreview>
 }) {
-  const [fullScreenPreview, setFullScreenPreview] = useState(true)
   const fullScreenPreviewId = useId()
   const internalShareUrl =
     data.selectedBuild && !controlSettings?.blocked
       ? withViewMode(
-          withControlQuery(data.closePath ?? data.branchPath, controlSettings?.query ?? ""),
-          fullScreenPreview,
+          withControlQuery(
+            prototypeShareLink(data.closePath ?? data.branchPath, "latest"),
+            controlSettings?.query ?? "",
+          ),
+          previewPreference.fullScreenPreview,
         )
       : null
 
@@ -41,7 +47,7 @@ export function ShareLinksIndexPage({
         labels={data}
         feedback={
           <>
-            {internalShareUrl ? (
+            {internalShareUrl && data.selectedBuild ? (
               <section className="share-links__internal">
                 <Heading as="h2" size="5">
                   {data.internalHeading}
@@ -67,11 +73,12 @@ export function ShareLinksIndexPage({
                 </div>
                 <FormControl id={fullScreenPreviewId}>
                   <Checkbox
-                    checked={fullScreenPreview}
-                    onChange={(event) => setFullScreenPreview(event.target.checked)}
+                    checked={previewPreference.fullScreenPreview}
+                    onChange={(event) => previewPreference.onChange(event.target.checked)}
                   />
                   <FormControl.Label>{data.fullScreenPreviewLabel}</FormControl.Label>
                 </FormControl>
+                {previewPreference.error ? <p role="alert">{previewPreference.error}</p> : null}
               </section>
             ) : data.selectedBuild ? (
               <p role="status">{data.internalUnavailableLabel}</p>

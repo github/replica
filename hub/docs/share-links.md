@@ -1,6 +1,6 @@
 # Share links
 
-Share links let prototype authors show one successful Build to people who do not use Replica Hub.
+Public share links let users show one successful Build to people who do not use Replica Hub. Internal prototype links require sign-in and repository access and can follow the latest successful Build.
 
 ## Deployment opt-in
 
@@ -59,9 +59,13 @@ A signed-in user may manage a Prototype's share links when either rule applies:
 - GitHub reports that the user is a repository administrator.
 - A successful Build for the Prototype records the user as its commit author, and GitHub still reports at least read access.
 
-The management page opens within the prototype workspace beneath the branch header. Its Build selection stays tied to the requested successful Build; returning to the preview keeps the same workspace navigation. Copied and opened internal prototype links retain that Build selection.
+The management page opens within the prototype workspace beneath the branch header. Its public-link creation target stays tied to the requested successful Build; returning to the preview keeps the same workspace navigation.
 
-The management page also shows the signed-in **Internal prototype link** when a successful Build is selected. **Full screen preview** starts checked, so copied and opened internal links add `view=minimized` after the existing query parameters. Unchecking it removes that parameter. This option does not change public share links.
+The management page also shows the signed-in **Internal prototype link** when a successful Build is selected. It uses `?build=latest`. Each open or reload resolves the latest successful Build, ignoring newer pending or failed Builds. An open preview does not switch automatically. If no successful Build exists, Hub shows its existing unavailable state.
+
+Replace `latest` with a Build number to pin the link, or use the copy icon beside a successful Build in Hub's Build selector or History. The icon copies that Build's numbered internal link without selecting it, preserving the current option settings and full-screen preview preference. Existing numbered links remain fixed, and an invalid or unavailable Build number remains an error. These shortcuts do not create public links.
+
+**Full screen preview** starts checked, so copied and opened internal sharing links add `view=minimized` after the existing query parameters. Unchecking it removes that parameter. The browser remembers this setting for sharing and Build-copy links on the same origin. Hub and the native canvas have separate browser storage; they do not synchronize this preference with each other. Storage failures are shown explicitly. This option does not change public share links.
 
 ## Canvas API
 
@@ -93,7 +97,7 @@ Prototype metadata includes `canManageShareLinks`, computed from the same permis
 
 ## Canvas management
 
-The canvas pairs its existing Publish button with a share-icon button on the right. **Share prototype** opens the full-page view when Hub confirms repository access and a successful published Build. **Internal prototype link** shows that Build's normal Hub URL with copy and open actions. It requires GitHub sign-in and repository access; it does not grant public access. Repository readers can use it without permission to manage public links. A missing or invalid Hub URL is shown as unavailable, never replaced with a local preview address.
+The canvas pairs its existing Publish button with a share-icon button on the right. **Share prototype** opens the full-page view when Hub confirms repository access and a successful published Build. **Internal prototype link** offers the same **Latest successful Build** default and **Build N** choice as Hub, with copy and open actions. The numbered choice uses the Build captured when sharing opens; the canvas does not add historical Build selection. It requires GitHub sign-in and repository access; it does not grant public access. Repository readers can use it without permission to manage public links. A missing or invalid Hub URL is shown as unavailable, never replaced with a local preview address.
 
 **Public share links** keeps the existing sharing permissions and Build-pinned creation flow. Readers without confirmed public-sharing permission see an explanation instead of the creation form or active public links. The canvas does not request the public-link list for them. The control-settings checkbox applies to both internal and public links, including when public sharing is unavailable. The Hub website's sharing interface is unchanged.
 
@@ -113,7 +117,7 @@ After the user starts connection or publication, the dialog updates to **Share p
 
 The management view can create links, list active links across the Prototype's Builds, copy or open them, and delete them after confirmation. **Back to preview** restores the existing preview and returns focus to the Share button; it does not reload the prototype. An older successful published Build remains shareable even with newer local changes or a pending or failed publication. Sharing uses Hub's `canManageShareLinks`, not repository write access or an exact checkout commit match. A read-only Build author may share; a read-only unpublished viewer cannot publish. Repository connection metadata supplies `canPublish` before Hub discovers a prototype. On older Hubs that omit it, a repository-authorized connection and a verified missing remote branch offer the existing **Publish** action with an explicit permission-verification note. A missing remote branch is a publishing prerequisite, not a permission denial. The same dialog follows an explicitly requested publication as the remote branch appears. Copilot verifies the target and access during publishing and reports permission errors; the canvas does not assume permission or bypass Hub authorization. Explicit denials, mismatched or unverifiable targets, and unknown sharing permission still block the relevant action.
 
-New links target the latest successful published Build displayed when the management page opens. The Build stays fixed until the user leaves that view, even if a newer Build arrives. The canvas has no historical Build picker; existing links to older Builds still appear in the list. Opening the page does not publish or create a link. Public sharing never exposes the canvas's local address or uncommitted checkout.
+New public links target the latest successful published Build displayed when the management page opens. The Build stays fixed until the user leaves that view, even if a newer Build arrives. The canvas has no historical Build picker; existing public links to older Builds still appear in the list. Opening the page does not publish or create a link. Public sharing never exposes the canvas's local address or uncommitted checkout.
 
 If the user reopens while a request is pending, the canvas waits for it to settle, then captures the latest published Build and reads all active links. New mutations remain disabled until both reads finish. Closing again cancels that queued reopening, not the dispatched request.
 
@@ -133,7 +137,7 @@ The canvas automatically reads every API page and shows all active links, withou
 
 **Include control settings** sits below the page heading and above both sharing sections in the canvas. It applies to internal and public sharing. Hub keeps it directly below the public-link creation fields. It defaults off and remembers the choice separately for each prototype. Hub saves the preference in the current browser; the canvas saves it in the local Copilot profile, keyed by Hub, repository and prototype, so it survives new panels and extension restarts. Only that checkbox preference is saved under `$COPILOT_HOME/extensions/replica-prototype/artifacts/share-control-settings/` (`~/.copilot` by default), not public links or control values. Checking it adds the current non-default settings from all configured pages to copied and opened URLs. Unchecking it removes those parameters. It does not change the stored link, pinned Build, permissions, expiration or page destination.
 
-In Hub, the settings come from the preview URL and follow navigation to share management and its create/delete redirects. In the canvas, they come from local control state, including saved settings from other pages; the local preview URL remains unchanged.
+In Hub, the settings come from the preview URL and follow navigation to share management and its create/delete redirects. In the canvas, they come from local control state, including saved settings from other pages; the local preview URL remains unchanged. Settings saved in a latest-Build link may no longer match the options in future Builds.
 
 Saving the canvas preference does not require public-sharing permission or a successful public-link refresh. It still requires the captured Hub and checkout to match. Public-link actions retain their permission, policy and list-freshness checks.
 

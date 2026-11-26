@@ -1,5 +1,6 @@
 import {
   AlertIcon,
+  CopyIcon,
   HistoryIcon,
   InfoIcon,
   KebabHorizontalIcon,
@@ -18,11 +19,16 @@ import type { CSSProperties, KeyboardEvent, MouseEvent } from "react"
 import { BuildStateLabel } from "@components/build-state-label"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubUserAvatar } from "@components/hub-user-avatar"
+import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { PrototypeReviewControls } from "@features/prototype-review-controls"
 import { PrototypeWorkspaceHeaderLayout } from "@features/prototype-workspace-header-layout"
 import { useHubTheme } from "@hooks/use-hub-theme"
 import { useControlQuery } from "@hooks/use-prototype-control-query"
+import { useShareFullScreenPreview } from "@hooks/use-share-full-screen-preview"
 import { withControlQuery } from "@utils/prototype-controls-url/with-control-query"
+import { withViewMode } from "@utils/prototype-controls-url/with-view-mode"
+import { prototypeShareLink } from "@utils/prototype-share-link"
+import { prototypeLinkCopy } from "@utils/prototype-share-link/en"
 
 import type { PrototypeWorkspaceHeaderProps } from "./types"
 
@@ -37,6 +43,29 @@ export function PrototypeWorkspaceHeader({
   const { resolvedColorMode, setColorMode } = useHubTheme()
   const { visit } = useContext(NavigationContext)
   const controls = useControlQuery()
+  const previewPreference = useShareFullScreenPreview()
+  const [copyResult, setCopyResult] = useState<{
+    url: string
+    number: number
+    status: "copied" | "failed"
+  } | null>(null)
+  function buildShareUrl(number: number) {
+    return withViewMode(
+      withControlQuery(prototypeShareLink(data.branchPath, number), controls.query),
+      previewPreference.fullScreenPreview,
+    )
+  }
+  const currentCopy =
+    copyResult && copyResult.url === buildShareUrl(copyResult.number) ? copyResult : null
+  async function copyBuildLink(number: number) {
+    const url = buildShareUrl(number)
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopyResult({ url, number, status: "copied" })
+    } catch {
+      setCopyResult({ url, number, status: "failed" })
+    }
+  }
   function controlPath(path: string) {
     const url = new URL(withControlQuery(path, controls.query))
     return `${url.pathname}${url.search}${url.hash}`
@@ -216,15 +245,15 @@ export function PrototypeWorkspaceHeader({
               ) : null}
             </ActionMenu.Button>
             <ActionMenu.Overlay aria-label={data.buildSelectionLabel}>
-              {data.buildOptions.map((build) => {
+              {data.buildOptions.flatMap((build) => {
                 const path = controlPath(build.path)
-                return (
+                return [
                   <ActionMenu.Item
                     key={build.number}
                     as="a"
                     href={path}
                     value={String(build.number)}
-                    className="review-shell__build-option"
+                    className={`review-shell__build-option${build.state !== "successful" ? " review-shell__build-option--without-copy" : ""}`}
                     aria-current={build.number === data.selectedBuild?.number ? "page" : undefined}
                     onClick={(event) => {
                       if (
@@ -255,11 +284,44 @@ export function PrototypeWorkspaceHeader({
                         <span className="review-shell__build-status">{build.stateLabel}</span>
                       ) : null}
                     </span>
-                  </ActionMenu.Item>
-                )
+                  </ActionMenu.Item>,
+                  ...(build.state === "successful"
+                    ? [
+                        <ActionMenu.Item
+                          key={`copy-${build.number}`}
+                          value={`copy-${build.number}`}
+                          className="review-shell__build-copy"
+                          aria-label={prototypeLinkCopy.copyBuildNumber(build.number)}
+                          title={prototypeLinkCopy.copyBuildNumber(build.number)}
+                          leadingVisual={<CopyIcon size={16} />}
+                          onClick={() => void copyBuildLink(build.number)}
+                          onKeyDown={(event) => {
+                            if (event.key !== " " && event.key !== "Enter") return
+
+                            event.preventDefault()
+                            event.currentTarget.click()
+                          }}
+                        />,
+                      ]
+                    : []),
+                ]
               })}
             </ActionMenu.Overlay>
           </ActionMenu>
+          <HubVisuallyHidden aria-live="polite">
+            {currentCopy?.status === "copied"
+              ? prototypeLinkCopy.copiedBuild(currentCopy.number)
+              : ""}
+          </HubVisuallyHidden>
+          {copyResult && previewPreference.error ? (
+            <span role="alert">{previewPreference.error}</span>
+          ) : null}
+          {currentCopy?.status === "failed" ? (
+            <span role="alert">
+              {prototypeLinkCopy.menuCopyError}{" "}
+              <a href={currentCopy.url}>{prototypeLinkCopy.build(currentCopy.number)}</a>
+            </span>
+          ) : null}
         </div>
       ) : null}
 

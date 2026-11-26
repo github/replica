@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { successfulBuild } from "@/storybook/fixtures/builds"
 import { prototypeWorkspaceData } from "@/storybook/fixtures/prototype-workspace"
+import { useShareFullScreenPreview } from "@hooks/use-share-full-screen-preview"
 
 import { BuildsIndexPage } from "."
 import type { BuildsIndexPageData } from "./types"
@@ -25,6 +26,16 @@ const meta = {
   title: "Hub/Pages/Builds/Index",
   component: BuildsIndexPage,
   args: { data },
+  render: function BuildsStory(args) {
+    const previewPreference = useShareFullScreenPreview()
+    return (
+      <BuildsIndexPage
+        {...args}
+        fullScreenPreview={previewPreference.fullScreenPreview}
+        preferenceError={previewPreference.error}
+      />
+    )
+  },
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof BuildsIndexPage>
 
