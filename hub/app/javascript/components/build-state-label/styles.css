@@ -6,7 +6,16 @@
 }
 
 .build-state-label--soft {
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  --build-state-label-tint: color-mix(in srgb, currentColor 12%, transparent);
+
+  /* Tints an opaque canvas so the colour stays consistent on grey surfaces. */
+  background:
+    linear-gradient(var(--build-state-label-tint), var(--build-state-label-tint)),
+    var(--hub-canvas-default);
+}
+
+[data-color-mode="dark"] .build-state-label--soft {
+  --build-state-label-tint: color-mix(in srgb, currentColor 20%, transparent);
 }
 
 .build-state-label.build-state-label--queued,
