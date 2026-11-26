@@ -47,6 +47,7 @@ it("connects an agent with the person's approval and stops it after they revoke 
         product,
         agentConnections: {
           applicationOrigin: origin,
+          databaseUrl: process.env.DATABASE_URL!,
           learning: {
             cliPath: "/missing/cli.mjs",
             nodePath: "node",
@@ -128,29 +129,71 @@ it("connects an agent with the person's approval and stops it after they revoke 
       .getSetCookie()
       .find((cookie) => cookie.startsWith("hub_session="))!
       .split(";", 1)[0]!
-    function browser(path: string, method = "GET") {
-      return fetch(origin + path, { method, headers: { Cookie: session, Origin: origin } })
+    function browser(path: string, method = "GET", body?: unknown) {
+      return fetch(origin + path, {
+        method,
+        headers: {
+          Cookie: session,
+          Origin: origin,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      })
     }
-    expect(await (await browser(authorizationPath)).json()).toMatchObject({ agent: "Test agent" })
+    const pending = (await (await browser(authorizationPath)).json()) as {
+      agent: string
+      redirectUri: string
+      session: string
+    }
+    expect(pending).toMatchObject({ agent: "Test agent", redirectUri })
+    // A page loaded under a different account must not approve for this one.
+    expect(
+      (await browser(`${authorizationPath}/approve`, "POST", { session: "other" })).status,
+    ).toBe(409)
     const { redirectUrl } = (await (
-      await browser(`${authorizationPath}/approve`, "POST")
+      await browser(`${authorizationPath}/approve`, "POST", { session: pending.session })
     ).json()) as { redirectUrl: string }
     const returned = new URL(redirectUrl)
     expect(returned.searchParams.get("state")).toBe("agent-state")
-    expect((await browser(`${authorizationPath}/approve`, "POST")).status).toBe(410)
+    expect(
+      (await browser(`${authorizationPath}/approve`, "POST", { session: pending.session })).status,
+    ).toBe(410)
 
-    const tokens = (await (
-      await fetch(`${origin}/token`, {
+    function requestTokens(fields: Record<string, string>) {
+      return fetch(`${origin}/token`, { method: "POST", body: new URLSearchParams(fields) })
+    }
+    const codeExchange = {
+      grant_type: "authorization_code",
+      client_id: registered.client_id,
+      code: returned.searchParams.get("code")!,
+      redirect_uri: redirectUri,
+    }
+    expect((await requestTokens({ ...codeExchange, code_verifier: "wrong" })).status).toBe(400)
+    const firstTokens = (await (
+      await requestTokens({ ...codeExchange, code_verifier: verifier })
+    ).json()) as { access_token: string; refresh_token: string }
+    expect((await requestTokens({ ...codeExchange, code_verifier: verifier })).status).toBe(400)
+
+    const otherClient = (await (
+      await fetch(`${origin}/register`, {
         method: "POST",
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          client_id: registered.client_id,
-          code: returned.searchParams.get("code")!,
-          code_verifier: verifier,
-          redirect_uri: redirectUri,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_name: "Other agent", redirect_uris: [redirectUri] }),
       })
-    ).json()) as { access_token: string }
+    ).json()) as { client_id: string }
+    function refreshWith(clientId: string, refreshToken: string) {
+      return requestTokens({
+        grant_type: "refresh_token",
+        client_id: clientId,
+        refresh_token: refreshToken,
+      })
+    }
+    expect((await refreshWith(otherClient.client_id, firstTokens.refresh_token)).status).toBe(400)
+    const tokens = (await (
+      await refreshWith(registered.client_id, firstTokens.refresh_token)
+    ).json()) as { access_token: string; refresh_token: string }
+    expect((await callMcp(firstTokens.access_token)).status).toBe(401)
+    expect((await refreshWith(registered.client_id, firstTokens.refresh_token)).status).toBe(400)
 
     // Local sign-in cannot read GitHub repositories, so the token works but access stops
     // at the repository check.
@@ -163,11 +206,43 @@ it("connects an agent with the person's approval and stops it after they revoke 
     const connectionId = listed.connections[0]!.id
     expect((await browser(`/api/agent-connections/${connectionId}`, "DELETE")).status).toBe(204)
     expect((await callMcp(tokens.access_token)).status).toBe(401)
+
+    // An agent can also give up its own access through the standard revocation endpoint.
+    const again = await fetch(
+      `${origin}/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: registered.client_id,
+        redirect_uri: redirectUri,
+        code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+        code_challenge_method: "S256",
+      })}`,
+      { redirect: "manual" },
+    )
+    const againPath = `/api/agent-connections/authorizations/${again.headers.get("location")!.split("/").at(-1)}`
+    const againApproved = (await (
+      await browser(`${againPath}/approve`, "POST", { session: pending.session })
+    ).json()) as { redirectUrl: string }
+    const agentTokens = (await (
+      await requestTokens({
+        ...codeExchange,
+        code: new URL(againApproved.redirectUrl).searchParams.get("code")!,
+        code_verifier: verifier,
+      })
+    ).json()) as { access_token: string }
+    const revoked = await fetch(`${origin}/revoke`, {
+      method: "POST",
+      body: new URLSearchParams({
+        client_id: registered.client_id,
+        token: agentTokens.access_token,
+      }),
+    })
+    expect(revoked.status).toBe(200)
+    expect((await callMcp(agentTokens.access_token)).status).toBe(401)
     expect(
       await prisma.securityAudit.count({
         where: { action: { in: ["agent_connection.approve", "agent_connection.revoke"] } },
       }),
-    ).toBe(2)
+    ).toBe(4)
   } finally {
     if (server.listening) {
       await new Promise<void>((resolve, reject) => {
