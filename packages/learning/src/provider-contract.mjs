@@ -128,6 +128,16 @@ export function assertDecisionFence(expected, actual) {
     throw new ProviderConflictError("Decision eligibility changed during the write.")
 }
 
+/**
+ * Refuse a stable-identity collection without a snapshot ID. Its snapshot proves which
+ * reviewers were adopted, so skipping it would quietly let withheld evidence through.
+ */
+export function assertSnapshotIds(collections) {
+  for (const collection of collections)
+    if (typeof collection.snapshotId !== "string")
+      throw new LearningError("storage_corrupt", "A stable-identity collection has no snapshot.")
+}
+
 export function assertStream(stream) {
   if (!Object.hasOwn(STREAMS, stream))
     throw new LearningError("invalid_input", `Unknown record stream: ${stream}`)

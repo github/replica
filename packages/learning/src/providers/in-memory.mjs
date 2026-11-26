@@ -7,6 +7,7 @@ import {
   REQUIRED_CAPABILITIES,
   STREAMS,
   assertQuery,
+  assertSnapshotIds,
   assertDecisionFence,
   assertStorable,
   assertStream,
@@ -214,11 +215,10 @@ export function createInMemoryProvider() {
       const stableCollections = [...earliest]
         .sort((a, b) => a.order - b.order)
         .map((entry) => entry.record)
+      assertSnapshotIds(stableCollections)
       const collections = selected(
         collectionsBySnapshot,
-        stableCollections
-          .filter((collection) => typeof collection.snapshotId === "string")
-          .map((collection) => canonicalJson([scope, collection.snapshotId])),
+        stableCollections.map((collection) => canonicalJson([scope, collection.snapshotId])),
       )
       return structuredClone({ grants, withdrawals, collections, origins: [] })
     },

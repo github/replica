@@ -6,6 +6,7 @@ import {
   REQUIRED_CAPABILITIES,
   STREAMS,
   assertQuery,
+  assertSnapshotIds,
   assertDecisionFence,
   assertStorable,
   assertStream,
@@ -353,10 +354,12 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
       ])
       let snapshots
       try {
-        snapshots = collectionResult.rows.map((row) => JSON.parse(row.body).snapshotId)
+        snapshots = collectionResult.rows.map((row) => JSON.parse(row.body))
       } catch {
         throw new LearningError("storage_corrupt", "A PostgreSQL record contains invalid JSON.")
       }
+      assertSnapshotIds(snapshots)
+      snapshots = snapshots.map((collection) => collection.snapshotId)
       const collections = await query(
         `select body from replica_learning.records
          where stream = 'collections' and scope_key = $1

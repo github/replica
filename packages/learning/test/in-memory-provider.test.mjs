@@ -257,6 +257,48 @@ describe("learning decisions", () => {
     assert.equal((await store.verify(designer())).ok, true)
   })
 
+  it("refuses an edit retried with the operation ID of a later retirement", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const accepted = await store.acceptMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+    })
+    const edit = {
+      expectedDigest: accepted.digest,
+      title: "Keep labels visible",
+      reason: "Make the title clearer.",
+      operationId: "12121212-1212-4121-8121-121212121212",
+    }
+    await store.editMemory(designer(), proposal.id, edit)
+    const retired = await store.retireMemory(designer(), proposal.id, {
+      reason: "Out of date.",
+      operationId: "34343434-3434-4343-8343-343434343434",
+    })
+
+    await assert.rejects(
+      store.editMemory(designer(), proposal.id, {
+        ...edit,
+        operationId: "34343434-3434-4343-8343-343434343434",
+      }),
+      { code: "conflict" },
+    )
+    assert.equal((await store.getMemory(designer(), proposal.id)).record.digest, retired.digest)
+  })
+
   it("refuses stale or nonhuman edits without changing history", async () => {
     const store = await createLearningStore({
       provider: createInMemoryProvider(),
@@ -739,6 +781,56 @@ describe("learning decisions", () => {
         }),
         [],
       )
+    } finally {
+      resume.resolve()
+      await pending.catch(() => {})
+    }
+  })
+
+  it("does not commit an acceptance after instruction consent is withdrawn at append", async () => {
+    const provider = createInMemoryProvider()
+    const ready = Promise.withResolvers()
+    const resume = Promise.withResolvers()
+    const store = await createLearningStore({
+      provider: {
+        ...provider,
+        async appendMemoryVersion(record, options) {
+          if (record.state === "accepted") {
+            ready.resolve()
+            await resume.promise
+          }
+          return provider.appendMemoryVersion(record, options)
+        },
+      },
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const before = await provider.readMemoryVersions({ scope: agent().scope })
+    const pending = store.acceptMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+    })
+    try {
+      await Promise.race([
+        ready.promise,
+        pending.then(() => {
+          throw new Error("The acceptance finished before its write was paused.")
+        }),
+      ])
+      await store.withdrawGrant(designer(), grant.id, { purposes: ["instruction"] })
+      resume.resolve()
+      await assert.rejects(pending, { code: "stale_review" })
+      assert.deepEqual(await provider.readMemoryVersions({ scope: agent().scope }), before)
     } finally {
       resume.resolve()
       await pending.catch(() => {})

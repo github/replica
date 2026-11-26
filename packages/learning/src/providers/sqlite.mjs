@@ -18,6 +18,7 @@ import {
   REQUIRED_CAPABILITIES,
   STREAMS,
   assertQuery,
+  assertSnapshotIds,
   assertDecisionFence,
   assertStorable,
   assertStream,
@@ -812,6 +813,7 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         )
         .all(key, JSON.stringify(hubSources))
         .map(storedRecord)
+      assertSnapshotIds(stableCollections)
       const collections = db
         .prepare(
           `

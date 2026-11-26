@@ -1090,15 +1090,18 @@ class LearningStore {
           ),
         )
       : undefined
-    const observations = await this.#observations(
-      context,
-      episodeIds ? { episodeIds, decision: true } : {},
-    )
-    const { eligibility } = await this.#eligibility(
-      context,
-      now,
-      ids ? { ...observations, purpose } : undefined,
-    )
+    // A decision reads only the evidence its learnings cite, which it must find first. A
+    // full read has no such dependency, so it reads both at once.
+    let observations, eligibility
+    if (ids) {
+      observations = await this.#observations(context, { episodeIds, decision: true })
+      ;({ eligibility } = await this.#eligibility(context, now, { ...observations, purpose }))
+    } else {
+      ;[observations, { eligibility }] = await Promise.all([
+        this.#observations(context),
+        this.#eligibility(context, now),
+      ])
+    }
     const eligible = await this.#eligible(observations, eligibility, purpose)
     const items = [...entries.values()].map((entry) => ({
       ...entry,
@@ -2404,6 +2407,12 @@ class LearningStore {
   async acceptMemory(context, id, { expectedDigest, content, note, operationId } = {}) {
     assertContext(context)
     requireHuman(context, "accept a learning")
+    // Read the fence before the evidence so a withdrawal or redaction that lands in
+    // between refuses the write instead of approving stale evidence.
+    const expectedDecisionFence =
+      this.#provider.atomicDecisionFence === true
+        ? await this.#provider.decisionFence(context.scope)
+        : undefined
     const { items, eligible, now } = await this.#statuses(context)
     const entries = new Map(items.map((item) => [item.id, item]))
     const latest = this.#reviewable(entries, id, expectedDigest)
@@ -2459,6 +2468,7 @@ class LearningStore {
         ],
         { purpose: "instruction", ...(edited ? { reason: "Accepted with edits." } : {}) },
       ),
+      expectedDecisionFence,
     )
     return record
   }
@@ -2590,7 +2600,8 @@ class LearningStore {
       )
       if (previous) {
         if (
-          previous.accepted?.decision !== decision ||
+          previous.accepted?.operationId !== operationId ||
+          previous.accepted.decision !== decision ||
           previous.accepted.reviewedDigest !== expectedDigest ||
           previous.accepted.note !== reason ||
           canonicalJson(previous.accepted.by) !== canonicalJson(context.principal) ||
