@@ -19,7 +19,7 @@ const PAGE_DATA: BuildsIndexPageData = {
     {
       author: {
         avatarUrl: "https://avatars.example.test/octocat",
-        label: "By @octocat",
+        label: "@octocat",
         url: "https://github.com/octocat",
       },
       commitLabel: "Commit aaaaaaa",
@@ -179,7 +179,7 @@ describe("BuildsIndexPage()", () => {
     )
     expect(screen.getByRole("link", { name: /build 2/ })).toHaveAttribute("data-sg-visit", "true")
     expect(screen.getByText("Successful")).toBeInTheDocument()
-    expect(screen.getAllByRole("link", { name: "By @octocat" })[0]).toHaveAttribute(
+    expect(screen.getAllByRole("link", { name: "@octocat" })[0]).toHaveAttribute(
       "href",
       "https://github.com/octocat",
     )
@@ -279,7 +279,7 @@ describe("BuildsIndexPage()", () => {
           builds: [
             {
               ...PAGE_DATA.builds[0]!,
-              author: { avatarUrl: "/local-developer-avatar.svg", label: "By @local", url: null },
+              author: { avatarUrl: "/local-developer-avatar.svg", label: "@local", url: null },
             },
           ],
         }}
@@ -288,7 +288,7 @@ describe("BuildsIndexPage()", () => {
     )
 
     const author = container.querySelector(".build-history__author")
-    expect(author).toHaveTextContent("By @local")
+    expect(author).toHaveTextContent("@local")
     expect(author).toHaveClass("build-history__state")
     expect(author?.querySelector("img")).toHaveAttribute("src", "/local-developer-avatar.svg")
   })

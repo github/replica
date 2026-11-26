@@ -3,5 +3,4 @@ export type BuildState = "failed" | "queued" | "running" | "successful" | "super
 export interface BuildStateLabelProps {
   label: string
   state: BuildState
-  appearance?: "outline" | "soft"
 }

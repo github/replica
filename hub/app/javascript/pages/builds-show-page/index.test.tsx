@@ -101,7 +101,7 @@ describe("BuildsShowPage()", () => {
       "https://github.com/github/prototype/actions/runs/9001",
     )
     expect(screen.getByText("Storage used: 24.5 MB")).toBeInTheDocument()
-    expect(screen.getAllByRole("link", { name: "By @octocat" })[0]).toHaveAttribute(
+    expect(screen.getAllByRole("link", { name: "@octocat" })[0]).toHaveAttribute(
       "href",
       "https://github.com/octocat",
     )

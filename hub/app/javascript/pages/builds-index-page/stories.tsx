@@ -68,7 +68,7 @@ export const UnlinkedAuthor: Story = {
       builds: [
         {
           ...successfulBuild,
-          author: { avatarUrl: null, label: "By Sam", url: null },
+          author: { avatarUrl: null, label: "Sam", url: null },
         },
       ],
     },
