@@ -29,7 +29,8 @@ export interface LearningMcpBackend {
     task?: string
     user?: string
     startedAt?: string
-    messages: Array<{ role: "user" | "agent"; text: string; at?: string }>
+    /** The whole conversation in order; a tool message holds its place with empty text. */
+    messages: Array<{ role: "user" | "agent" | "tool"; text: string; at?: string }>
     outcome?: { status: "success" | "failure" | "partial" | "unknown"; summary?: string }
   }): Promise<unknown>
   /** Returns the store's memory readings; the tool shortens them for the agent. */
@@ -45,11 +46,17 @@ export interface McpScreenshot {
   route: string
   viewport: { width: number; height: number }
   theme: string
+  /** UTC with six fractional digits, such as 2026-10-09T12:00:00.000000Z. */
   capturedAt: string
 }
 
 /** Builds the learning MCP server around a host's backend. Connect it to a transport. */
 export function createLearningMcpServer(
   backend: LearningMcpBackend,
-  info?: { name?: string; version?: string },
+  options?: {
+    name?: string
+    version?: string
+    /** Receives failures the agent sees only as a generic error, so the host can log them. */
+    onError?: (error: unknown) => void
+  },
 ): McpServer

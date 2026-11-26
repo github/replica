@@ -129,12 +129,12 @@ The agent gets these tools:
 
 | Tool | What it does |
 | --- | --- |
-| `get_guidance` | Returns the accepted learnings for a task, like `recall`, with a `guidanceId` and a `deliveryId` for each learning |
+| `get_guidance` | Returns the framed text `recall` gives for a task, with a `guidanceId` and each learning's `id` and `deliveryId` |
 | `report_usage` | Records which delivered learnings a commit applied, like `report-usage`. A screenshot names a PNG file inside the directory the server runs in |
-| `submit_session` | Stores the session's user and agent messages and its outcome, like `import agent-session`. A person must start the server with `--grant <grant-id>` for a grant that names `agent_session`; without one, the tool refuses |
-| `list_learnings`, `get_learning` | Read learnings and their evidence. For a proposed learning, `get_learning` gives the exact `accept` and `reject` commands for a person to run |
+| `submit_session` | Stores the session's user and agent messages and its outcome, like `import agent-session`, including its position rules. A person must start the server with `--grant <grant-id>` for a grant that names `agent_session`; without one, the tool refuses |
+| `list_learnings`, `get_learning` | Read learnings for the instruction purpose, so the agent sees only the text recall could give it. Other learnings show only their state. For a proposed learning, `get_learning` gives the exact `accept` and `reject` commands for a person to run in the same store |
 
-The server tells the agent when to call each tool. Copilot CLI passes a server's instructions to the model only when the server is allowlisted or you start it with `--allow-all-mcp-server-instructions`, so the tool descriptions repeat what matters. The agent acts as `--actor`, `agent:mcp` by default. It can never accept, reject, edit, or delete a learning.
+The server tells the agent when to call each tool. Errors that aren't learning refusals reach the agent as a generic message, and their cause is written to the server's standard error. Copilot CLI passes a server's instructions to the model only when the server is allowlisted or you start it with `--allow-all-mcp-server-instructions`, so the tool descriptions repeat what matters. The agent acts as `--actor`, `agent:mcp` by default. It can never accept, reject, edit, or delete a learning.
 
 Hosts such as Hub can serve the same tools by importing `createLearningMcpServer` from `@github/replica-learning/mcp` and passing their own backend. The tools and their wording then stay the same everywhere.
 

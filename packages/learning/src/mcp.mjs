@@ -25,7 +25,11 @@ const screenshot = z
     route: z.string().describe("The prototype route shown, such as /settings."),
     viewport: z.object({ width: z.number().int(), height: z.number().int() }),
     theme: z.string().describe("The color theme shown, such as light or dark."),
-    capturedAt: z.string().describe("When it was captured, as an ISO 8601 time."),
+    capturedAt: z
+      .string()
+      .describe(
+        "When it was captured, in UTC with six fractional digits, such as 2026-10-09T12:00:00.000000Z.",
+      ),
   })
   .optional()
 
@@ -41,11 +45,13 @@ const screenshot = z
  *   listLearnings(input: object): Promise<unknown>
  *   getLearning(input: object): Promise<unknown>
  * }} backend
- * @param {{ name?: string, version?: string }} [info]
+ * @param {{ name?: string, version?: string, onError?: (error: unknown) => void }} [options]
+ *   onError receives any failure that is not a LearningError, so the host can log the
+ *   cause the agent is not shown.
  */
 export function createLearningMcpServer(
   backend,
-  { name = "replica-learning", version = "0.0.0" } = {},
+  { name = "replica-learning", version = "0.0.0", onError } = {},
 ) {
   const server = new McpServer({ name, version }, { instructions: INSTRUCTIONS })
   function tool(id, config, call) {
@@ -55,6 +61,7 @@ export function createLearningMcpServer(
       } catch (error) {
         // Learning errors are written for people. Anything else may name local paths or
         // internals, so the agent gets a plain message instead.
+        if (!(error instanceof LearningError)) onError?.(error)
         const text =
           error instanceof LearningError
             ? `${error.code}: ${error.message}`
@@ -69,7 +76,7 @@ export function createLearningMcpServer(
     {
       title: "Get guidance",
       description:
-        "Returns the accepted learnings that fit a task, as text to follow plus each learning with its deliveryId. Records that this guidance was given. Call it before starting work.",
+        "Returns the accepted learnings that fit a task, as text to follow plus each learning's id and deliveryId. Records that this guidance was given. Call it before starting work.",
       inputSchema: {
         task: z.string().optional().describe("A short description of the task."),
         limit: z.number().int().positive().optional().describe("The most learnings to return."),
@@ -110,7 +117,7 @@ export function createLearningMcpServer(
     {
       title: "Submit session",
       description:
-        "Stores this session's user and agent messages and its outcome, so feedback in it can become learnings. Leave out tool calls and tool output. Sending the same sessionId again adds new messages.",
+        "Stores this session's user and agent messages and its outcome, so feedback in it can become learnings. Messages are matched by position, so always send the whole conversation in order, with each tool call or output as an empty tool message, and keep each earlier message's user and time unchanged. Sending the same sessionId again adds the new messages.",
       inputSchema: {
         sessionId: z.string(),
         task: z.string().optional(),
@@ -118,8 +125,8 @@ export function createLearningMcpServer(
         startedAt: z.string().optional().describe("An ISO 8601 time."),
         messages: z.array(
           z.object({
-            role: z.enum(["user", "agent"]),
-            text: z.string(),
+            role: z.enum(["user", "agent", "tool"]),
+            text: z.string().describe("Leave empty for a tool message; it is not stored."),
             at: z.string().optional().describe("An ISO 8601 time."),
           }),
         ),
@@ -138,7 +145,8 @@ export function createLearningMcpServer(
     "list_learnings",
     {
       title: "List learnings",
-      description: "Lists learnings and their states. Read only.",
+      description:
+        "Lists learnings and their states. Only accepted learnings that recall can give include their text. Read only.",
       inputSchema: {
         state: z
           .array(z.enum(["proposed", "accepted", "rejected", "retired"]))
@@ -152,7 +160,10 @@ export function createLearningMcpServer(
         id: record.id,
         state: record.state,
         kind: record.kind,
-        ...(withheld ? { withheld: true } : { title: record.title, content: record.content }),
+        // Text no one accepted, or that consent no longer lets agents use, stays withheld.
+        ...(record.state === "accepted" && !withheld && status.recallEligible
+          ? { title: record.title, content: record.content }
+          : { withheld: true }),
         recalled: status.recallEligible,
       })),
   )
@@ -161,7 +172,7 @@ export function createLearningMcpServer(
     {
       title: "Get learning",
       description:
-        "Shows one learning with its evidence and history. For a proposed learning, it also says how a person can accept or reject it. Read only.",
+        "Shows one accepted learning that recall can give. Any other learning shows only its state, and a proposed one says how a person can accept or reject it. Read only.",
       inputSchema: { id: z.string() },
       annotations: { readOnlyHint: true },
     },

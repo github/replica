@@ -1347,6 +1347,21 @@ describe("replica-learning CLI: guard rails", () => {
       "--by",
       "github:ana-designer",
     ])
+    const sessionGrant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
     writeFileSync(
       path.join(repo, "after.png"),
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]),
@@ -1367,7 +1382,7 @@ describe("replica-learning CLI: guard rails", () => {
         return true
       },
     }
-    const served = main(["mcp", "--actor", "agent:copilot"], {
+    const served = main(["mcp", "--actor", "agent:copilot", "--grant", sessionGrant.id], {
       cwd: repo,
       env: {},
       stdin,
@@ -1405,8 +1420,11 @@ describe("replica-learning CLI: guard rails", () => {
     stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`)
 
     const guidance = (await call("get_guidance", { task: "Build the form" })).data
-    const [memory] = guidance.memories
+    const [memory] = guidance.learnings
+    assert.deepEqual(Object.keys(memory), ["id", "deliveryId"])
     assert.equal(memory.id, proposal.id)
+    const [listed] = (await call("list_learnings", {})).data
+    assert.ok(guidance.text.includes(listed.content))
     const report = {
       reportId: "report-1",
       guidanceIds: [guidance.guidanceId],
@@ -1425,8 +1443,25 @@ describe("replica-learning CLI: guard rails", () => {
       ],
     }
     assert.equal((await call("report_usage", report)).data.stored, true)
-    const session = await call("submit_session", { sessionId: "s-1", messages: [] })
-    assert.match(session.data, /^grant_inactive: /)
+    const conversation = {
+      sessionId: "s-1",
+      messages: [
+        { role: "user", text: "Keep the labels above the fields." },
+        { role: "tool", text: "" },
+        { role: "agent", text: "Moved the labels." },
+      ],
+    }
+    assert.equal((await call("submit_session", conversation)).error, undefined)
+    await ok(repo, [
+      "grants",
+      "withdraw",
+      sessionGrant.id,
+      "--purpose",
+      "review",
+      "--by",
+      "github:ana-designer",
+    ])
+    assert.match((await call("submit_session", conversation)).data, /^grant_inactive: /)
 
     stdin.end()
     assert.equal(await served, 0)

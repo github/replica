@@ -1355,32 +1355,7 @@ async function reportUsage(session) {
   const principal = actor(session, { required: true })
   if (!report || typeof report !== "object" || Array.isArray(report))
     throw new LearningError("invalid_input", `${file} must be a JSON object.`)
-  // The store checks these limits too, but only after every file is in memory, so the
-  // count and total size are checked here first and files are read one at a time.
-  if (Array.isArray(report.used) && report.used.length > 1000)
-    throw new LearningError("invalid_input", "used lists at most 1000 delivered learnings.")
-  let used = report.used
-  if (Array.isArray(report.used)) {
-    used = []
-    let total = 0
-    for (const item of report.used) {
-      if (!item || typeof item !== "object") {
-        used.push(item)
-        continue
-      }
-      const copy = { ...item }
-      for (const role of ["before", "after"])
-        if (copy[role]?.file !== undefined) {
-          copy[role] = await screenshotFile(
-            directory,
-            copy[role],
-            MAX_REPORT_SCREENSHOT_BYTES - total,
-          )
-          total += copy[role].bytes.length
-        }
-      used.push(copy)
-    }
-  }
+  const used = await readReportScreenshots(directory, report.used)
   const { store } = await open(session)
   const result = await store.reportUsage(context(session, principal), { ...report, used })
   session.out(
@@ -1389,6 +1364,37 @@ async function reportUsage(session) {
       ? `Stored usage report ${result.reportId}.`
       : `Usage report ${result.reportId} was already stored.`,
   )
+}
+
+/**
+ * Swap each screenshot's file for its bytes. The store checks these limits too, but only
+ * after every file is in memory, so the count and total size are checked here first and
+ * files are read one at a time.
+ */
+async function readReportScreenshots(directory, items) {
+  if (!Array.isArray(items)) return items
+  if (items.length > 1000)
+    throw new LearningError("invalid_input", "used lists at most 1000 delivered learnings.")
+  const used = []
+  let total = 0
+  for (const item of items) {
+    if (!item || typeof item !== "object") {
+      used.push(item)
+      continue
+    }
+    const copy = { ...item }
+    for (const role of ["before", "after"])
+      if (copy[role]?.file !== undefined) {
+        copy[role] = await screenshotFile(
+          directory,
+          copy[role],
+          MAX_REPORT_SCREENSHOT_BYTES - total,
+        )
+        total += copy[role].bytes.length
+      }
+    used.push(copy)
+  }
+  return used
 }
 
 async function screenshotFile(directory, { file, ...rest }, remaining) {
@@ -1464,51 +1470,68 @@ async function serveMcp(session) {
       await store.close()
     }
   }
-  const server = mcp.createLearningMcpServer({
-    getGuidance: ({ task, limit, session: agentSession }) =>
-      withStore((store, ctx) =>
-        store.recall(ctx, { task, limit: limit ?? 20, budgetChars: 6000, session: agentSession }),
-      ),
-    reportUsage: async (report) => {
-      const used = await Promise.all(
-        report.used.map(async (item) => {
-          const copy = { ...item }
-          for (const role of ["before", "after"])
-            if (copy[role]) copy[role] = await screenshotFile(session.cwd, copy[role])
-          return copy
+  const server = mcp.createLearningMcpServer(
+    {
+      getGuidance: ({ task, limit, session: agentSession }) =>
+        withStore(async (store, ctx) => {
+          const result = await store.recall(ctx, {
+            task,
+            limit: limit ?? 20,
+            budgetChars: 6000,
+            session: agentSession,
+          })
+          // Only the framed text was recorded as delivered, so the raw learnings stay out.
+          return {
+            guidanceId: result.guidanceId,
+            text: result.text,
+            learnings: result.memories.map(({ id, deliveryId }) => ({ id, deliveryId })),
+          }
         }),
-      )
-      return withStore((store, ctx) => store.reportUsage(ctx, { ...report, used }))
-    },
-    submitSession: (input) => {
-      if (!session.values.grant?.length)
-        throw new LearningError(
-          "grant_inactive",
-          "This server was started without a consent grant for sessions. Ask a person to start it with --grant.",
+      reportUsage: async (report) => {
+        const used = await readReportScreenshots(session.cwd, report.used)
+        return withStore((store, ctx) => store.reportUsage(ctx, { ...report, used }))
+      },
+      submitSession: (input) => {
+        if (!session.values.grant?.length)
+          throw new LearningError(
+            "grant_inactive",
+            "This server was started without a consent grant for sessions. Ask a person to start it with --grant.",
+          )
+        return withStore((store, ctx) =>
+          store.importAgentSession(ctx, input, { grantIds: session.values.grant }),
         )
-      return withStore((store, ctx) =>
-        store.importAgentSession(ctx, input, { grantIds: session.values.grant }),
-      )
+      },
+      // Agents read with the instruction purpose, so they see only what recall could give.
+      listLearnings: ({ state }) =>
+        withStore((store, ctx) =>
+          store.queryMemory(ctx, { states: state, purpose: "instruction" }),
+        ),
+      getLearning: ({ id }) =>
+        withStore(async (store, ctx) => {
+          const item = await store.getMemory(ctx, id, { purpose: "instruction" })
+          const { record } = item
+          if (record.state === "accepted" && !item.withheld && item.status.recallEligible)
+            return item
+          // A learning no one accepted is not guidance, so its text stays with people.
+          const summary = { id: record.id, state: record.state, withheld: true }
+          if (record.state !== "proposed") return summary
+          // There is no sign-in here, so a person runs the decision themselves.
+          const command = decisionCommandPrefix(session)
+          return {
+            ...summary,
+            decide: {
+              note: "Only a person can decide. Ask them to run one of these with their GitHub login.",
+              accept: `${command} accept ${record.id} --digest ${record.reviewDigest} --by github:<login>`,
+              reject: `${command} reject ${record.id} --digest ${record.reviewDigest} --by github:<login> --reason <text>`,
+            },
+          }
+        }),
     },
-    listLearnings: ({ state }) =>
-      withStore((store, ctx) => store.queryMemory(ctx, { states: state })),
-    getLearning: ({ id }) =>
-      withStore(async (store, ctx) => {
-        const item = await store.getMemory(ctx, id)
-        const { record } = item
-        if (record.state !== "proposed" || item.withheld) return item
-        // There is no sign-in here, so a person runs the decision themselves.
-        const command = `node ${fileURLToPath(new URL("../bin/replica-learning.mjs", import.meta.url))}`
-        return {
-          ...item,
-          decide: {
-            note: "Only a person can decide. Ask them to run one of these with their GitHub login.",
-            accept: `${command} accept ${record.id} --digest ${record.reviewDigest} --by github:<login>`,
-            reject: `${command} reject ${record.id} --digest ${record.reviewDigest} --by github:<login> --reason <text>`,
-          },
-        }
-      }),
-  })
+    {
+      onError: (error) =>
+        session.stderr.write(`replica-learning mcp: ${error?.stack ?? String(error)}\n`),
+    },
+  )
   const transport = new stdio.StdioServerTransport(session.stdin, session.stdout)
   const closed = new Promise((resolve) => {
     server.server.onclose = resolve
@@ -1520,6 +1543,20 @@ async function serveMcp(session) {
   session.stdin.once("end", hangUp)
   session.stdin.once("close", hangUp)
   await closed
+}
+
+/** The start of a decision command that opens the same store this server opened. */
+function decisionCommandPrefix(session) {
+  const script = fileURLToPath(new URL("../bin/replica-learning.mjs", import.meta.url))
+  const parts = ["cd", shellQuote(session.cwd), "&&", "node", shellQuote(script)]
+  for (const name of ["dir", "repository", "legacy-repository"])
+    if (session.values[name] !== undefined)
+      parts.push(`--${name}`, shellQuote(session.values[name]))
+  return parts.join(" ")
+}
+
+function shellQuote(value) {
+  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`
 }
 
 async function deleteMemory(session) {
