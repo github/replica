@@ -151,7 +151,7 @@ Screenshots open from Hub, not the agent. Hub serves one only while the screensh
 
 Hub can check whether a repository's learnings help and suggest updates. Someone who administers Hub or the repository opens it from **Automated evaluations** on the Learnings page. For example, a Hub administrator sets a shared budget of 100 credits per month, and an administrator of `github/checkout` turns on **Evaluate github/checkout**.
 
-- The budget is one monthly credit limit shared by every repository. Only Hub administrators change it, from 0 to 1,000,000 credits. Usage counts every score attempt that finished since the start of the month in UTC, including attempts that fail. A budget of 0 means nothing is scored. The limit is checked before each score, and a score's cost is only known once it finishes, so the last score in a month can go over the limit by up to one score's cost.
+- The budget is one monthly credit limit shared by every repository. Only Hub administrators change it, from 0 to 1,000,000 credits. Usage counts every score attempt and every update check that finished since the start of the month in UTC, including attempts that fail. A budget of 0 means nothing is scored or checked. The limit is checked before each attempt, and an attempt's cost is only known once it finishes, so the last attempt in a month can go over the limit by up to one attempt's cost.
 - Each repository is off until one of its administrators turns it on. Hub and repository administration stay separate, so a Hub administrator alone cannot turn on a repository.
 - **Allow screenshots** lets agents send screenshots with `report_usage` and lets Hub analyze them. It needs evaluations on, and turning evaluations off turns it off too. The page shows who changed it last.
 
@@ -175,6 +175,16 @@ When the person who left review feedback resolves their own thread, Hub treats t
 - Someone else resolving the thread doesn't count. A thread on the newest Build has no later change to verify, so nothing is scored.
 - The scorer gets only the time of the verification, never the thread's text.
 - The re-score follows the same budget, retry, and lock rules as the first score.
+
+### Suggesting learning updates
+
+Each new score flags its learning for a check. Once a day at 03:00 UTC, a job queues one check per flagged learning, oldest first, at the same low priority as automatic learning runs. Each check runs on its own, so other scheduled work runs in between and one repository's failure doesn't hold up the rest. The learning package decides whether the same issue keeps coming up in enough Builds and, only then, asks Copilot to draft new wording. Hub records each check's result and cost. For example, two Builds score "Use the shared empty state" low because it never says where the empty state goes, so the check keeps a suggestion that names the position.
+
+- A suggestion only waits for review. Agents keep getting the current wording until someone applies a change.
+- Each check runs under the learning execution lock. It confirms evaluations are still on, the repository is still connected, and the budget remains before it starts.
+- When the budget runs out or Copilot is unavailable, the check keeps its flag for the next day. A learning scored again during its check stays flagged too.
+- Flags for repositories with evaluations off or no longer connected are dropped.
+- A check can't be resumed. One interrupted by a worker stopping is recorded as interrupted by the next check, and it may have spent credits Hub didn't see.
 
 ### Observed outcomes
 
