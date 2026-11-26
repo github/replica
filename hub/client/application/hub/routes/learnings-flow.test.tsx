@@ -37,6 +37,7 @@ function learningsResponse() {
     suggestions: [
       {
         id: "mem_suggestion",
+        title: null,
         content: "Show a visible label above every form field.",
         reviewDigest: digest,
         support: { reviewers: 2, prototypes: 2 },
@@ -75,7 +76,9 @@ function learningsResponse() {
     learnings: [
       {
         id: "mem_accepted",
+        title: null,
         content: "Use one primary button per form.",
+        digest,
         acceptedBy: "octocat",
         acceptedAt: "2026-11-08T20:00:00.000Z",
         edited: true,
@@ -83,13 +86,16 @@ function learningsResponse() {
       },
       {
         id: "mem_damaged",
+        title: null,
         content: null,
+        digest: null,
         acceptedBy: null,
         acceptedAt: null,
         edited: false,
         status: "damaged" as const,
       },
     ],
+    rejected: [],
     recall: {
       text: "Approved team learnings\n1. Use one primary button per form.",
       count: 1,
@@ -650,7 +656,9 @@ describe("Learnings frontend integration", () => {
                 learnings: [
                   {
                     id: suggestionRecord.id,
+                    title: null,
                     content: suggestionRecord.content,
+                    digest,
                     acceptedBy: "octocat",
                     acceptedAt: "2026-11-10T12:00:00Z",
                     edited: false,

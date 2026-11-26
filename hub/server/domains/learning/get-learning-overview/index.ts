@@ -7,7 +7,7 @@ import { LearningCommandError } from "../../../integrations/learning/run-learnin
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
 import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 import type { ReviewCommentLearningSource } from "../review-comment-learning-source/types.ts"
-import type { AcceptedLearning, LearningSuggestion } from "../types.ts"
+import type { AcceptedLearning, LearningSuggestion, RejectedLearning } from "../types.ts"
 
 const referenceSchema = z
   .object({
@@ -25,6 +25,14 @@ const referenceSchema = z
       .loose(),
   })
   .loose()
+const decisionSchema = z
+  .object({
+    at: z.string().optional(),
+    reason: z.string().optional(),
+    by: z.object({ id: z.string().optional() }).loose().optional(),
+  })
+  .loose()
+  .optional()
 const memorySchema = z
   .object({
     withheld: z.boolean(),
@@ -32,7 +40,9 @@ const memorySchema = z
       .object({
         id: z.string().min(1),
         state: z.enum(["proposed", "accepted", "rejected", "retired"]),
+        title: z.string().optional(),
         content: z.string().optional(),
+        digest: z.string().optional(),
         reviewDigest: z.string().optional(),
         evidence: z.array(referenceSchema).optional(),
         contradictions: z.array(referenceSchema).optional(),
@@ -60,6 +70,8 @@ const memorySchema = z
           })
           .loose()
           .optional(),
+        rejected: decisionSchema,
+        retired: decisionSchema,
       })
       .loose(),
     status: z
@@ -147,6 +159,7 @@ export async function getLearningOverview(input: {
         identityReviewCount: 0,
         suggestions: [],
         learnings: [],
+        rejected: [],
         recall: { text: "", count: 0 },
       }
     }
@@ -265,6 +278,7 @@ export async function getLearningOverview(input: {
       )
       suggestions.push({
         id: item.record.id,
+        title: item.record.title ?? null,
         content,
         reviewDigest,
         support: item.record.support
@@ -294,7 +308,9 @@ export async function getLearningOverview(input: {
     .filter((item) => item.record.state === "accepted")
     .map((item) => ({
       id: item.record.id,
+      title: item.withheld ? null : (item.record.title ?? null),
       content: item.withheld ? null : (item.record.content ?? null),
+      digest: item.record.digest ?? null,
       acceptedBy: login(item.record.accepted?.by?.id),
       acceptedAt: item.record.accepted?.at ?? null,
       edited: item.record.accepted?.edited === true,
@@ -309,6 +325,23 @@ export async function getLearningOverview(input: {
                 ? "budget-excluded"
                 : "not-recalled",
     }))
+  const rejected: RejectedLearning[] = memories.flatMap((item) => {
+    const { state } = item.record
+    if (state !== "rejected" && state !== "retired") return []
+    const decision = state === "rejected" ? item.record.rejected : item.record.retired
+    return [
+      {
+        id: item.record.id,
+        title: item.withheld ? null : (item.record.title ?? null),
+        content: item.withheld ? null : (item.record.content ?? null),
+        digest: item.record.digest ?? null,
+        state,
+        decidedBy: login(decision?.by?.id),
+        decidedAt: decision?.at ?? null,
+        reason: item.withheld ? null : (decision?.reason ?? null),
+      },
+    ]
+  })
   return {
     loadError,
     identityReviewCount: memories.filter(
@@ -319,6 +352,7 @@ export async function getLearningOverview(input: {
     ).length,
     suggestions,
     learnings,
+    rejected,
     recall: { text: recall.text, count: recall.memories.length },
   }
 }

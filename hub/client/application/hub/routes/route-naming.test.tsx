@@ -109,6 +109,7 @@ describe("Hub primary route names", () => {
     const base = { ...emptyLearnings(), repository: second }
     const suggestion = {
       id: "mem_second",
+      title: null,
       reviewDigest: `sha256:${"a".repeat(64)}`,
       content: "Use a visible form label.",
       support: { reviewers: 2, prototypes: 2 },
@@ -131,7 +132,9 @@ describe("Hub primary route names", () => {
             ? [
                 {
                   id: suggestion.id,
+                  title: null,
                   content: suggestion.content,
+                  digest: suggestion.reviewDigest,
                   acceptedBy: "octocat",
                   acceptedAt: "2026-11-20T12:00:00Z",
                   edited: false,

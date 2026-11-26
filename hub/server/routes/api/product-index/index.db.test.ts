@@ -1038,6 +1038,7 @@ describe("real product index", () => {
           identityReviewCount: 0,
           suggestions: [],
           learnings: [],
+          rejected: [],
           recall: { text: secret, count: 1 },
         }
       })
@@ -1059,12 +1060,7 @@ describe("real product index", () => {
           const headers = { cookie: "hub_session=member-session" }
           const before = await fetch(`${baseUrl}${path}`, { headers })
           expect(before.status).toBe(200)
-          const beforeBody = await before.text()
-          if (resource === "review comments") {
-            expect(beforeBody).toContain(secret)
-          } else {
-            expect(beforeBody).not.toContain(secret)
-          }
+          expect(await before.text()).toContain(secret)
 
           activateDuringRead = true
           if (resource === "learnings") {
@@ -1077,7 +1073,7 @@ describe("real product index", () => {
         learnings,
       )
       expect(resource === "review comments" ? list : overview).toHaveBeenCalledTimes(
-        resource === "review comments" ? 2 : 0,
+        resource === "review comments" ? 2 : 1,
       )
       await expect(
         prisma.repository.findUniqueOrThrow({ where: { id: repository.id }, include: history }),
@@ -1105,6 +1101,15 @@ describe("real product index", () => {
       { restore },
       pino({ level: "silent" }),
     )
+    vi.spyOn(learnings, "getOverview").mockResolvedValue({
+      loadError: null,
+      identityReviewCount: 0,
+      suggestions: [],
+      learnings: [],
+      rejected: [],
+      recall: { text: "", count: 0 },
+    })
+    vi.spyOn(learnings, "getCopilot").mockResolvedValue({ state: "not-connected" })
     const findRepository = learnings.findRepository.bind(learnings)
     let activateDuringLookup = false
     vi.spyOn(learnings, "findRepository").mockImplementation(async (viewer, repositoryId) => {
@@ -1307,6 +1312,7 @@ describe("real product index", () => {
       identityReviewCount: 0,
       suggestions: [],
       learnings: [],
+      rejected: [],
       recall: { text: "", count: 0 },
     })
     await withServer(
@@ -1336,10 +1342,13 @@ describe("real product index", () => {
         )
         expect(currentLearnings.status).toBe(200)
         expect(await currentLearnings.json()).toMatchObject({
-          accessDenied: true,
+          accessDenied: false,
           capabilities: { administerHub: true, administerRepository: false },
         })
-        expect(getOverview).not.toHaveBeenCalled()
+        expect(getOverview).toHaveBeenCalledOnce()
+        expect(getOverview).toHaveBeenCalledWith(
+          expect.objectContaining({ repositoryId: current.id }),
+        )
       },
       learnings,
     )

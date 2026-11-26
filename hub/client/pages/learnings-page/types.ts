@@ -87,7 +87,12 @@ export type LearningsPageData =
         | "runsEmpty",
         string
       > & { runColumns: Record<"started" | "startedBy" | "result" | "usage", string> }
-      status: { message: string; refused: boolean; activity: string | null; usage: string }
+      status: {
+        message: string
+        refused: boolean
+        activity: string | null
+        usage: string | null
+      }
       run: { path: string; available: boolean }
       loadError: string | null
       identityNotice: string | null

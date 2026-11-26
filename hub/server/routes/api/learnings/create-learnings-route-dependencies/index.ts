@@ -6,6 +6,7 @@ import { getCopilotConnectionStatus } from "../../../../domains/copilot-connecti
 import { ReviewCommentError } from "../../../../domains/review-comments/errors.ts"
 import { executeLearningDecision } from "../../../../domains/learning/execute-learning-decision/index.ts"
 import { createReviewCommentLearningSource } from "../../../../domains/learning/create-review-comment-learning-source/index.ts"
+import { getLearningHistory } from "../../../../domains/learning/get-learning-history/index.ts"
 import { getLearningOverview } from "../../../../domains/learning/get-learning-overview/index.ts"
 import { getLearningRepositoryScope } from "../../../../domains/learning/get-learning-repository-scope/index.ts"
 import { learningRunJob } from "../../../../domains/learning/jobs/learning-run.ts"
@@ -168,9 +169,20 @@ export async function createLearningsRouteDependencies(
           identityReviewCount: 0,
           suggestions: [],
           learnings: [],
+          rejected: [],
           recall: { text: "", count: 0 },
         }
       }
+    },
+    getHistory: async ({ repositoryId, learningId }) => {
+      const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
+      return getLearningHistory({
+        ...configuration,
+        evidenceSource: source,
+        learningId,
+        repositoryId,
+        repositoryScope,
+      })
     },
     getCopilot,
     listRuns: (repositoryId) => listLearningRuns(prisma, repositoryId, new Date()),

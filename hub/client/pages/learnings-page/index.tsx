@@ -87,9 +87,11 @@ function LearningsContent({
             {data.status.activity}
           </Text>
         ) : null}
-        <Text as="p" size="200" variant="muted">
-          {data.status.usage}
-        </Text>
+        {data.status.usage ? (
+          <Text as="p" size="200" variant="muted">
+            {data.status.usage}
+          </Text>
+        ) : null}
       </div>
 
       <section className="learnings-page__section" aria-labelledby="learnings-suggestions">

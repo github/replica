@@ -214,6 +214,79 @@ describe("getLearningOverview()", () => {
     ).rejects.toMatchObject({ code: "EACCES" })
   })
 
+  it("lists rejected and retired learnings with who decided and why", async () => {
+    const status = { recallEligible: false, problems: [], conflicts: [] }
+    vi.mocked(runLearningCommand).mockImplementation((arguments_) => {
+      if (arguments_[0] === "memories")
+        return Promise.resolve([
+          {
+            withheld: false,
+            status,
+            record: {
+              id: "mem_rejected",
+              state: "rejected",
+              title: "Hide labels",
+              content: "Hide form labels.",
+              digest: `sha256:${"a".repeat(64)}`,
+              rejected: {
+                at: "2026-11-20T10:00:00.000Z",
+                by: { id: "github:mona" },
+                reason: "Labels help everyone.",
+              },
+            },
+          },
+          {
+            withheld: false,
+            status,
+            record: {
+              id: "mem_retired",
+              state: "retired",
+              content: "Use the old header.",
+              digest: `sha256:${"b".repeat(64)}`,
+              retired: { at: "2026-11-21T10:00:00.000Z", reason: "The header changed." },
+            },
+          },
+        ])
+      if (arguments_[0] === "recall") return Promise.resolve({ text: "", memories: [] })
+      if (arguments_[0] === "status") return Promise.resolve({})
+      throw new Error(`Unexpected learning command: ${arguments_[0]}`)
+    })
+
+    const result = await getLearningOverview({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+      viewer: "human:mona",
+    })
+
+    expect(result.rejected).toEqual([
+      {
+        id: "mem_rejected",
+        title: "Hide labels",
+        content: "Hide form labels.",
+        digest: `sha256:${"a".repeat(64)}`,
+        state: "rejected",
+        decidedBy: "mona",
+        decidedAt: "2026-11-20T10:00:00.000Z",
+        reason: "Labels help everyone.",
+      },
+      {
+        id: "mem_retired",
+        title: null,
+        content: "Use the old header.",
+        digest: `sha256:${"b".repeat(64)}`,
+        state: "retired",
+        decidedBy: null,
+        decidedAt: "2026-11-21T10:00:00.000Z",
+        reason: "The header changed.",
+      },
+    ])
+  })
+
   it("returns migration redaction follow-ups again when the overview reloads", async () => {
     const learningId = "mem_111111111111111111111111"
     const exportId = "exp_222222222222222222222222"

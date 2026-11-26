@@ -344,7 +344,10 @@ export function settingsLearnings(
           : pending
             ? "Hub will look for learnings shortly."
             : null,
-      usage: `Copilot used ${formatCredits(state.usageCredits)} for this repository in the last 30 days.`,
+      usage:
+        state.usageCredits === null
+          ? null
+          : `Copilot used ${formatCredits(state.usageCredits)} for this repository in the last 30 days.`,
     },
     run: {
       path: `/repositories/${repositoryId}/learnings/runs`,

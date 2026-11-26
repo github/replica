@@ -66,6 +66,7 @@ import { get as handleCopilotAuthorizationGet } from "./api/copilot-connection/a
 import { post as handleCopilotAuthorizationContinuePost } from "./api/copilot-connection/authorizations/continue/post/index.ts"
 import { post as handleCopilotAuthorizationCancelPost } from "./api/copilot-connection/authorizations/cancel/post/index.ts"
 import { get as handleLearningsGet } from "./api/learnings/get/index.ts"
+import { get as handleLearningHistoryGet } from "./api/learnings/history/get/index.ts"
 import { post as handleLearningRunPost } from "./api/learnings/runs/post/index.ts"
 import { post as handleLearningDecisionPost } from "./api/learnings/decision/post/index.ts"
 import type { RouteDependencies } from "./types.ts"
@@ -354,6 +355,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/repositories/:repositoryId/learnings/runs",
         requireOrigin(learnings.applicationOrigin),
         handleLearningRunPost(learnings),
+      )
+      app.get(
+        "/api/repositories/:repositoryId/learnings/:learningId/history",
+        handleLearningHistoryGet(learnings),
       )
       app.post(
         "/api/repositories/:repositoryId/learnings/:learningId/decision",

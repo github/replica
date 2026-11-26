@@ -220,6 +220,7 @@ describe("settingsLearnings()", () => {
       identityReviewCount: 0,
       suggestions: [],
       learnings: [],
+      rejected: [],
       recall: { text: "", count: 0 },
       runs: [],
     }

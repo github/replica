@@ -11,6 +11,7 @@ export interface LearningEvidence {
 
 export interface LearningSuggestion {
   id: string
+  title: string | null
   content: string
   reviewDigest: string
   support: { reviewers: number; prototypes: number } | null
@@ -23,11 +24,36 @@ export interface LearningSuggestion {
 
 export interface AcceptedLearning {
   id: string
+  title: string | null
   content: string | null
+  /** The exact version a person edits or retires, so a stale page cannot overwrite it. */
+  digest: string | null
   acceptedBy: string | null
   acceptedAt: string | null
   edited: boolean
   status: "recalled" | "not-recalled" | "budget-excluded" | "damaged" | "identity-review"
+}
+
+/** A learning a person turned down or stopped using, kept so it can be reinstated. */
+export interface RejectedLearning {
+  id: string
+  title: string | null
+  content: string | null
+  digest: string | null
+  state: "rejected" | "retired"
+  decidedBy: string | null
+  decidedAt: string | null
+  reason: string | null
+}
+
+/** One decision in a learning's history, oldest first. */
+export interface LearningDecisionRecord {
+  version: number
+  state: "proposed" | "accepted" | "rejected" | "retired"
+  change: "proposed" | "accepted" | "edited" | "reinstated" | "rejected" | "retired"
+  by: string | null
+  at: string | null
+  reason: string | null
 }
 
 export type LearningDecision =

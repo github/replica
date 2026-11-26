@@ -6,10 +6,12 @@ import type {
   AcceptedLearningResponse,
   LearningDecisionInput,
   LearningEvidenceResponse,
+  LearningHistoryResponse,
   LearningMutationResponse,
   LearningRunResponse,
   LearningSuggestionResponse,
   LearningsResponse,
+  RejectedLearningResponse,
 } from "./types"
 
 const identifier = z.number().int().positive()
@@ -35,9 +37,12 @@ export const learningEvidenceResponseSchema = z
   })
   .strict() satisfies z.ZodType<LearningEvidenceResponse>
 
+const title = z.string().trim().min(1).max(120)
+
 export const learningSuggestionResponseSchema = z
   .object({
     id: learningIdentifier,
+    title: title.nullable(),
     content: z.string().trim().min(1).max(2000),
     reviewDigest: digest,
     support: z.object({ reviewers: count, prototypes: count }).strict().nullable(),
@@ -54,13 +59,47 @@ export const learningSuggestionResponseSchema = z
 export const acceptedLearningResponseSchema = z
   .object({
     id: learningIdentifier,
+    title: title.nullable(),
     content: z.string().nullable(),
+    digest: digest.nullable(),
     acceptedBy: z.string().nullable(),
     acceptedAt: timestamp.nullable(),
     edited: z.boolean(),
     status: z.enum(["recalled", "not-recalled", "budget-excluded", "damaged", "identity-review"]),
   })
   .strict() satisfies z.ZodType<AcceptedLearningResponse>
+
+export const rejectedLearningResponseSchema = z
+  .object({
+    id: learningIdentifier,
+    title: title.nullable(),
+    content: z.string().nullable(),
+    digest: digest.nullable(),
+    state: z.enum(["rejected", "retired"]),
+    decidedBy: z.string().nullable(),
+    decidedAt: timestamp.nullable(),
+    reason: z.string().nullable(),
+  })
+  .strict() satisfies z.ZodType<RejectedLearningResponse>
+
+export const learningHistoryResponseSchema = z
+  .object({
+    decisions: z.array(
+      z
+        .object({
+          version: identifier,
+          state: z.enum(["proposed", "accepted", "rejected", "retired"]),
+          change: z.enum(["proposed", "accepted", "edited", "reinstated", "rejected", "retired"]),
+          by: z.string().nullable(),
+          at: timestamp.nullable(),
+          reason: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    evidence: z.array(learningEvidenceResponseSchema),
+    otherEvidenceCount: count,
+  })
+  .strict() satisfies z.ZodType<LearningHistoryResponse>
 
 const learningRunResultSchema = z.discriminatedUnion("type", [
   z
@@ -111,7 +150,7 @@ export const learningsResponseSchema = z.discriminatedUnion("accessDenied", [
       capabilities: z
         .object({
           administerHub: z.boolean(),
-          administerRepository: z.literal(true),
+          administerRepository: z.boolean(),
         })
         .strict(),
       permissions: z
@@ -137,12 +176,13 @@ export const learningsResponseSchema = z.discriminatedUnion("accessDenied", [
           .strict(),
       ]),
       automaticRunsEnabled: z.boolean(),
-      usageCredits: credits,
+      usageCredits: credits.nullable(),
       runAvailable: z.boolean(),
       loadError: z.string().min(1).nullable(),
       identityReviewCount: count,
       suggestions: z.array(learningSuggestionResponseSchema),
       learnings: z.array(acceptedLearningResponseSchema),
+      rejected: z.array(rejectedLearningResponseSchema),
       recall: z.object({ text: z.string(), count }).strict(),
       runs: z.array(learningRunResponseSchema).max(10),
     })
@@ -167,6 +207,22 @@ export const learningDecisionInputSchema = z.discriminatedUnion("decision", [
   z
     .object({
       decision: z.literal("retire"),
+      reason: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      decision: z.literal("edit"),
+      digest,
+      title: title.optional(),
+      content: z.string().trim().min(1).max(2000).optional(),
+      reason: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      decision: z.literal("reinstate"),
+      digest,
       reason: z.string().trim().min(1).max(500),
     })
     .strict(),

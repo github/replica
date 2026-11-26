@@ -3,11 +3,20 @@ import type { ProductViewer } from "../product/types.ts"
 import type {
   AcceptedLearning,
   LearningDecision,
+  LearningDecisionRecord,
   LearningEvidence,
   LearningSuggestion,
+  RejectedLearning,
 } from "../../../domains/learning/types.ts"
 
-export type { AcceptedLearning, LearningDecision, LearningEvidence, LearningSuggestion }
+export type {
+  AcceptedLearning,
+  LearningDecision,
+  LearningDecisionRecord,
+  LearningEvidence,
+  LearningSuggestion,
+  RejectedLearning,
+}
 
 export interface LearningRun {
   id: number
@@ -54,7 +63,13 @@ export interface LearningsRouteDependencies {
     identityReviewCount: number
     suggestions: LearningSuggestion[]
     learnings: AcceptedLearning[]
+    rejected: RejectedLearning[]
     recall: { text: string; count: number }
+  }>
+  getHistory(input: { repositoryId: string; learningId: string }): Promise<{
+    decisions: LearningDecisionRecord[]
+    evidence: LearningEvidence[]
+    otherEvidenceCount: number
   }>
   getCopilot(): Promise<
     | { state: "connected"; connectedBy: string | null }

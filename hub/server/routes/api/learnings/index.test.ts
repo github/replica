@@ -10,6 +10,7 @@ import { LearningCommandError } from "../../../integrations/learning/run-learnin
 import { LearningsError } from "./errors.ts"
 import { post as postDecision } from "./decision/post/index.ts"
 import { get as getLearnings } from "./get/index.ts"
+import { get as getLearningHistory } from "./history/get/index.ts"
 import { post as postRun } from "./runs/post/index.ts"
 import type { LearningsRouteDependencies } from "./types.ts"
 
@@ -45,6 +46,7 @@ function dependencies(
       learnings: [],
       recall: { text: "", count: 0 },
     }),
+    getHistory: vi.fn().mockResolvedValue({ decisions: [], evidence: [], otherEvidenceCount: 0 }),
     getCopilot: vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" }),
     listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: null }),
     decide: vi.fn().mockResolvedValue({ notice: "Learning accepted." }),
@@ -111,20 +113,18 @@ describe("learning routes", () => {
     )
   })
 
-  it("returns no learning data or permissions to a Hub administrator without repository authority", async () => {
-    const administrator = { ...session, role: "ADMINISTRATOR" as const }
-    const findRepository = vi.fn().mockResolvedValue(repository)
-    const getOverview = vi.fn()
-    const getCopilot = vi.fn()
+  it("lets a repository member read the library without deciding or seeing usage", async () => {
     const listRuns = vi.fn()
-    const auditRepositoryAdministrationDenial = vi.fn().mockResolvedValue(undefined)
     const deps = dependencies({
-      currentSession: { restore: vi.fn().mockResolvedValue(administrator) },
-      findRepository,
       authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
-      auditRepositoryAdministrationDenial,
-      getOverview,
-      getCopilot,
+      getOverview: vi.fn().mockResolvedValue({
+        loadError: null,
+        identityReviewCount: 0,
+        suggestions: [],
+        learnings: [],
+        rejected: [{ id: "mem_1", state: "rejected", reason: "Too broad." }],
+        recall: { text: "", count: 0 },
+      }),
       listRuns,
     })
 
@@ -136,24 +136,19 @@ describe("learning routes", () => {
         const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}/learnings`, {
           headers,
         })
+        const body: unknown = await response.json()
 
         expect(response.status).toBe(200)
-        expect(await response.json()).toEqual({
-          accessDenied: true,
-          repository,
-          capabilities: {
-            administerHub: true,
-            administerRepository: false,
-          },
+        expect(body).toMatchObject({
+          accessDenied: false,
+          capabilities: { administerHub: false, administerRepository: false },
+          permissions: { viewEvidence: true, decide: false, requestRun: false },
+          usageCredits: null,
+          runAvailable: false,
+          runs: [],
+          rejected: [{ id: "mem_1", reason: "Too broad." }],
         })
-        expect(getOverview).not.toHaveBeenCalled()
-        expect(getCopilot).not.toHaveBeenCalled()
         expect(listRuns).not.toHaveBeenCalled()
-        expect(auditRepositoryAdministrationDenial).toHaveBeenCalledWith({
-          actorMembershipId: administrator.membershipId,
-          operation: "learning_overview",
-          repositoryId,
-        })
       },
     )
   })
@@ -283,27 +278,17 @@ describe("learning routes", () => {
     )
   })
 
-  it("does not expose loaded learning data after repository authority is lost", async () => {
-    const getOverview = vi.fn().mockResolvedValue({
-      loadError: null,
-      identityReviewCount: 0,
-      suggestions: [{ id: "private-suggestion" }],
-      learnings: [],
-      recall: { text: "private recall", count: 1 },
-    })
-    const getCopilot = vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" })
+  it("drops administrator data when repository authority is lost while loading", async () => {
     const listRuns = vi.fn().mockResolvedValue({
       runs: [{ id: 17 }],
       usageCredits: "12.5",
-      active: false,
+      active: null,
     })
     const deps = dependencies({
       authorizeRepositoryAdministration: vi
         .fn()
         .mockResolvedValueOnce(true)
         .mockResolvedValueOnce(false),
-      getOverview,
-      getCopilot,
       listRuns,
     })
 
@@ -315,23 +300,17 @@ describe("learning routes", () => {
         const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}/learnings`, {
           headers,
         })
-        const body = await response.text()
+        const body: unknown = await response.json()
 
         expect(response.status).toBe(200)
-        expect(JSON.parse(body)).toEqual({
-          accessDenied: true,
-          repository,
-          capabilities: {
-            administerHub: false,
-            administerRepository: false,
-          },
+        expect(body).toMatchObject({
+          capabilities: { administerRepository: false },
+          permissions: { decide: false, requestRun: false },
+          usageCredits: null,
+          runAvailable: false,
+          runs: [],
         })
-        expect(getOverview).toHaveBeenCalledOnce()
-        expect(getCopilot).toHaveBeenCalledOnce()
         expect(listRuns).toHaveBeenCalledOnce()
-        expect(body).not.toContain("private-suggestion")
-        expect(body).not.toContain("private recall")
-        expect(body).not.toContain("12.5")
       },
     )
   })
@@ -558,8 +537,8 @@ describe("learning routes", () => {
     )
   })
 
-  it("does not expose editing or reinstatement before the live library", async () => {
-    const decide = vi.fn()
+  it("passes edits and reinstatements to the decision boundary", async () => {
+    const decide = vi.fn().mockResolvedValue({ notice: "Learning updated." })
     const deps = dependencies({ decide })
 
     await withRoute(
@@ -588,9 +567,95 @@ describe("learning routes", () => {
           }),
         })
 
-        expect(edit.status).toBe(422)
-        expect(reinstate.status).toBe(422)
+        expect(edit.status).toBe(200)
+        expect(reinstate.status).toBe(200)
+        expect(decide).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            decision: {
+              decision: "edit",
+              digest: `sha256:${"a".repeat(64)}`,
+              title: "Keep labels visible",
+              reason: "Clarify the guidance.",
+            },
+          }),
+        )
+        expect(decide).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            decision: {
+              decision: "reinstate",
+              digest: `sha256:${"b".repeat(64)}`,
+              reason: "The guidance applies again.",
+            },
+          }),
+        )
+      },
+    )
+  })
+
+  it("refuses an edit that changes nothing", async () => {
+    const decide = vi.fn()
+    const deps = dependencies({ decide })
+
+    await withRoute(
+      "post",
+      "/api/repositories/:repositoryId/learnings/:learningId/decision",
+      postDecision(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/decision`,
+          {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({
+              decision: "edit",
+              digest: `sha256:${"a".repeat(64)}`,
+              reason: "Clarify the guidance.",
+            }),
+          },
+        )
+
+        expect(response.status).toBe(422)
         expect(decide).not.toHaveBeenCalled()
+      },
+    )
+  })
+
+  it("shows a learning's history to a repository member", async () => {
+    const history = {
+      decisions: [
+        {
+          version: 1,
+          state: "proposed",
+          change: "proposed",
+          by: null,
+          at: "2026-11-20T10:00:00.000Z",
+          reason: null,
+        },
+      ],
+      evidence: [],
+      otherEvidenceCount: 0,
+    }
+    const getHistory = vi.fn().mockResolvedValue(history)
+    const deps = dependencies({
+      authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
+      getHistory,
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/:learningId/history",
+      getLearningHistory(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/history`,
+          { headers },
+        )
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual(history)
+        expect(getHistory).toHaveBeenCalledWith({ repositoryId, learningId: "mem_1" })
       },
     )
   })

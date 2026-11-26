@@ -35,6 +35,7 @@ describe("Learnings contracts", () => {
       suggestions: [
         {
           id: "mem_suggestion",
+          title: "Visible field labels",
           content: "Show a visible label above every form field.",
           reviewDigest: digest,
           support: { reviewers: 2, prototypes: 2 },
@@ -51,7 +52,9 @@ describe("Learnings contracts", () => {
       learnings: [
         {
           id: "mem_accepted",
+          title: "One primary button",
           content: "Use one primary button per form.",
+          digest,
           acceptedBy: "octocat",
           acceptedAt: "2026-11-08T20:00:00.000Z",
           edited: true,
@@ -59,11 +62,25 @@ describe("Learnings contracts", () => {
         },
         {
           id: "mem_damaged",
+          title: null,
           content: null,
+          digest: null,
           acceptedBy: null,
           acceptedAt: null,
           edited: false,
           status: "damaged" as const,
+        },
+      ],
+      rejected: [
+        {
+          id: "mem_rejected",
+          title: "Hide optional labels",
+          content: "Hide labels on optional fields.",
+          digest,
+          state: "rejected" as const,
+          decidedBy: "octocat",
+          decidedAt: "2026-11-08T20:00:00.000Z",
+          reason: "Labels help everyone.",
         },
       ],
       recall: {
@@ -173,6 +190,7 @@ describe("Learnings contracts", () => {
       suggestions: [
         {
           id,
+          title: null,
           content: "Use visible labels.",
           reviewDigest: digest,
           support: null,
@@ -184,6 +202,7 @@ describe("Learnings contracts", () => {
         },
       ],
       learnings: [],
+      rejected: [],
       recall: { text: "", count: 0 },
       runs: [],
     }
