@@ -165,7 +165,7 @@ Field drafts allow intermediate empty or short text and number edits without sen
 
 ### URL-backed values
 
-Canvas and Hub share `rc.<scope>.<controlId>` settings in prototype URLs. Absent overrides use JSON defaults. Ordinary edits use `replaceState`, preserving router state without reload or extra history entries; Back/Forward restores the navigated settings. Invalid/duplicate entries are reported and discarded, and the 8 KB URL limit produces a visible saving error while keeping values in memory. A direct app-owned query/hash binding is separate and explicitly chooses in-place updates or navigation.
+Canvas and Hub share `rc.<scope>.<controlId>` settings in prototype URLs. Absent overrides use JSON defaults. API values with `initial: "app"` instead adopt current app state and are never persisted; see the [page-selector recipe](../../starters/shared/.agents/skills/prototype-controls/references/authoring.md#page-selectors). Ordinary edits use `replaceState`, preserving router state without reload or extra history entries; Back/Forward restores the navigated settings. Invalid/duplicate entries are reported and discarded, and the 8 KB URL limit produces a visible saving error while keeping values in memory. A direct app-owned query/hash binding is separate and explicitly chooses in-place updates or navigation.
 
 Canvas settings update the displayed original prototype address, not the private renderer URL or proxy capabilities. Controls never request project metadata or read/write private value files. Existing files are not migrated or deleted. Review routes and return paths exclude reserved Controls keys.
 

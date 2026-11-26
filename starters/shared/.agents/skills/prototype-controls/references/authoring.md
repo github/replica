@@ -23,7 +23,7 @@ Add `public/controls.replica.json` to expose settings in Replica's Controls pane
 
 The prototype owns the field and its ordinary app behavior. Replica supplies the engine, validation and panel through the optional Copilot plugin or Hub preview. No Replica npm dependency, Vite plugin, generated source or app helper library is required. Use the build tool's equivalent static-assets directory if it is not `public/`. The output must serve this document at `/controls.replica.json` and include it in the retained Build.
 
-An ordinary standalone prototype keeps its own app defaults and interactions. In Replica and Build screenshots, the injected adapter applies JSON defaults and valid URL overrides. Do not make ordinary app behavior depend on the adapter.
+An ordinary standalone prototype keeps its own app defaults and interactions. In Replica and Build screenshots, the injected adapter applies JSON defaults and valid URL overrides, except for API values that opt into app-owned initialization. Do not make ordinary app behavior depend on the adapter.
 
 ## Definitions
 
@@ -110,9 +110,41 @@ Choose notifications or periodic reads for each API value binding. A notificatio
 
 Object paths and method names are identifiers, not executable expressions. No eval, configurable method arguments, framework-internal state access or router detection is supported.
 
+### Page selectors
+
+Use an app API for a page selector so the app's router owns navigation. Expose methods that read the current page, navigate to a selected page, and notify subscribers when the route changes. Map routes to the declared options in the app; do not detect router internals or rewrite the pathname from the binding.
+
+```json
+{
+  "version": 1,
+  "scope": "navigation",
+  "controls": [
+    {
+      "id": "page",
+      "label": "Page",
+      "type": "select",
+      "default": "Overview",
+      "options": ["Overview", "Settings"],
+      "binding": {
+        "type": "api",
+        "object": "navigationPreview",
+        "initial": "app",
+        "read": "readPage",
+        "write": "navigatePage",
+        "subscribe": "subscribePage"
+      }
+    }
+  ]
+}
+```
+
+`initial: "app"` reads the current app value on startup without writing the JSON default. A direct link to Settings therefore stays on Settings. Replica never saves this control in `rc.*` and ignores legacy saved overrides for it. Back/Forward adopts the current route without writing a value. Edits and reset still call the write method; reset navigates to the declared default. The read method must return a valid declared value.
+
+This opt-in is only for API value bindings, not buttons. Ordinary API bindings keep their default-first behavior. It requires Copilot plugin 1.9.1 or a Hub/Build capture runtime containing this option. Older runtimes reject the definition and show a Controls error while the ordinary app keeps working. The definition and transport versions remain `1`.
+
 ## Defaults, URLs and reset
 
-Canvas and Hub persist ordinary overrides in prototype URLs as `rc.<scope>.<controlId>`. Missing overrides use JSON defaults. Edits use `replaceState`, preserving router-owned history state without reload or extra history entries. These settings never belong in a private renderer/proxy capability URL or review route.
+Canvas and Hub persist ordinary overrides in prototype URLs as `rc.<scope>.<controlId>`. Missing overrides use JSON defaults; API bindings with `initial: "app"` use the app's current value instead and are never persisted. Edits use `replaceState`, preserving router-owned history state without reload or extra history entries. These settings never belong in a private renderer/proxy capability URL or review route.
 
 Back/Forward restores the settings in that history entry. Invalid or duplicate overrides produce a visible notice; settings exceeding the 8 KB limit remain in memory with a saving error. Actions and results are never persisted. **Reset all controls** restores every set, including inactive sets, and removes overrides. Existing private Controls files are not read, migrated or deleted.
 

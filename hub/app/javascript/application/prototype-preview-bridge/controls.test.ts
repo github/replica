@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import { getControlsRuntime } from "@utils/prototype-controls/controls.mjs"
 import { installControlsBridge } from "./controls"
-import { controlsEnvelope } from "@utils/prototype-controls-protocol"
+import { controlsEnvelope, type ControlsEnvelope } from "@utils/prototype-controls-protocol"
 
 const origin = "http://127.0.0.1:1234"
 let dispose: (() => void) | undefined
@@ -126,6 +126,164 @@ it("rejects foreign frames, origins, epochs and stale commands without changing 
   )
   expect(controller.getSnapshot().values.title).toBe("Default")
   frame.remove()
+})
+
+it("ignores legacy app-owned overrides and never saves route edits as rc values", async () => {
+  let page = "/current"
+  const write = vi.fn((next: string) => {
+    page = next
+  })
+  vi.stubGlobal("initialRouteApi", {
+    read: () => page,
+    write,
+    subscribe: () => () => {},
+  })
+  const post = await setup({
+    ...declaration,
+    controls: [
+      ...declaration.controls,
+      {
+        id: "page",
+        label: "Page",
+        type: "text",
+        default: "/default",
+        binding: {
+          type: "api",
+          object: "initialRouteApi",
+          read: "read",
+          write: "write",
+          subscribe: "subscribe",
+          initial: "app",
+        },
+      },
+    ],
+  })
+  const controller = getControlsRuntime().list()[0]!
+  hello({
+    controlQuery: "rc.canvasPage.page=%22%2Fold-saved%22&rc.canvasPage.title=%22Saved+title%22",
+  })
+  await vi.waitFor(() =>
+    expect(post.mock.calls.at(-1)?.[0]).toMatchObject({ type: "reply", requestId: "hello" }),
+  )
+  expect(new URLSearchParams(window.location.search).has("rc.canvasPage.page")).toBe(true)
+  async function command(requestId: string, operation: string, fields: object) {
+    message({
+      protocol: "replica:controls",
+      version: 1,
+      epoch: "canvas-epoch",
+      requestId,
+      type: "command",
+      command: {
+        operation,
+        scope: "canvasPage",
+        fingerprint: JSON.stringify(controller.declaration),
+        revision: controller.getSnapshot().revision,
+        ...fields,
+      },
+    })
+    await vi.waitFor(() =>
+      expect(post.mock.calls.at(-1)?.[0]).toMatchObject({ type: "reply", requestId }),
+    )
+    expect(post.mock.calls.at(-1)?.[0]).not.toHaveProperty("error")
+  }
+  await command("restore-legacy", "restore", {
+    values: { page: "/old-saved", title: "Saved title" },
+  })
+  expect(page).toBe("/current")
+  expect(controller.getSnapshot().values).toMatchObject({
+    page: "/current",
+    title: "Saved title",
+  })
+  expect(write).not.toHaveBeenCalled()
+  expect(new URLSearchParams(window.location.search).get("rc.canvasPage.title")).toBe(
+    '"Saved title"',
+  )
+  expect(new URLSearchParams(window.location.search).has("rc.canvasPage.page")).toBe(false)
+
+  await command("edit-route", "update", { id: "page", value: "/next" })
+  expect(page).toBe("/next")
+  expect(write).toHaveBeenCalledExactlyOnceWith("/next")
+  expect(new URLSearchParams(window.location.search).has("rc.canvasPage.page")).toBe(false)
+  expect(new URLSearchParams(window.location.search).get("rc.canvasPage.title")).toBe(
+    '"Saved title"',
+  )
+})
+
+it("adopts a history entry without rc values without writing its app-owned route", async () => {
+  window.history.replaceState({ router: "current" }, "", "/current")
+  const restoreHistory = window.history.replaceState.bind(window.history)
+  const write = vi.fn((next: string) => {
+    window.history.pushState({ router: next }, "", next)
+  })
+  vi.stubGlobal("historyRouteApi", {
+    read: () => window.location.pathname,
+    write,
+    subscribe(listener: () => void) {
+      window.addEventListener("popstate", listener)
+      return () => window.removeEventListener("popstate", listener)
+    },
+  })
+  const post = await setup({
+    version: 1,
+    scope: "historyRoute",
+    controls: [
+      {
+        id: "page",
+        label: "Page",
+        type: "text",
+        default: "/default",
+        binding: {
+          type: "api",
+          object: "historyRouteApi",
+          read: "read",
+          write: "write",
+          subscribe: "subscribe",
+          initial: "app",
+        },
+      },
+    ],
+  })
+  const controller = getControlsRuntime().list()[0]!
+  expect(controller.getSnapshot().values.page).toBe("/current")
+  expect(write).not.toHaveBeenCalled()
+
+  restoreHistory({ router: "previous" }, "", "/previous")
+  window.dispatchEvent(new PopStateEvent("popstate", { state: { router: "previous" } }))
+  await vi.waitFor(() => expect(controller.getSnapshot().values.page).toBe("/previous"))
+  const notifications = post.mock.calls.map(([data]) => data as ControlsEnvelope)
+  expect(notifications.some((data) => data.type === "snapshot" && data.controlQuery === "")).toBe(
+    true,
+  )
+  hello({ fromFrameUrl: true, controlQuery: "" })
+  await vi.waitFor(() =>
+    expect(post.mock.calls.at(-1)?.[0]).toMatchObject({ type: "reply", requestId: "hello" }),
+  )
+  message({
+    protocol: "replica:controls",
+    version: 1,
+    epoch: "canvas-epoch",
+    requestId: "restore-history",
+    type: "command",
+    command: {
+      operation: "restore",
+      scope: "historyRoute",
+      fingerprint: JSON.stringify(controller.declaration),
+      revision: controller.getSnapshot().revision,
+      values: {},
+    },
+  })
+  await vi.waitFor(() =>
+    expect(post.mock.calls.at(-1)?.[0]).toMatchObject({
+      type: "reply",
+      requestId: "restore-history",
+    }),
+  )
+  expect(post.mock.calls.at(-1)?.[0]).not.toHaveProperty("error")
+  expect(controller.getSnapshot().values.page).toBe("/previous")
+  expect(window.location.pathname).toBe("/previous")
+  expect(window.history.state).toEqual({ router: "previous" })
+  expect(write).not.toHaveBeenCalled()
+  expect(new URLSearchParams(window.location.search).has("rc.historyRoute.page")).toBe(false)
 })
 
 it("adopts defaulted Build URLs and preserves router state without history entries", async () => {

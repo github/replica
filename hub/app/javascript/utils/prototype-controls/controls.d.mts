@@ -19,6 +19,7 @@ export type Binding =
   | { readonly type: "hash"; readonly mode: "in-place" | "navigate" }
   | {
       readonly type: "api"
+      readonly initial?: "app"
       readonly object: string
       readonly read?: string
       readonly write?: string

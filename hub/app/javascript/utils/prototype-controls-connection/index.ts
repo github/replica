@@ -10,6 +10,7 @@ import {
 import { validControlsState } from "../prototype-controls-protocol/valid-state"
 import type { ControlFieldResult } from "./types"
 import { nonDefaultValues } from "../prototype-controls-url/non-default-values"
+import { savedValues } from "../prototype-controls-url/saved-values"
 import type { ControlValues } from "../prototype-controls-url/constants"
 import { encodeControlValues } from "../prototype-controls-url/encode-control-values"
 import { readControlQuery } from "../prototype-controls-url/read-control-query"
@@ -82,7 +83,7 @@ export class ControlsConnection {
     const values: ControlValues = structuredClone(this.saved?.scopes ?? {})
     const scopes = new Map(this.cachedScopes)
     for (const scope of this.state.scopes) scopes.set(scope.declaration.scope, scope)
-    for (const [key, scope] of scopes) values[key] = nonDefaultValues(scope)
+    for (const [key, scope] of scopes) values[key] = savedValues(scope)
     return values
   }
   subscribe = (listener: () => void) => {
@@ -93,9 +94,11 @@ export class ControlsConnection {
   }
   private publish(patch: Partial<PanelState>) {
     this.state = { ...this.state, ...patch }
-    this.state.hasResettableValues = Object.values(this.getControlValues()).some(
-      (values) => Object.keys(values).length > 0,
-    )
+    this.state.hasResettableValues =
+      Object.values(this.getControlValues()).some((values) => Object.keys(values).length > 0) ||
+      [...this.cachedScopes.values(), ...this.state.scopes].some(
+        (scope) => Object.keys(nonDefaultValues(scope)).length > 0,
+      )
     for (const listener of [...this.listeners]) listener()
   }
   private hasBindingError(scopeId?: string, id?: string) {
@@ -442,15 +445,20 @@ export class ControlsConnection {
           const values: Record<string, unknown> = Object.fromEntries(
             scope.declaration.controls
               .filter((control) => control.type !== "button")
+              .filter(
+                (control) =>
+                  !(control.binding?.type === "api" && control.binding.initial === "app"),
+              )
               .map((control) => [control.id, structuredClone(control.default)]),
           )
           let discarded = false
           for (const [id, value] of Object.entries(saved)) {
             const control = scope.declaration.controls.find((entry) => entry.id === id)
+            if (control?.binding?.type === "api" && control.binding.initial === "app") continue
             if (!control || valueIssue(control, value)) discarded = true
             else values[id] = value
           }
-          if (Object.keys(values).length)
+          if (scope.declaration.controls.some((control) => control.type !== "button"))
             await this.send("command", {
               operation: "restore",
               scope: key,
@@ -495,7 +503,7 @@ export class ControlsConnection {
   }
   private persist(scope: ScopeSnapshot) {
     if (!this.saved || this.state.storageError) return
-    const values = nonDefaultValues(scope)
+    const values = savedValues(scope)
     const serialized = JSON.stringify(values)
     if (this.persisted.get(scope.declaration.scope) === serialized) return
     this.persisted.set(scope.declaration.scope, serialized)

@@ -405,7 +405,14 @@ export function installBindings(input) {
       if (!record.initialized) {
         // A failed value write is not replayed on each polling tick.
         record.initialized = true
-        await apply(set, record, set.controller.getSnapshot().values[control.id])
+        if (
+          control.binding.type === "api" &&
+          control.binding.initial === "app" &&
+          set.controller.getSnapshot().visible[control.id]
+        ) {
+          await readback(set, record, object, route())
+          set.controller.bindingStatus(control.id, "", false, true)
+        } else await apply(set, record, set.controller.getSnapshot().values[control.id])
       } else {
         const interval = control.binding.type === "api" ? control.binding.pollMs : 250
         if (record.lastRead === 0 || (interval && Date.now() - record.lastRead >= interval)) {
@@ -582,7 +589,20 @@ export function installBindings(input) {
     },
     settled: () => refreshQueue,
     restore: (controller, overrides, guard) =>
-      run(() => values(controller, overrides, guard), guard),
+      run(
+        () =>
+          values(
+            controller,
+            Object.fromEntries(
+              Object.entries(overrides).filter(([id]) => {
+                const binding = setFor(controller).records.get(id)?.control.binding
+                return binding?.type !== "api" || binding.initial !== "app"
+              }),
+            ),
+            guard,
+          ),
+        guard,
+      ),
     update: (controller, id, value, guard) =>
       run(() => {
         const control = controller.declaration.controls.find((control) => control.id === id)

@@ -261,7 +261,14 @@ function validateBindings(declaration) {
       )
         issues.push({ path, message: "API object must name the app's own exposed object" })
       if (control.type === "button") {
-        if (!binding.action || binding.read || binding.write || binding.subscribe || binding.pollMs)
+        if (
+          !binding.action ||
+          binding.read ||
+          binding.write ||
+          binding.subscribe ||
+          binding.pollMs ||
+          binding.initial
+        )
           issues.push({ path, message: "API buttons require only object and action" })
       } else if (
         !binding.read ||
