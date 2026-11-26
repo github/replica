@@ -144,12 +144,11 @@ export function createCopilotLabeler({
  * Start a Copilot runtime for one command. It keeps its state in a new private directory that
  * close() deletes, offers the model no tools, and refuses every permission request.
  *
- * @param {{ token?: string }} options
+ * @param {{ token?: string, sdk?: object }} options sdk replaces the Copilot SDK in tests.
  */
-export async function connectCopilot({ token } = {}) {
-  let sdk
+export async function connectCopilot({ token, sdk } = {}) {
   try {
-    sdk = await import("@github/copilot-sdk")
+    sdk ??= await import("@github/copilot-sdk")
   } catch (error) {
     if (error?.code === "ERR_MODULE_NOT_FOUND")
       throw new LearningError(
@@ -204,49 +203,115 @@ export async function connectCopilot({ token } = {}) {
     },
 
     async ask({ model, system, prompt, schema, timeoutMs }) {
-      let session
+      const turn = await open({ model, system })
       try {
-        session = await client.createSession({
-          model,
-          availableTools: [],
-          systemMessage: { mode: "replace", content: system },
-          onPermissionRequest: () => ({
-            kind: "denied-no-approval-rule-and-could-not-request-from-user",
-          }),
-        })
-      } catch (error) {
-        throw copilotError(error)
+        return { result: await turn.send({ prompt }, schema, timeoutMs), usage: turn.usage }
+      } finally {
+        await turn.close()
       }
+    },
+
+    /**
+     * Ask with the strongest route Copilot offers: Copilot Fusion at its max tier, or else Auto
+     * with the highest reasoning effort its chosen model supports. Never settles for less.
+     */
+    async askBest({ system, prompt, attachments, schema, timeoutMs }) {
       const usage = []
-      let fail
-      // A structured reply waits for its timeout when the session fails, so fail at once.
-      const failure = new Promise((_, reject) => {
-        fail = reject
-      })
-      failure.catch(() => {})
-      const stop = session.on((event) => {
-        if (event.type === "assistant.usage") usage.push(usageOf(event.data))
-        else if (event.type === "session.error") fail(copilotError(new Error(event.data?.message)))
-      })
+      const message = { prompt, ...(attachments?.length ? { attachments } : {}) }
+      const fusion = await open({ model: "auto", system, experimental: true })
       try {
-        const result = await Promise.race([
-          session.sendAndWait({ prompt }, schema, timeoutMs),
-          failure,
-        ])
-        return { result, usage }
+        const switched = await fusion.session.setFusionTier("max").catch(() => null)
+        if (switched && ["pending", "applied"].includes(switched.status)) {
+          const result = await fusion.send(message, schema, timeoutMs)
+          const current = await fusion.session.rpc.model.getCurrent().catch(() => null)
+          // Fusion takes effect on the turn itself, so only now can it be confirmed.
+          if (current?.fusionTier === "max")
+            return { result, route: { kind: "fusion", fusionTier: "max" }, usage: fusion.usage }
+        }
+      } catch (error) {
+        // A refused credential fails Auto too; any other Fusion failure falls back to Auto.
+        if (error.code === "unauthorized") throw error
+      } finally {
+        usage.push(...fusion.usage)
+        await fusion.close()
+      }
+      const auto = await open({ model: "auto", system })
+      try {
+        await auto.send({ prompt: "Reply with OK." }, undefined, timeoutMs)
+        const model = auto.chosenModel
+        if (!model)
+          throw new LearningError("unavailable", "Copilot Auto did not name the model it chose.")
+        const efforts = (await client.listModels()).find(
+          (item) => item.id === model,
+        )?.supportedReasoningEfforts
+        const reasoningEffort = efforts?.at(-1)
+        await auto.session.setModel(model, reasoningEffort ? { reasoningEffort } : {})
+        const result = await auto.send(message, schema, timeoutMs)
+        return {
+          result,
+          route: { kind: "auto", model, ...(reasoningEffort ? { reasoningEffort } : {}) },
+          usage: [...usage, ...auto.usage],
+        }
       } catch (error) {
         const failure = copilotError(error)
-        failure.details = { ...failure.details, usage }
+        failure.details = { ...failure.details, usage: [...usage, ...auto.usage] }
         throw failure
       } finally {
-        stop()
-        await session.disconnect().catch(() => {})
+        await auto.close()
       }
     },
 
     close,
   }
+
+  /** A tool-less session that tallies usage and fails at once when Copilot reports an error. */
+  async function open({ model, system, experimental = false }) {
+    let session
+    try {
+      session = await client.createSession({
+        model,
+        availableTools: [],
+        systemMessage: { mode: "replace", content: system },
+        ...(experimental ? { enableExperimentalMode: true, featureFlags: FUSION_FLAGS } : {}),
+        onPermissionRequest: () => ({
+          kind: "denied-no-approval-rule-and-could-not-request-from-user",
+        }),
+      })
+    } catch (error) {
+      throw copilotError(error)
+    }
+    const turn = { session, usage: [], chosenModel: null }
+    let fail
+    // A structured reply waits for its timeout when the session fails, so fail at once.
+    const failure = new Promise((_, reject) => {
+      fail = reject
+    })
+    failure.catch(() => {})
+    const stop = session.on((event) => {
+      if (event.type === "assistant.usage") turn.usage.push(usageOf(event.data))
+      else if (event.type === "session.auto_mode_resolved")
+        turn.chosenModel = event.data?.chosenModel ?? null
+      else if (event.type === "session.error") fail(copilotError(new Error(event.data?.message)))
+    })
+    turn.send = async (message, schema, timeoutMs) => {
+      try {
+        return await Promise.race([session.sendAndWait(message, schema, timeoutMs), failure])
+      } catch (error) {
+        const failed = copilotError(error)
+        failed.details = { ...failed.details, usage: turn.usage }
+        throw failed
+      }
+    }
+    turn.close = async () => {
+      stop()
+      await session.disconnect().catch(() => {})
+    }
+    return turn
+  }
 }
+
+// Copilot Fusion is still an experimental runtime feature, so a session must opt in to it.
+const FUSION_FLAGS = Object.freeze({ HYDRAFUSION: true, HYDRAFUSION_ROLLOUT: true })
 
 /** One model call's usage in whole tokens and nano-AI units, rounded up from SDK fractions. */
 function usageOf(data) {

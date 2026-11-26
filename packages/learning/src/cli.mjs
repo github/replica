@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import { decodeUtf8, parseJson } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
+import { createCopilotEvaluator, scoreUsedLearning } from "./evaluation.mjs"
 import {
   importSqliteStore,
   openConsolidator,
@@ -21,7 +22,11 @@ import { labelComments, labelingError } from "./labeling.mjs"
 import { migratePostgres } from "./providers/postgres-database.mjs"
 import { FEEDBACK_TYPES, feedbackText, PRODUCER } from "./records.mjs"
 import { NO_FOLLOW } from "./providers/files.mjs"
-import { MAX_REPORT_SCREENSHOT_BYTES, MAX_SCREENSHOT_BYTES } from "./screenshots.mjs"
+import {
+  MAX_REPORT_SCREENSHOT_BYTES,
+  MAX_SCREENSHOT_BYTES,
+  createScreenshotStore,
+} from "./screenshots.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
 import { parseTimeOption, timestampFromMilliseconds } from "./time.mjs"
@@ -119,6 +124,12 @@ Use
                                   commit, with optional before and after screenshots;
                                   --grant names the consent that allows them
   usage --commit <sha>            List what agents reported using for one commit
+  score <used-learning-id> --operation-id <uuid> [--diff-file <file>]
+        [--screenshots <dir>]
+                                  Score how well one used learning helped, with
+                                  Copilot Fusion or else Auto; --screenshots names
+                                  a directory of PNGs named by their sha256 hex for
+                                  a store that does not keep them
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
   mcp [--actor <agent:name>] [--grant <grant-id>]...
                                   Serve the learning tools to a coding agent over
@@ -198,6 +209,8 @@ const OPTIONS = {
   "session-id": { type: "string" },
   "session-label": { type: "string" },
   commit: { type: "string" },
+  "diff-file": { type: "string" },
+  screenshots: { type: "string" },
   days: { type: "string" },
   confirm: { type: "string" },
 }
@@ -320,6 +333,7 @@ export async function main(
           "recall",
           "report-usage",
           "usage",
+          "score",
           "delete",
           "expire-guidance",
           "delete-repository",
@@ -432,6 +446,8 @@ async function run(session) {
       return reportUsage(session)
     case "usage":
       return usage(session)
+    case "score":
+      return score(session)
     case "delete":
       return deleteMemory(session)
     case "expire-guidance":
@@ -1412,6 +1428,69 @@ async function usage(session) {
           .join("\n")
       : "No usage reports for this commit.",
   )
+}
+
+/**
+ * Score one used learning with Copilot and report what it cost. Copilot scores as itself, and
+ * a failed attempt still reports the usage it spent so a host can keep to its budget.
+ */
+async function score(session) {
+  const usedLearningId = argument(session, 1, "used learning ID")
+  const operationId = session.values["operation-id"]
+  if (!operationId) throw new UsageError("Name the scoring attempt with --operation-id <uuid>.")
+  const diff = session.values["diff-file"]
+    ? decodeUtf8(
+        await readFile(path.resolve(session.cwd, session.values["diff-file"])),
+        session.values["diff-file"],
+      )
+    : undefined
+  const kept = session.values.screenshots
+    ? createScreenshotStore(path.resolve(session.cwd, session.values.screenshots))
+    : null
+  const { store } = await open(session)
+  const evaluator = createCopilotEvaluator({ token: session.env.COPILOT_GITHUB_TOKEN || undefined })
+  let result
+  try {
+    result = await scoreUsedLearning(
+      store,
+      context(session, { kind: "agent", id: "agent:copilot" }),
+      {
+        evaluator,
+        usedLearningId,
+        operationId,
+        diff,
+        ...(kept ? { readScreenshot: (sha256) => kept.read(sha256) } : {}),
+      },
+    )
+  } catch (error) {
+    if (session.values.json && error instanceof LearningError)
+      session.out({
+        usage: totals(error.details?.usage ?? []),
+        error: { code: error.code, message: error.message },
+      })
+    throw error
+  } finally {
+    await evaluator.close().catch(() => {})
+  }
+  const usage = totals(result.usage)
+  session.out(
+    { score: result.score, stored: result.stored, route: result.route, usage },
+    [
+      `${result.stored ? "Scored" : "Already scored"} ${usedLearningId}: ${result.score.efficiency} of 4, ${result.score.followed.replace("_", " ")}.`,
+      `Route: ${result.route.kind === "fusion" ? `Copilot Fusion ${result.route.fusionTier}` : `Auto ${result.route.model} at ${result.route.reasoningEffort ?? "default"} reasoning`}.`,
+      `Usage: ${usage.requests} request(s), ${aiCredits(usage.nanoAiu)} AI credits as Copilot reported them.`,
+    ].join("\n"),
+  )
+}
+
+/** One model call list as totals a host can add to its monthly budget. */
+function totals(calls) {
+  return {
+    requests: calls.length,
+    inputTokens: calls.reduce((sum, call) => sum + call.inputTokens, 0),
+    outputTokens: calls.reduce((sum, call) => sum + call.outputTokens, 0),
+    nanoAiu: calls.reduce((sum, call) => sum + call.nanoAiu, 0),
+  }
 }
 
 /**
