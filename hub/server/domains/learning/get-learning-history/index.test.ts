@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root"
+import type { ReviewCommentLearningSource } from "../review-comment-learning-source/types.ts"
 import { getLearningHistory } from "."
 
 vi.mock("node:fs/promises", () => ({ access: vi.fn() }))
@@ -19,7 +20,7 @@ describe("getLearningHistory()", () => {
     vi.mocked(access).mockResolvedValue(undefined)
   })
 
-  it("lists each decision people made, including edits and reinstatements", async () => {
+  it("lists each decision once, including edits, reinstatements, and damaged versions", async () => {
     vi.mocked(runLearningCommand).mockResolvedValue({
       withheld: false,
       record: { evidence: [] },
@@ -32,24 +33,40 @@ describe("getLearningHistory()", () => {
         {
           version: 2,
           state: "accepted",
+          digest: "sha256:v2",
           accepted: { at: "2026-11-02T00:00:00.000Z", by: { id: "github:mona" } },
         },
         {
           version: 3,
           state: "accepted",
+          digest: "sha256:v3",
           accepted: {
             at: "2026-11-03T00:00:00.000Z",
-            by: { id: "github:mona" },
+            by: { id: "github:hubot" },
             decision: "edit",
             note: "Clearer wording.",
+            reviewedDigest: "sha256:v2",
           },
         },
         {
           version: 4,
+          state: "accepted",
+          digest: "sha256:v4",
+          accepted: {
+            at: "2026-11-03T00:00:00.000Z",
+            by: { id: "github:hubot" },
+            decision: "edit",
+            note: "Clearer wording.",
+            reviewedDigest: "sha256:v2",
+          },
+        },
+        {
+          version: 5,
           state: "retired",
           retired: { at: "2026-11-04T00:00:00.000Z", reason: "No longer true." },
         },
-        { version: 5, state: "accepted", withheld: true },
+        { version: 6, state: "accepted", withheld: true },
+        { withheld: true },
       ],
     })
 
@@ -67,14 +84,102 @@ describe("getLearningHistory()", () => {
     expect(result.decisions.map((decision) => [decision.change, decision.by])).toEqual([
       ["proposed", "agent:x"],
       ["accepted", "mona"],
-      ["edited", "mona"],
+      ["edited", "hubot"],
       ["retired", null],
-      ["accepted", null],
+      ["reinstated", null],
     ])
     expect(result.decisions[2]?.reason).toBe("Clearer wording.")
     expect(vi.mocked(runLearningCommand).mock.calls[0]?.[0]).toEqual(
       expect.arrayContaining(["show", "mem_1", "--history"]),
     )
+  })
+
+  it("never passes a learning ID that looks like a command option", async () => {
+    vi.mocked(runLearningCommand).mockClear()
+
+    await expect(
+      getLearningHistory({
+        applicationRoot: "/app",
+        cliPath: "/app/replica-learning.mjs",
+        learningId: "--history",
+        nodePath: "/node",
+        repositoryId: "11111111-2222-4333-8444-555555555555",
+        repositoryScope: "github.com/repositories/123",
+        root: "/private/learning",
+        staticDirectories: [],
+      }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    expect(runLearningCommand).not.toHaveBeenCalled()
+  })
+
+  it("separates supporting and opposing comments and counts the ones it cannot show", async () => {
+    const comment = {
+      commentId: 1,
+      body: "Comment",
+      authorLogin: "mona",
+      authorAvatarUrl: null,
+      prototypeId: "proto_1",
+      prototypeName: "Checkout",
+      createdAt: "2026-11-01T00:00:00.000Z",
+    }
+    const resolveEvidence = vi
+      .fn<ReviewCommentLearningSource["resolveEvidence"]>()
+      .mockResolvedValue([
+        { referenceIndex: 0, evidence: [{ ...comment, eventId: "evt_1" }] },
+        { referenceIndex: 1, evidence: [{ ...comment, eventId: "evt_3" }] },
+      ])
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce({
+        withheld: false,
+        record: {
+          evidence: [{ episodeId: "ep_1", eventIds: ["evt_1", "evt_2"], source: {} }],
+          contradictions: [{ episodeId: "ep_1", eventIds: ["evt_3"], source: {} }],
+        },
+        versions: [],
+      })
+      .mockResolvedValueOnce({
+        events: [
+          {
+            id: "evt_1",
+            episodeId: "ep_1",
+            at: "2026-11-01T00:00:00.000Z",
+            payload: { commentId: 1, body: "A" },
+          },
+          {
+            id: "evt_2",
+            episodeId: "ep_1",
+            at: "2026-11-01T00:00:00.000Z",
+            payload: { label: "useful" },
+          },
+          {
+            id: "evt_3",
+            episodeId: "ep_1",
+            at: "2026-11-01T00:00:00.000Z",
+            payload: { commentId: 3, body: "B" },
+          },
+        ],
+      })
+
+    const result = await getLearningHistory({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      evidenceSource: { resolveEvidence },
+      learningId: "mem_1",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+
+    expect(result.evidence.map((entry) => entry.eventId)).toEqual(["evt_1"])
+    expect(result.otherEvidenceCount).toBe(1)
+    expect(result.contradictions.map((entry) => entry.eventId)).toEqual(["evt_3"])
+    expect(result.otherContradictionsCount).toBe(0)
+    expect(resolveEvidence.mock.calls[0]?.[0].events.map((event) => event.id)).toEqual([
+      "evt_1",
+      "evt_3",
+    ])
   })
 
   it("never passes a stored event ID that looks like a command option", async () => {

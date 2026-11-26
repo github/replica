@@ -31,6 +31,8 @@ export interface AcceptedLearning {
   acceptedBy: string | null
   acceptedAt: string | null
   edited: boolean
+  /** The decision the receipt records, which edits and reinstatements replace. */
+  lastDecision: "accepted" | "edited" | "reinstated"
   status: "recalled" | "not-recalled" | "budget-excluded" | "damaged" | "identity-review"
 }
 

@@ -35,10 +35,14 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }
-      const history = await dependencies.getHistory({
-        repositoryId: repositoryId.data,
-        learningId: learningId.data,
-      })
+      // Read access again before showing a result or an error, so a revoked session
+      // cannot tell which learnings exist.
+      const history = await dependencies
+        .getHistory({ repositoryId: repositoryId.data, learningId: learningId.data })
+        .then(
+          (value) => ({ ok: true as const, value }),
+          (error: unknown) => ({ ok: false as const, error }),
+        )
       const current = await readLearningSession(request, dependencies)
       if (!current || current.membershipId !== initial.membershipId) {
         response.status(401).json({ code: "sign_in_required", error: "Sign in to continue." })
@@ -48,7 +52,8 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }
-      response.json(history)
+      if (!history.ok) throw history.error
+      response.json(history.value)
     } catch (error) {
       if (!respondLearningError(response, error)) next(error)
     }

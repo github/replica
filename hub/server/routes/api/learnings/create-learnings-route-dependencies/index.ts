@@ -176,13 +176,20 @@ export async function createLearningsRouteDependencies(
     },
     getHistory: async ({ repositoryId, learningId }) => {
       const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
-      return getLearningHistory({
+      const history = await getLearningHistory({
         ...configuration,
         evidenceSource: source,
         learningId,
         repositoryId,
         repositoryScope,
       })
+      if (repositoryScope !== (await getLearningRepositoryScope(prisma, repositoryId))) {
+        throw new LearningCommandError(
+          "repository_scope_unavailable",
+          "The repository learning scope changed. Try again.",
+        )
+      }
+      return history
     },
     getCopilot,
     listRuns: (repositoryId) => listLearningRuns(prisma, repositoryId, new Date()),

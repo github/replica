@@ -363,7 +363,8 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       app.post(
         "/api/repositories/:repositoryId/learnings/:learningId/decision",
         requireOrigin(learnings.applicationOrigin),
-        express.json({ limit: "4kb", strict: true }),
+        // Room for the longest valid edit, even when every character is escaped.
+        express.json({ limit: "16kb", strict: true }),
         handleLearningDecisionPost(learnings),
       )
     }

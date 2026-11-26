@@ -66,7 +66,7 @@ The browser contracts are:
 - `POST /api/repositories/:repositoryId/learnings/:learningId/decision`
 - `GET /api/repositories/:repositoryId/learnings/:learningId/history`
 
-Every signed-in member who can see a repository can read its Learnings library. That includes proposed, accepted, rejected, and retired learnings, their evidence, and each learning's decision history. Only repository administrators can decide, request runs, and see Copilot usage. Members get the same response with those permissions off and usage left empty.
+Every signed-in member who can see a repository can read its Learnings library. That includes proposed, accepted, rejected, and retired learnings, their supporting and opposing evidence, and each learning's decision history. Proposals that are withheld, damaged, in conflict, or waiting for identity review are not listed until they can be reviewed safely. Only repository administrators can decide, request runs, see run history, and see Copilot usage. Members get the same response with those permissions off, no runs, and usage left empty.
 
 Deciding and running use the shared repository-administrator boundary. It requires current GitHub admin permission recorded on the active repository grant, an active membership and repository, and the enabled selected GitHub provider. Hub administration remains deployment and security authority and does not grant repository administration. The response projects Hub and repository administration separately so navigation never treats one as the other.
 

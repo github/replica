@@ -405,4 +405,45 @@ describe("getLearningOverview()", () => {
     expect(resolveEvidence).toHaveBeenCalledOnce()
     expect(vi.mocked(runLearningCommand)).toHaveBeenCalledTimes(4)
   })
+
+  it("never passes a stored event ID that looks like a command option", async () => {
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce([
+        {
+          withheld: false,
+          record: {
+            id: "mem_1",
+            state: "proposed",
+            content: "Use visible labels.",
+            reviewDigest: `sha256:${"a".repeat(64)}`,
+            evidence: [
+              { episodeId: "ep_1", eventIds: ["evt_1", "--purpose", "evt 2"], source: {} },
+            ],
+            contradictions: [],
+            proposal: { lifecycle: { targets: [] } },
+          },
+          status: { recallEligible: false, problems: [], conflicts: [] },
+        },
+      ])
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ text: "", memories: [] })
+      .mockResolvedValueOnce({ events: [] })
+
+    await getLearningOverview({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      evidenceSource: { resolveEvidence: vi.fn().mockResolvedValue([]) },
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+      viewer: "human:mona",
+    })
+
+    const observationArguments = vi.mocked(runLearningCommand).mock.calls[3]?.[0] ?? []
+    expect(observationArguments.filter((argument) => argument === "--event")).toHaveLength(1)
+    expect(observationArguments).toContain("evt_1")
+    expect(observationArguments).not.toContain("evt 2")
+  })
 })

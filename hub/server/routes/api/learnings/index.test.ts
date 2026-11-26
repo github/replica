@@ -46,7 +46,13 @@ function dependencies(
       learnings: [],
       recall: { text: "", count: 0 },
     }),
-    getHistory: vi.fn().mockResolvedValue({ decisions: [], evidence: [], otherEvidenceCount: 0 }),
+    getHistory: vi.fn().mockResolvedValue({
+      decisions: [],
+      evidence: [],
+      otherEvidenceCount: 0,
+      contradictions: [],
+      otherContradictionsCount: 0,
+    }),
     getCopilot: vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" }),
     listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: null }),
     decide: vi.fn().mockResolvedValue({ notice: "Learning accepted." }),
@@ -636,6 +642,8 @@ describe("learning routes", () => {
       ],
       evidence: [],
       otherEvidenceCount: 0,
+      contradictions: [],
+      otherContradictionsCount: 0,
     }
     const getHistory = vi.fn().mockResolvedValue(history)
     const deps = dependencies({
@@ -656,6 +664,32 @@ describe("learning routes", () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual(history)
         expect(getHistory).toHaveBeenCalledWith({ repositoryId, learningId: "mem_1" })
+      },
+    )
+  })
+
+  it("hides whether a learning exists after repository access is lost", async () => {
+    const deps = dependencies({
+      findRepository: vi.fn().mockResolvedValueOnce(repository).mockResolvedValueOnce(null),
+      getHistory: vi
+        .fn()
+        .mockRejectedValue(
+          new LearningCommandError("not_found", "That learning no longer exists."),
+        ),
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/:learningId/history",
+      getLearningHistory(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/history`,
+          { headers },
+        )
+
+        expect(response.status).toBe(404)
+        expect(await response.json()).toMatchObject({ code: "repository_not_found" })
       },
     )
   })

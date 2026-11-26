@@ -66,6 +66,7 @@ const memorySchema = z
           .object({
             at: z.string().optional(),
             edited: z.boolean().optional(),
+            decision: z.string().optional(),
             by: z.object({ id: z.string().optional() }).loose().optional(),
           })
           .loose()
@@ -234,7 +235,11 @@ export async function getLearningOverview(input: {
       }
     })
     const references = prepared.flatMap((entry) => entry.references)
-    const eventIds = [...new Set(references.flatMap((reference) => reference.eventIds))]
+    // Stored IDs come from model-influenced records, so skip any that could read as an
+    // option or split into another argument.
+    const eventIds = [...new Set(references.flatMap((reference) => reference.eventIds))].filter(
+      (eventId) => /^[^\s-][^\s]*$/u.test(eventId),
+    )
     const events = []
     for (let index = 0; index < eventIds.length; index += 100) {
       const batch = eventIds.slice(index, index + 100)
@@ -314,6 +319,12 @@ export async function getLearningOverview(input: {
       acceptedBy: login(item.record.accepted?.by?.id),
       acceptedAt: item.record.accepted?.at ?? null,
       edited: item.record.accepted?.edited === true,
+      lastDecision:
+        item.record.accepted?.decision === "edit"
+          ? "edited"
+          : item.record.accepted?.decision === "reinstate"
+            ? "reinstated"
+            : "accepted",
       status:
         item.status.problems.length > 0
           ? "damaged"
