@@ -75,6 +75,7 @@ const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     ...(decisionConfigured ? [decision.run] : []),
     learning.run,
     learning.redact,
+    learning.deleteScreenshots,
     createJobProcessor(getLocalBuildJobDefinition(), async () => {
       const { runLocalBuilds } = await import("../scripts/run-local-builds/index.ts")
       return await runLocalBuilds()

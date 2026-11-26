@@ -13,6 +13,7 @@ import { createLearningJobProcessors } from "."
 
 const prisma = {
   learningRun: { findMany: vi.fn() },
+  agentScreenshot: { findMany: vi.fn() },
   learningDecisionOperation: { findMany: vi.fn() },
   repository: { findUnique: vi.fn() },
   reviewComment: { findMany: vi.fn(), updateMany: vi.fn() },
@@ -111,6 +112,7 @@ describe("createLearningJobProcessors()", () => {
         JSON.stringify({ schemaVersion: "replica.learning-config/v1" }),
       )
       prisma.learningRun.findMany.mockResolvedValue([])
+      prisma.agentScreenshot.findMany.mockResolvedValue([])
       prisma.learningDecisionOperation.findMany.mockResolvedValue([])
       prisma.reviewComment.findMany.mockResolvedValue([
         {

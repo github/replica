@@ -27,6 +27,7 @@ describe("learning worker configuration", () => {
       "deliver-analytics-event",
       "learning.run",
       "learning.redact-review-comment",
+      "learning.delete-agent-screenshots",
       "synchronize-local-builds",
       "import-github-workflow-run",
     ])

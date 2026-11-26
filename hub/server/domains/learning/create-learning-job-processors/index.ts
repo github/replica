@@ -6,7 +6,9 @@ import { getCopilotConnectionStatus } from "../../copilot-connection/get-copilot
 import { ReviewCommentError } from "../../review-comments/errors.ts"
 import { authorizeRepositoryAdministration } from "../authorize-repository-administration/index.ts"
 import { createReviewCommentLearningSource } from "../create-review-comment-learning-source/index.ts"
+import { deleteWithdrawnAgentScreenshots } from "../delete-withdrawn-agent-screenshots/index.ts"
 import { getLearningRepositoryScope } from "../get-learning-repository-scope/index.ts"
+import { deleteAgentScreenshotsJob } from "../jobs/delete-agent-screenshots.ts"
 import { learningRunJob } from "../jobs/learning-run.ts"
 import { automaticLearningRunPriority } from "../jobs/priorities.ts"
 import { recoverLearningRunsJob } from "../jobs/recover-learning-runs.ts"
@@ -22,6 +24,7 @@ import { recordFinishedLearningRun } from "../record-finished-learning-run/index
 import { readAutomaticLearningRunsEnabled } from "../read-automatic-learning-runs-enabled/index.ts"
 import { readLearningConfiguration } from "../read-learning-configuration/index.ts"
 import { scheduleLearningRuns } from "../schedule-learning-runs/index.ts"
+import { createConfiguredArtifactStorage } from "../../artifacts/create-configured-artifact-storage/index.ts"
 import { createJobProcessor } from "../../../integrations/bullmq/create-job-processor/index.ts"
 import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/index.ts"
 import { enqueueRecoverableJob } from "../../../integrations/bullmq/enqueue-recoverable-job/index.ts"
@@ -30,6 +33,10 @@ import { runLearningCommand } from "../../../integrations/learning/run-learning-
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { CopilotCredentialError } from "../../../integrations/github/create-installation-access-token/errors.ts"
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock/index.ts"
+import { deleteAgentScreenshot } from "../../../repositories/agent-screenshots/delete-agent-screenshot/index.ts"
+import { listAgentScreenshotGrants } from "../../../repositories/agent-screenshots/list-agent-screenshot-grants/index.ts"
+import { listGrantAgentScreenshots } from "../../../repositories/agent-screenshots/list-grant-agent-screenshots/index.ts"
+import { getRepositoryEvaluationSetting } from "../../../repositories/evaluation-settings/get-repository-evaluation-setting/index.ts"
 import { getCopilotConnectionState } from "../../../repositories/copilot-connection-states/get-copilot-connection-state/index.ts"
 import { advanceCopilotConnectionState } from "../../../repositories/copilot-connection-states/advance-copilot-connection-state/index.ts"
 import { lockCopilotConnectionState } from "../../../repositories/copilot-connection-states/lock-copilot-connection-state/index.ts"
@@ -307,6 +314,15 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
             ? { deletedAt: last.deletedAt, id: last.id }
             : undefined
       } while (redactionCursor)
+      for (const screenshots of await listAgentScreenshotGrants(prisma)) {
+        if (screenshots.active) continue
+        await enqueueRecoverableJob(
+          onDemandQueue,
+          deleteAgentScreenshotsJob,
+          { repositoryId: screenshots.repositoryId, grantId: screenshots.grantId },
+          `learning-screenshots-${screenshots.repositoryId}-${screenshots.grantId}`,
+        )
+      }
       for (const operation of await listLearningDecisionOperations(prisma)) {
         try {
           await reconcileLearningDecisionOperation(operation, {
@@ -465,5 +481,20 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     })
   })
 
-  return { run, scheduledRun, recover, redact, schedule }
+  let storagePromise: ReturnType<typeof createConfiguredArtifactStorage> | undefined
+  const deleteScreenshots = createJobProcessor(deleteAgentScreenshotsJob, async (input) => {
+    const { prisma } = await databaseDependencies()
+    storagePromise ??= createConfiguredArtifactStorage(resolveLocalSignInEnvironment(environment))
+    await deleteWithdrawnAgentScreenshots({
+      activeGrantId: async () =>
+        (await getRepositoryEvaluationSetting(prisma, input.repositoryId))?.screenshotGrantId ??
+        null,
+      deleteRecord: (id) => deleteAgentScreenshot(prisma, id),
+      grantId: input.grantId,
+      list: () => listGrantAgentScreenshots(prisma, input),
+      storage: await storagePromise,
+    })
+  })
+
+  return { run, scheduledRun, recover, redact, schedule, deleteScreenshots }
 }
