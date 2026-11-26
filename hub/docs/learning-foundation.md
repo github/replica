@@ -151,11 +151,23 @@ Screenshots open from Hub, not the agent. Hub serves one only while the screensh
 
 Hub can check whether a repository's learnings help and suggest updates. Someone who administers Hub or the repository opens it from **Automated evaluations** on the Learnings page. For example, a Hub administrator sets a shared budget of 100 credits per month, and an administrator of `github/checkout` turns on **Evaluate github/checkout**.
 
-- The budget is one monthly credit limit shared by every repository. Only Hub administrators change it, from 0 to 1,000,000 credits. Usage shows as 0 until evaluations run against Builds.
+- The budget is one monthly credit limit shared by every repository. Only Hub administrators change it, from 0 to 1,000,000 credits. Usage counts every score attempt that finished since the start of the month in UTC, including attempts that fail. A budget of 0 means nothing is scored. The limit is checked before each score, and a score's cost is only known once it finishes, so the last score in a month can go over the limit by up to one score's cost.
 - Each repository is off until one of its administrators turns it on. Hub and repository administration stay separate, so a Hub administrator alone cannot turn on a repository.
 - **Allow screenshots** lets agents send screenshots with `report_usage` and lets Hub analyze them. It needs evaluations on, and turning evaluations off turns it off too. The page shows who changed it last.
 
 Allowing screenshots adds a consent grant in the repository's learning store with who allowed it. Hub records the grant and passes it to every `report_usage` call, and the store refuses screenshots once the grant is withdrawn. Hub keeps a copy of each accepted image in artifact storage only while the grant is still the active one. Turning screenshots off withdraws the grant and queues a job that deletes the copies taken under it. The worker's recovery pass finds every withdrawn grant again, so a failed enqueue or a copy saved during the change is still deleted. Allowing screenshots again makes a new grant.
+
+Turning evaluations on also adds a consent grant that lets the store use the repository's review comments as evaluation evidence. Turning them off stops scoring, turns screenshots off, and withdraws it. Hub keeps the grant's ID until the withdrawal succeeds, so saving again retries a failed one. A repository without this grant isn't scored until an administrator saves its settings again.
+
+### Scoring applied learnings
+
+When an agent's `report_usage` call names a commit, Hub remembers it. A later report for the same commit is kept for another pass, even if scoring is already running. Once a successful Build exists for that commit, the worker's recovery pass queues a scoring job. For example, an agent applies the learning "Use the shared empty state" in commit `abc123`, a Build for `abc123` succeeds, and Hub asks the store to score that learning against the commit's diff and any screenshots the agent sent.
+
+- Each reported use of a learning is scored once. Hub records the attempt and its cost before asking for the next one, so a crash retries the same operation instead of paying twice.
+- A failed score is recorded with what it spent and is not retried. A score interrupted by a worker stopping stays running and is retried with the same operation.
+- Before each score, Hub checks again that evaluations are still on, the repository is still connected, and budget remains, and it asks for a fresh Copilot credential.
+- When the budget runs out or Copilot is unavailable, the request waits. If Copilot refuses the credential, Hub marks the connection refused, as a learning run does. The recovery pass tries it again each minute and starts scoring once the budget is raised or the next month begins. Requests that never find a successful Build are dropped after 30 days. A storage outage while reading a screenshot also leaves the score to be retried, so it is never scored without that evidence.
+- Scoring holds the learning execution lock for each command, so agent calls may briefly get a busy reply while a score runs. Scoring is automatic work, so it waits behind learning runs a person asked for.
 
 Repository changes take the learning execution lock. While other learning work runs, they return `409` and the person tries again. Repository denials write security audits. The browser contracts are:
 
