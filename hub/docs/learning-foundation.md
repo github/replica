@@ -57,6 +57,12 @@ Hub passes store paths and repository scope as command arguments. It never inher
 
 Repository decisions, runs, and redactions use the PostgreSQL advisory-lock primitive for one Hub-wide learning execution at a time and hold the shared repository-authority lock around authority-sensitive package work. Decisions additionally hold a shared session-authority lock from the final live-session check through command exit. Session-ending transactions take only the matching exclusive session lock unless they can also change repository grants, in which case they acquire the repository lock first and the session lock second. A decision that wins keeps both boundaries until its command exits; a competing user-facing authority change returns retryable feedback after a bounded wait. Runs do not hold the session lock, so sign-out and global revocation can proceed during their long work. Runs release the repository lock during labeling, then reacquire it and retry the requester's repository-authority check before consolidation. Losing the execution-lock database connection aborts the operation and its command through the shared signal. This preserves the CLI process boundary without moving package policy into Hub.
 
+## Library page
+
+The Learnings page lists a repository's learnings under Suggested, Active, and Rejected, with a search box and 25 learnings per page. Rejected also holds retired learnings. Selecting a learning opens its guidance, review comments, and decision history in place of the list. Repository administrators accept, edit, reject, and accept again from that view; members see the same view without those actions.
+
+The address holds the whole library state, for example `/repositories/2001/learnings?status=active&q=label&page=2&learning=mem_1`, so the back button and shared links reopen the same view. The page opens on Suggested while any suggestion waits and on Active otherwise. Only an open learning loads its history.
+
 ## Repository API
 
 The browser contracts are:
