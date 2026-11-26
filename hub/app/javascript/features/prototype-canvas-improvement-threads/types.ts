@@ -30,7 +30,6 @@ export type ImprovementThreadsProps = {
   active?: boolean
   controls?: boolean
   busy?: boolean
-  activeBatch?: boolean
   error?: string
   returnFocusRef?: RefObject<HTMLElement | null>
   closeRequestRef?: RefObject<(() => void) | null>

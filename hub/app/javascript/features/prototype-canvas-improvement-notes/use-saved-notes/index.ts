@@ -13,7 +13,9 @@ type SavedNotes = {
   profileError?: string | null
 }
 
-function selectedNoteKey(value: unknown): string | null {
+type SelectedNote = { id: number; revision: number }
+
+function selectedNote(value: unknown): SelectedNote | null {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -23,7 +25,11 @@ function selectedNoteKey(value: unknown): string | null {
     typeof value.revision !== "number"
   )
     return null
-  return `${value.id}:${value.revision}`
+  return { id: value.id, revision: value.revision }
+}
+
+function noteKey(note: SelectedNote) {
+  return `${note.id}:${note.revision}`
 }
 
 export function useSavedNotes(token: string | undefined) {
@@ -33,6 +39,9 @@ export function useSavedNotes(token: string | undefined) {
   const [busy, setBusy] = useState(false)
   const current = useRef<SavedNotes | null>(null)
   const pending = useRef(false)
+  const queue = useRef<Promise<unknown>>(Promise.resolve())
+  const queued = useRef(0)
+  const capturedFixes = useRef(new Set<string>())
   const backgroundSync = useRef<Promise<void> | null>(null)
   const mounted = useRef(false)
   const generation = useRef(0)
@@ -99,42 +108,87 @@ export function useSavedNotes(token: string | undefined) {
     }
   }, [token])
 
-  async function change(operation: string, input: Record<string, unknown> = {}): Promise<boolean> {
-    if (!token || !current.current || pending.current) return false
-    const identity = current.current.identity
-    const selectedIds =
-      operation === "fix" && Array.isArray(input.noteIds)
-        ? new Set(
-            input.noteIds
-              .map((item: unknown) => selectedNoteKey(item))
-              .filter((key): key is string => key !== null),
-          )
-        : null
-    const requestedWork = current.current.notes
-      .filter((note) => note.status === "open")
-      .filter((note) => selectedIds === null || selectedIds.has(`${note.id}:${note.revision}`))
-      .map((note) => `${note.id}:${note.revision}`)
-      .sort()
-      .join(",")
+  // Mutations run one at a time in click order so a fix requested during another request queues.
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    if (!queued.current) capturedFixes.current.clear()
+    queued.current++
     pending.current = true
     generation.current++
     setBusy(true)
+    const run = queue.current.then(task)
+    queue.current = run
+      .catch(() => undefined)
+      .finally(() => {
+        queued.current--
+        if (queued.current) return
+        pending.current = false
+        if (mounted.current) setBusy(false)
+      })
+    return run
+  }
+
+  function performChange(
+    operation: string,
+    input: Record<string, unknown> = {},
+    fixCreated = false,
+  ) {
+    if (!token || !current.current) return Promise.resolve({ changed: false, fixStarted: false })
+    const identity = current.current.identity
+    const selected = Array.isArray(input.noteIds) ? input.noteIds.map(selectedNote) : null
+    if (operation === "fix" && selected?.some((note) => note === null)) {
+      setError(copy.workChanged)
+      return Promise.resolve({ changed: false, fixStarted: false })
+    }
+    const requestedWork =
+      operation !== "fix"
+        ? []
+        : selected
+          ? selected.filter((note): note is SelectedNote => note !== null)
+          : current.current.notes
+              .filter((note) => note.status === "open")
+              .map(({ id, revision }) => ({ id, revision }))
     setError("")
+    return enqueue(() => runChange(operation, input, fixCreated, identity, requestedWork))
+  }
+
+  async function runChange(
+    operation: string,
+    input: Record<string, unknown>,
+    fixCreated: boolean,
+    identity: string,
+    requestedWork: SelectedNote[],
+  ) {
+    let changed = false
+    if (!token || !mounted.current) return { changed, fixStarted: false }
     try {
       await backgroundSync.current
-      if (!mounted.current) return false
+      if (!mounted.current) return { changed, fixStarted: false }
       if (!current.current || current.current.identity !== identity)
         throw new Error(copy.branchChanged)
-      if (
-        operation === "fix" &&
-        current.current.notes
-          .filter((note) => note.status === "open")
-          .filter((note) => selectedIds === null || selectedIds.has(`${note.id}:${note.revision}`))
-          .map((note) => `${note.id}:${note.revision}`)
-          .sort()
-          .join(",") !== requestedWork
-      )
-        throw new Error(copy.workChanged)
+      let fixInput = input
+      if (operation === "fix") {
+        const remaining = requestedWork.filter((note) => !capturedFixes.current.has(noteKey(note)))
+        if (requestedWork.length && !remaining.length) return { changed, fixStarted: false }
+        if (
+          !remaining.length ||
+          remaining.some(
+            (selected) =>
+              !current.current!.notes.some(
+                (note) =>
+                  note.id === selected.id &&
+                  note.revision === selected.revision &&
+                  note.status === "open",
+              ),
+          )
+        )
+          throw new Error(copy.workChanged)
+        fixInput = {
+          ...input,
+          noteIds: remaining,
+          scope: Array.isArray(input.noteIds) ? "selected" : "all",
+        }
+      }
+      const previousIds = new Set(current.current.notes.map((note) => note.id))
       const value = await prototypeCanvasRequest<SavedNotes>(
         operation === "fix" ? "/api/improvement-notes/fix" : "/api/improvement-notes",
         token,
@@ -144,19 +198,52 @@ export function useSavedNotes(token: string | undefined) {
             identity: current.current.identity,
             revision: current.current.revision,
             operation,
-            ...input,
+            ...fixInput,
           }),
         },
       )
       accept(value)
-      return true
+      changed = true
+      if (operation === "fix")
+        requestedWork.forEach((note) => capturedFixes.current.add(noteKey(note)))
+      if (fixCreated) {
+        const created = value.notes.filter((note) => !previousIds.has(note.id))
+        if (created.length !== 1) throw new Error(copy.createdNoteUnavailable)
+        const note = created[0]!
+        const fixed = await prototypeCanvasRequest<SavedNotes>(
+          "/api/improvement-notes/fix",
+          token,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              identity: value.identity,
+              revision: value.revision,
+              noteIds: [{ id: note.id, revision: note.revision }],
+            }),
+          },
+        )
+        accept(fixed)
+      }
+      return { changed, fixStarted: fixCreated }
     } catch (problem) {
-      if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
-      return false
-    } finally {
-      pending.current = false
-      if (mounted.current) setBusy(false)
+      const message = problem instanceof Error ? problem.message : String(problem)
+      if (mounted.current)
+        setError(
+          (operation === "fix" || fixCreated) &&
+            message === "These notes changed in another panel. Reload before making changes."
+            ? copy.workChanged
+            : message,
+        )
+      return { changed, fixStarted: false }
     }
+  }
+
+  async function change(operation: string, input: Record<string, unknown> = {}) {
+    return (await performChange(operation, input)).changed
+  }
+
+  async function createAndFix(input: Record<string, unknown>) {
+    return performChange("create", input, true)
   }
 
   async function capture(): Promise<{ identity: string; sourceId: string } | null> {
@@ -174,5 +261,5 @@ export function useSavedNotes(token: string | undefined) {
     }
   }
 
-  return { state, error: error || refreshError, busy, change, capture }
+  return { state, error: error || refreshError, busy, change, createAndFix, capture }
 }

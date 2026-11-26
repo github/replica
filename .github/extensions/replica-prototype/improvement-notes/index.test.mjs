@@ -821,8 +821,10 @@ it("captures an immutable cross-screen batch while follow-ups wait for the next 
     assert.match(messages[0].prompt, /\/replica-pick-and-polish\b/)
     assert.doesNotMatch(messages[0].prompt, /fallback procedure/i)
     assert.doesNotMatch(messages[0].prompt, /"body"|"anchor"|"notes"/)
-    assert.match(messages[0].prompt, /"noteCount":2/)
     const batch = await store.batch({ batchId: state.activeBatch })
+    const metadata = JSON.parse(messages[0].prompt.split("\n\n").at(-1))
+    assert.deepEqual(metadata, { batchId: batch.id, noteCount: 2 })
+    assert.doesNotMatch(messages[0].prompt, /"checkout"|"branch"|prototype\/demo/)
     assert.equal(batch.notes.length, 2)
     state = await store.save({
       ...state,
@@ -868,6 +870,392 @@ it("captures an immutable cross-screen batch while follow-ups wait for the next 
       status: "resolved",
     })
     assert.equal(state.notes[1].status, "resolved")
+  })
+})
+
+it("queues only the selected note behind the running batch", async () => {
+  await fixture(async ({ create, anchor, messages }) => {
+    const store = create()
+    let state = await store.load()
+    for (const body of ["Existing request", "Fix this new note"])
+      state = await store.save({ ...state, operation: "create", body, anchor })
+    state = await store.save({
+      ...state,
+      operation: "follow-up",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+      body: "Existing follow-up",
+    })
+    const untouched = structuredClone(state.notes[0])
+    state = await store.fix({
+      ...state,
+      noteIds: [{ id: 2, revision: state.notes[1].revision }],
+    })
+    const batch = await store.batch({ batchId: state.activeBatch })
+    assert.deepEqual(
+      batch.notes.map((note) => note.id),
+      [2],
+    )
+    assert.equal(batch.notes[0].body, "Fix this new note")
+    assert.deepEqual(state.notes[0], untouched)
+    assert.equal(messages.length, 1)
+    state = await store.fix({
+      ...state,
+      noteIds: [{ id: 1, revision: untouched.revision }],
+    })
+    assert.equal(state.activeBatch, batch.id)
+    assert.equal(state.notes[0].status, "sent")
+    assert.equal(messages.length, 1)
+
+    await store.results({
+      batchId: batch.id,
+      results: batch.notes.map(({ localId, revision }) => ({
+        localId,
+        revision,
+        status: "ready",
+        message: "Implemented",
+      })),
+    })
+    state = await store.load()
+    const remaining = await store.batch({ batchId: state.activeBatch })
+    assert.deepEqual(
+      remaining.notes.map((note) => note.id),
+      [1],
+    )
+    assert.deepEqual(remaining.notes[0].requestIds, [
+      untouched.localId,
+      untouched.thread.messages[0].id,
+    ])
+    assert.equal(messages.length, 2)
+    assert.equal((await store.batch({ batchId: batch.id })).state, "completed")
+  })
+})
+
+it("preserves click order and captured request IDs across reloads while later requests wait", async () => {
+  await fixture(async ({ create, anchor, messages, directory }) => {
+    let store = create()
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Original",
+      anchor,
+    })
+    state = await store.fix(state)
+    const first = await store.batch({ batchId: state.activeBatch })
+    state = await store.save({
+      ...state,
+      operation: "follow-up",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+      body: "First follow-up",
+    })
+    const followUpId = state.notes[0].thread.messages[0].id
+    state = await store.fix(state)
+    state = await store.save({
+      ...state,
+      operation: "create",
+      body: "Second click",
+      anchor,
+    })
+    state = await store.fix(state)
+    state = await store.save({
+      ...state,
+      operation: "follow-up",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+      body: "Not clicked yet",
+    })
+    const filename = path.join(directory, "notes", `${state.identity}.json`)
+    const { batches } = JSON.parse(await readFile(filename, "utf8"))
+    assert.equal(batches.length, 3)
+    assert.deepEqual(
+      batches.map(({ state }) => state),
+      ["requested", "queued", "queued"],
+    )
+    assert.deepEqual(
+      batches.map(({ notes }) => notes.flatMap(({ requestIds }) => requestIds)),
+      [[state.notes[0].localId], [followUpId], [state.notes[1].localId]],
+    )
+    assert.equal(messages.length, 1)
+
+    store = create()
+    state = await store.load()
+    assert.equal(state.activeBatch, first.id)
+    assert.equal(messages.length, 1)
+    for (let index = 0; index < batches.length; index++) {
+      const batch = await store.batch({ batchId: state.activeBatch })
+      assert.equal(batch.id, batches[index].id)
+      assert.equal(batch.state, "requested")
+      assert.ok(messages[index].prompt.includes(JSON.stringify(batch.id)))
+      await store.results({
+        batchId: batch.id,
+        results: batch.notes.map(({ localId, revision }) => ({
+          localId,
+          revision,
+          status: "ready",
+          message: `Answer ${index + 1}`,
+        })),
+      })
+      state = await store.load()
+      assert.equal(messages.length, Math.min(index + 2, batches.length))
+      assert.equal(state.notes[0].thread.originalStatus, "ready")
+      assert.equal(
+        state.notes[0].thread.messages.find(({ id }) => id === followUpId).status,
+        index === 0 ? "sent" : "ready",
+      )
+      assert.equal((await store.batch({ batchId: batch.id })).state, "completed")
+    }
+    assert.equal(state.activeBatch, null)
+    assert.equal(
+      state.notes[0].thread.messages.find(({ body }) => body === "Not clicked yet").status,
+      "open",
+    )
+    assert.equal(state.notes[1].status, "ready")
+  })
+})
+
+it("resumes a persisted undispatched batch only in its owning conversation", async () => {
+  await fixture(async ({ create, anchor, context, messages, directory }) => {
+    const store = create()
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Waiting for dispatch",
+      anchor,
+    })
+    state = await store.fix(state)
+    const filename = path.join(directory, "notes", `${state.identity}.json`)
+    const record = JSON.parse(await readFile(filename, "utf8"))
+    record.batches[0].state = "queued"
+    await writeFile(filename, JSON.stringify(record), { mode: 0o600 })
+    const priorSends = messages.length
+    context.sessionId = "another-conversation"
+    await create().load()
+    assert.equal(messages.length, priorSends)
+    context.sessionId = "conversation"
+    const restarted = create()
+    state = await restarted.load()
+    assert.equal(state.activeBatch, record.batches[0].id)
+    assert.equal((await restarted.batch({ batchId: state.activeBatch })).state, "requested")
+    assert.equal(messages.length, priorSends + 1)
+    await create().load()
+    assert.equal(messages.length, priorSends + 1)
+  })
+})
+
+for (const operation of ["delete", "retry"]) {
+  it(`invalidates a queued request after ${operation} and skips it when advancing the queue`, async () => {
+    await fixture(async ({ create, anchor, messages, directory }) => {
+      const store = create()
+      let state = await store.load()
+      for (const body of ["Running", "Cancel this queued request", "Reopen with its batch"])
+        state = await store.save({
+          ...state,
+          operation: "create",
+          body,
+          anchor,
+        })
+      state = await store.fix({
+        ...state,
+        noteIds: [{ id: 1, revision: state.notes[0].revision }],
+      })
+      state = await store.fix(state)
+      state = await store.save({
+        ...state,
+        operation: "create",
+        body: "Still queued",
+        anchor,
+      })
+      state = await store.fix(state)
+      const { batches } = JSON.parse(
+        await readFile(path.join(directory, "notes", `${state.identity}.json`), "utf8"),
+      )
+      state = await store.save({
+        ...state,
+        operation: operation === "retry" ? "status" : "delete",
+        id: 2,
+        expectedNoteRevision: state.notes[1].revision,
+        ...(operation === "retry" ? { status: "open" } : {}),
+      })
+      assert.equal(messages.length, 1)
+      assert.equal((await store.batch({ batchId: batches[1].id })).state, "cancelled")
+      assert.equal(state.notes.find(({ id }) => id === 3).status, "open")
+      await store.results({
+        batchId: batches[0].id,
+        results: batches[0].notes.map(({ localId, revision }) => ({
+          localId,
+          revision,
+          status: "ready",
+          message: "Finished running work",
+        })),
+      })
+      state = await store.load()
+      assert.equal(state.activeBatch, batches[2].id)
+      assert.equal(messages.length, 2)
+      await assert.rejects(
+        store.results({
+          batchId: batches[1].id,
+          results: batches[1].notes.map(({ localId, revision }) => ({
+            localId,
+            revision,
+            status: "ready",
+            message: "Stale queued answer",
+          })),
+        }),
+        /not awaiting/,
+      )
+      state = await store.load()
+      if (operation === "retry") {
+        assert.equal(state.notes.find(({ id }) => id === 2).status, "open")
+        assert.deepEqual(state.notes.find(({ id }) => id === 2).thread.messages, [])
+      } else
+        assert.equal(
+          state.notes.some(({ id }) => id === 2),
+          false,
+        )
+    })
+  })
+}
+
+it("does not enqueue or consume another conversation's pending work", async () => {
+  await fixture(async ({ create, anchor, context, messages }) => {
+    const store = create()
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Running",
+      anchor,
+    })
+    state = await store.fix(state)
+    const batch = await store.batch({ batchId: state.activeBatch })
+    await store.save({ ...state, operation: "create", body: "Next", anchor })
+    context.sessionId = "another-conversation"
+    const other = create()
+    state = await other.load()
+    await assert.rejects(other.fix(state), { statusCode: 409 })
+    await assert.rejects(
+      other.results({
+        batchId: batch.id,
+        results: batch.notes.map(({ localId, revision }) => ({
+          localId,
+          revision,
+          status: "ready",
+          message: "Wrong conversation",
+        })),
+      }),
+      { statusCode: 409 },
+    )
+    assert.equal(messages.length, 1)
+    context.sessionId = "conversation"
+    state = await store.load()
+    assert.equal(state.activeBatch, batch.id)
+    assert.deepEqual(
+      state.notes.map(({ status }) => status),
+      ["sent", "open"],
+    )
+  })
+})
+
+it("rejects invalid selected note IDs without changing or dispatching notes", async () => {
+  await fixture(async ({ create, anchor, directory, messages }) => {
+    const store = create()
+    const state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Keep this request",
+      anchor,
+    })
+    const filename = path.join(directory, "notes", `${state.identity}.json`)
+    const before = await readFile(filename, "utf8")
+    const invalid = [
+      { noteIds: [{ id: 1 }] },
+      { noteIds: [{ revision: 1 }] },
+      ...[null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "1"].flatMap((value) => [
+        { noteIds: [{ id: value, revision: 1 }] },
+        { noteIds: [{ id: 1, revision: value }] },
+      ]),
+    ]
+    for (const scope of invalid) {
+      await assert.rejects(store.fix({ ...state, ...scope }), {
+        statusCode: 422,
+      })
+      assert.equal(await readFile(filename, "utf8"), before)
+    }
+    assert.deepEqual(messages, [])
+  })
+})
+
+it("rejects unavailable scoped notes and stale note or collection revisions without dispatch", async () => {
+  await fixture(async ({ create, anchor, directory, messages }) => {
+    const store = create()
+    let state = await store.load()
+    for (const body of ["Open request", "Deleted request", "Resolved request"])
+      state = await store.save({ ...state, operation: "create", body, anchor })
+    state = await store.save({
+      ...state,
+      operation: "delete",
+      id: 2,
+      expectedNoteRevision: state.notes[1].revision,
+    })
+    state = await store.fix({
+      ...state,
+      noteIds: [{ id: 3, revision: state.notes.find((note) => note.id === 3).revision }],
+    })
+    const batch = await store.batch({ batchId: state.activeBatch })
+    await store.results({
+      batchId: batch.id,
+      results: batch.notes.map(({ localId, revision }) => ({
+        localId,
+        revision,
+        status: "ready",
+        message: "Implemented",
+      })),
+    })
+    state = await store.load()
+    state = await store.save({
+      ...state,
+      operation: "status",
+      id: 3,
+      expectedNoteRevision: state.notes.find((note) => note.id === 3).revision,
+      status: "resolved",
+    })
+    state = await store.save({
+      ...state,
+      operation: "follow-up",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+      body: "A newer request",
+    })
+    const filename = path.join(directory, "notes", `${state.identity}.json`)
+    const before = await readFile(filename, "utf8")
+    const dispatched = messages.length
+    for (const scope of [
+      { noteIds: [{ id: 999, revision: 1 }] },
+      { noteIds: [{ id: 2, revision: 1 }] },
+      {
+        noteIds: [
+          {
+            id: 3,
+            revision: state.notes.find((note) => note.id === 3).revision,
+          },
+        ],
+      },
+      { noteIds: [{ id: 1, revision: 1 }] },
+      {
+        noteIds: [{ id: 1, revision: state.notes[0].revision }],
+        revision: state.revision - 1,
+      },
+      {
+        noteIds: [{ id: 1, revision: state.notes[0].revision }],
+        identity: "another-branch",
+      },
+    ]) {
+      await assert.rejects(store.fix({ ...state, ...scope }), {
+        statusCode: 409,
+      })
+      assert.equal(await readFile(filename, "utf8"), before)
+    }
+    assert.equal(messages.length, dispatched)
   })
 })
 
@@ -958,7 +1346,9 @@ for (const { label, skills } of [
       })
       let prompt
       let dispatchedRecord
+      let sends = 0
       session.send = async (message) => {
+        sends++
         prompt = message.prompt
         dispatchedRecord = JSON.parse(
           await readFile(path.join(directory, "notes", `${state.identity}.json`), "utf8"),
@@ -968,7 +1358,8 @@ for (const { label, skills } of [
       assert.equal(dispatchedRecord.batches.length, 1)
       const batch = dispatchedRecord.batches[0]
       assert.equal(batch.id, result.activeBatch)
-      assert.equal(batch.state, "requested")
+      assert.equal(batch.state, "delivery_unknown")
+      assert.match(batch.deliveryError, /review the conversation before retrying/i)
       assert.equal(batch.notes[0].revision, state.notes[0].revision + 1)
       assert.equal(dispatchedRecord.notes[0].status, "sent")
       assert.deepEqual(batch.notes[0].requestIds, [
@@ -978,7 +1369,7 @@ for (const { label, skills } of [
       assert.equal(discoveries, 1)
       assert.match(prompt, /\/replica-pick-and-polish\b/)
       assert.equal(prompt.includes(root), false)
-      assert.ok(prompt.includes(JSON.stringify("prototype/demo")))
+      assert.doesNotMatch(prompt, /"checkout"|"branch"|prototype\/demo/)
       assert.doesNotMatch(prompt, /fallback procedure/i)
       const data = prompt.split("\n\n").flatMap((paragraph) => {
         try {
@@ -990,8 +1381,6 @@ for (const { label, skills } of [
       })
       assert.equal(data.length, 1)
       assert.deepEqual(data[0], {
-        checkout: path.basename(root),
-        branch: "prototype/demo",
         batchId: result.activeBatch,
         noteCount: 1,
       })
@@ -999,6 +1388,13 @@ for (const { label, skills } of [
         prompt,
         /private-original-request|private-anchor|private-follow-up-request|"thread"|"requestIds"/,
       )
+      const afterSend = JSON.parse(
+        await readFile(path.join(directory, "notes", `${state.identity}.json`), "utf8"),
+      )
+      assert.equal(afterSend.batches[0].state, "requested")
+      assert.equal((await create().load()).activeBatch, result.activeBatch)
+      assert.equal(sends, 1)
+      assert.equal(discoveries, 1)
     })
   })
 }
@@ -1010,7 +1406,9 @@ for (const { label, error, configure } of [
     configure: (session) => {
       session.rpc = {
         skills: {
-          list: async () => ({ skills: [{ name: "replica-pick-and-polish", enabled: false }] }),
+          list: async () => ({
+            skills: [{ name: "replica-pick-and-polish", enabled: false }],
+          }),
         },
       }
     },
@@ -1081,9 +1479,10 @@ it("keeps untrusted note payloads out of dispatch and preserves them in the capt
   })
 })
 
-it("reports dispatch failure durably without automatically replaying the request", async () => {
-  await fixture(async ({ create, session, anchor }) => {
+it("pauses queued fixes after uncertain dispatch without replaying the send on reload", async () => {
+  await fixture(async ({ create, session, anchor, messages, directory }) => {
     session.send = async () => {
+      messages.push("ambiguous send")
       throw new Error("transport disconnected")
     }
     const store = create()
@@ -1094,14 +1493,39 @@ it("reports dispatch failure durably without automatically replaying the request
       body: "One",
       anchor,
     })
-    state = await store.fix(state)
+    state = await store.save({
+      ...state,
+      operation: "create",
+      body: "Leave this request pending",
+      anchor,
+    })
+    const untouched = structuredClone(state.notes[1])
+    state = await store.fix({
+      ...state,
+      noteIds: [{ id: 1, revision: state.notes[0].revision }],
+    })
     assert.equal(state.notes[0].status, "sent")
+    assert.deepEqual(state.notes[1], untouched)
     assert.ok(state.activeBatch)
-    await assert.rejects(store.fix(state), /already awaiting/)
+    state = await store.fix(state)
+    assert.equal(state.notes[1].status, "sent")
     assert.match((await create().load()).syncError, /outcome is unknown/)
     state = await store.sync(state)
     assert.match(state.syncError, /outcome is unknown/)
+    const { batches } = JSON.parse(
+      await readFile(path.join(directory, "notes", `${state.identity}.json`), "utf8"),
+    )
+    assert.deepEqual(
+      batches.map(({ state }) => state),
+      ["delivery_unknown", "queued"],
+    )
+    assert.equal(messages.length, 1)
     const batch = await store.batch({ batchId: state.activeBatch })
+    session.send = async (message) => messages.push(message)
+    assert.deepEqual(
+      batch.notes.map((note) => note.id),
+      [1],
+    )
     assert.equal(batch.state, "delivery_unknown")
     assert.deepEqual(
       await store.results({
@@ -1117,7 +1541,8 @@ it("reports dispatch failure durably without automatically replaying the request
     )
     state = await store.load()
     assert.equal(state.notes[0].status, "ready")
-    assert.equal(state.activeBatch, null)
+    assert.equal(state.activeBatch, batches[1].id)
+    assert.equal(messages.length, 2)
   })
 })
 

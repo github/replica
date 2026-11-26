@@ -17,6 +17,9 @@ export const copy = {
   label: "What should change?",
   placeholder: "Describe what you want Copilot to change...",
   save: "Save",
+  fixNow: "Fix now",
+  createdNoteUnavailable:
+    "Your note was saved, but could not be identified for fixing. Open Notes to fix it.",
   saveShortcutMac: "⌘",
   saveShortcutOther: "Ctrl",
   saveShortcutEnter: "↵",
@@ -30,7 +33,7 @@ export const copy = {
   saved: "Note added.",
   storageLoading: "Loading your notes...",
   branchChanged: "The prototype branch changed. Close this draft and select the target again.",
-  workChanged: "The open improvements changed while syncing. Review them and select Fix all again.",
+  workChanged: "The selected improvements changed. Review them and try fixing again.",
   closeComposer: "Close note composer",
   closeDiscard: "Close discard confirmation",
 }

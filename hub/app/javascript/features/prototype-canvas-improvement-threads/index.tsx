@@ -31,6 +31,7 @@ import { HubUserAvatar } from "@components/hub-user-avatar"
 import { ReviewParticipantStack } from "@features/review-participant-stack"
 import { useReviewCardPosition } from "@hooks/use-review-card-position"
 import { useReviewError } from "@hooks/use-review-error"
+import { countPendingImprovements } from "@utils/count-pending-improvements"
 import { ReviewThreadReplyForm } from "@features/review-thread-reply-form"
 import { copy } from "./en"
 import type { ImprovementThread, ImprovementThreadsProps } from "./types"
@@ -68,7 +69,6 @@ export function ImprovementThreads({
   onRetry,
   identity,
   busy: saving = false,
-  activeBatch = false,
   error = "",
   returnFocusRef,
   closeRequestRef,
@@ -134,11 +134,7 @@ export function ImprovementThreads({
     anchorSelector: selected === null ? undefined : `[data-improvement-thread-id="${selected}"]`,
     layoutKey: `${selected}:${discarding}:${thread?.messages.length}:${thread?.status}`,
   })
-  const pending = threads.reduce(
-    (count, item) =>
-      count + Number(item.originalPending) + item.messages.filter((entry) => entry.pending).length,
-    0,
-  )
+  const pending = countPendingImprovements(threads)
   const tooLong = new TextEncoder().encode(draft).length > 10_000
   const filters = [
     { value: "active", label: copy.allActive },
@@ -338,7 +334,8 @@ export function ImprovementThreads({
     if (
       !onFixSelected ||
       !selectedOpen.length ||
-      busy ||
+      resolvingAll ||
+      selectedAction !== null ||
       draft.trim() ||
       discarding ||
       changedIdentity
@@ -472,7 +469,7 @@ export function ImprovementThreads({
                 variant="primary"
                 className="thread-sample__fix-all"
                 leadingVisual={<SparkleIcon size={16} />}
-                disabled={!pending || Boolean(draft.trim()) || discarding || busy || activeBatch}
+                disabled={!pending || Boolean(draft.trim()) || discarding}
                 aria-busy={busy}
                 aria-label={copy.simulate(pending)}
                 onClick={() => {
@@ -666,7 +663,13 @@ export function ImprovementThreads({
                       <Checkbox
                         aria-label={copy.select(item.body)}
                         checked={isSelected}
-                        disabled={busy || Boolean(draft.trim()) || discarding || changedIdentity}
+                        disabled={
+                          resolvingAll ||
+                          selectedAction !== null ||
+                          Boolean(draft.trim()) ||
+                          discarding ||
+                          changedIdentity
+                        }
                         onChange={(event) => {
                           const checked = event.target.checked
                           setNoteSelection((selection) => ({
