@@ -67,6 +67,8 @@ import { post as handleCopilotAuthorizationContinuePost } from "./api/copilot-co
 import { post as handleCopilotAuthorizationCancelPost } from "./api/copilot-connection/authorizations/cancel/post/index.ts"
 import { get as handleLearningsGet } from "./api/learnings/get/index.ts"
 import { get as handleLearningHistoryGet } from "./api/learnings/history/get/index.ts"
+import { get as handleAppliedLearningsGet } from "./api/learnings/applied/get/index.ts"
+import { get as handleLearningScreenshotGet } from "./api/learnings/screenshots/get/index.ts"
 import { post as handleLearningRunPost } from "./api/learnings/runs/post/index.ts"
 import { post as handleLearningDecisionPost } from "./api/learnings/decision/post/index.ts"
 import { post as handleLearningSharePost } from "./api/learnings/share/post/index.ts"
@@ -370,6 +372,14 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/repositories/:repositoryId/learnings/runs",
         requireOrigin(learnings.applicationOrigin),
         handleLearningRunPost(learnings),
+      )
+      app.get(
+        "/api/repositories/:repositoryId/learnings/applied",
+        handleAppliedLearningsGet(learnings),
+      )
+      app.get(
+        "/api/repositories/:repositoryId/learnings/screenshots/:sha256",
+        handleLearningScreenshotGet(learnings),
       )
       app.get(
         "/api/repositories/:repositoryId/learnings/:learningId/history",

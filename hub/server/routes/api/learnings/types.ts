@@ -2,6 +2,7 @@ import type { CurrentSessionDependencies } from "../auth/types.ts"
 import type { ProductViewer } from "../product/types.ts"
 import type {
   AcceptedLearning,
+  AppliedLearning,
   LearningDecision,
   LearningDecisionRecord,
   LearningEvidence,
@@ -12,6 +13,7 @@ import type {
 
 export type {
   AcceptedLearning,
+  AppliedLearning,
   LearningDecision,
   LearningDecisionRecord,
   LearningEvidence,
@@ -95,6 +97,12 @@ export interface LearningsRouteDependencies {
     evidence: LearningEvidence[]
     otherEvidenceCount: number
   }>
+  getAppliedLearnings(input: {
+    repositoryId: string
+    prototypeId: string
+    commitSha: string
+  }): Promise<AppliedLearning[]>
+  readScreenshot(input: { repositoryId: string; sha256: string }): Promise<Uint8Array | null>
   getCopilot(): Promise<
     | { state: "connected"; connectedBy: string | null }
     | { state: "not-connected" }

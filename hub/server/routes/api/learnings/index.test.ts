@@ -13,6 +13,8 @@ import { get as getLearnings } from "./get/index.ts"
 import { get as getEvaluations } from "./evaluations/get/index.ts"
 import { patch as patchEvaluations } from "./evaluations/patch/index.ts"
 import { get as getLearningHistory } from "./history/get/index.ts"
+import { get as getAppliedLearnings } from "./applied/get/index.ts"
+import { get as getScreenshot } from "./screenshots/get/index.ts"
 import { post as postRun } from "./runs/post/index.ts"
 import { post as postShare } from "./share/post/index.ts"
 import type { LearningsRouteDependencies } from "./types.ts"
@@ -56,6 +58,8 @@ function dependencies(
       contradictions: [],
       otherContradictionsCount: 0,
     }),
+    getAppliedLearnings: vi.fn().mockResolvedValue([]),
+    readScreenshot: vi.fn().mockResolvedValue(null),
     getCopilot: vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" }),
     listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: null }),
     listActivity: vi.fn().mockResolvedValue([]),
@@ -690,6 +694,55 @@ describe("learning routes", () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual(history)
         expect(getHistory).toHaveBeenCalledWith({ repositoryId, learningId: "mem_1" })
+      },
+    )
+  })
+
+  it("lists the learnings reported for a prototype's commit", async () => {
+    const prototypeId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    const commitSha = "a".repeat(40)
+    const applied = [{ id: "mem_1", title: "Label every field", version: 2 }]
+    const getApplied = vi.fn().mockResolvedValue(applied)
+    const deps = dependencies({ getAppliedLearnings: getApplied })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/applied",
+      getAppliedLearnings(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/applied?prototype=${prototypeId}&commit=${commitSha}`,
+          { headers },
+        )
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ learnings: applied })
+        expect(getApplied).toHaveBeenCalledWith({ repositoryId, prototypeId, commitSha })
+      },
+    )
+  })
+
+  it("serves an agent screenshot only as an image", async () => {
+    const sha256 = "b".repeat(64)
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    const readScreenshot = vi.fn().mockResolvedValue(bytes)
+    const deps = dependencies({ readScreenshot })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/screenshots/:sha256",
+      getScreenshot(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/screenshots/${sha256}`,
+          { headers },
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get("content-type")).toBe("image/png")
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+        expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes)
+        expect(readScreenshot).toHaveBeenCalledWith({ repositoryId, sha256 })
       },
     )
   })

@@ -79,3 +79,12 @@ export type LearningDecision =
   | { decision: "retire"; reason: string }
   | { decision: "edit"; digest: string; title?: string; content?: string; reason: string }
   | { decision: "reinstate"; digest: string; reason: string }
+
+/** A learning an agent said it applied in a Build, with screenshots it may show. */
+export type AppliedLearning = {
+  id: string
+  title: string | null
+  version: number | null
+  before?: { sha256: string; route: string }
+  after?: { sha256: string; route: string }
+}

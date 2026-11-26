@@ -183,7 +183,10 @@ try {
               authenticationEnvironment,
               authentication.currentSession,
               logger,
-              { scopeGitHubMembers: authenticationConfiguration.githubConfigured },
+              {
+                scopeGitHubMembers: authenticationConfiguration.githubConfigured,
+                ...(storage ? { artifactStorage: storage } : {}),
+              },
             )
             learnings = learningDependencies
             const agentApplicationOrigin = authenticationEnvironment.HUB_APPLICATION_ORIGIN

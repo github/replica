@@ -7,6 +7,9 @@ import { ReviewCommentError } from "../../../../domains/review-comments/errors.t
 import { executeLearningDecision } from "../../../../domains/learning/execute-learning-decision/index.ts"
 import { createReviewCommentLearningSource } from "../../../../domains/learning/create-review-comment-learning-source/index.ts"
 import { getLearningHistory } from "../../../../domains/learning/get-learning-history/index.ts"
+import { getAppliedLearnings } from "../../../../domains/learning/get-applied-learnings/index.ts"
+import type { ArtifactStorage } from "../../../../domains/artifacts/create-artifact-storage/types.ts"
+import { findConsentedAgentScreenshot } from "../../../../repositories/agent-screenshots/find-consented-agent-screenshot/index.ts"
 import { recordFinishedLearningRun } from "../../../../domains/learning/record-finished-learning-run/index.ts"
 import { getLearningOverview } from "../../../../domains/learning/get-learning-overview/index.ts"
 import { getLearningRepositoryScope } from "../../../../domains/learning/get-learning-repository-scope/index.ts"
@@ -59,7 +62,11 @@ export async function createLearningsRouteDependencies(
   environment: NodeJS.ProcessEnv,
   currentSession: CurrentSessionDependencies,
   logger: Logger,
-  options: { scopeGitHubMembers?: boolean; source?: ReviewCommentLearningSource } = {},
+  options: {
+    artifactStorage?: Pick<ArtifactStorage, "read">
+    scopeGitHubMembers?: boolean
+    source?: ReviewCommentLearningSource
+  } = {},
 ): Promise<LearningsRouteDependencies> {
   const configuration = await readLearningConfiguration(environment)
   const applicationOrigin = environment.HUB_APPLICATION_ORIGIN
@@ -299,6 +306,51 @@ export async function createLearningsRouteDependencies(
         )
       }
       return history
+    },
+    getAppliedLearnings: async ({ repositoryId, prototypeId, commitSha }) => {
+      const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
+      const applied = await getAppliedLearnings({
+        ...configuration,
+        commitSha,
+        prototypeId,
+        repositoryId,
+        repositoryScope,
+      })
+      if (repositoryScope !== (await getLearningRepositoryScope(prisma, repositoryId))) {
+        throw new LearningCommandError(
+          "repository_scope_unavailable",
+          "The repository learning scope changed. Try again.",
+        )
+      }
+      // Offer a screenshot only while the consent that allowed it is still on.
+      async function consented(screenshot?: { sha256: string; route: string }) {
+        if (!screenshot || !options.artifactStorage) return undefined
+        const stored = await findConsentedAgentScreenshot(prisma, {
+          repositoryId,
+          sha256: screenshot.sha256,
+        })
+        return stored ? screenshot : undefined
+      }
+      return Promise.all(
+        applied.map(async ({ before, after, ...learning }) => {
+          const shownBefore = await consented(before)
+          const shownAfter = await consented(after)
+          return {
+            ...learning,
+            ...(shownBefore ? { before: shownBefore } : {}),
+            ...(shownAfter ? { after: shownAfter } : {}),
+          }
+        }),
+      )
+    },
+    readScreenshot: async ({ repositoryId, sha256 }) => {
+      if (!options.artifactStorage) return null
+      const stored = await findConsentedAgentScreenshot(prisma, { repositoryId, sha256 })
+      if (!stored) return null
+      const result = await options.artifactStorage.read(stored.storageKey)
+      if (result.status === "ok") return result.bytes
+      if (result.status === "not-found") return null
+      throw new Error(`Hub could not read an agent screenshot (${result.status}).`)
     },
     getCopilot,
     listRuns: (repositoryId) => listLearningRuns(prisma, repositoryId, new Date()),
