@@ -1,0 +1,328 @@
+.learning-library,
+.learning-library__detail {
+  display: grid;
+  gap: 1rem;
+}
+
+.learning-library h2,
+.learning-library p,
+.learning-library__detail h1,
+.learning-library__detail h2,
+.learning-library__detail p {
+  margin: 0;
+}
+
+.learning-library__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.learning-library__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+}
+
+.learning-library__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--hub-radius-medium);
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.learning-library__filter:hover {
+  background: var(--hub-canvas-subtle);
+  color: var(--hub-fg-default);
+}
+
+/* Matches the selected item in the left sidebar, so "you are here" looks the same
+   everywhere in Hub. */
+.learning-library__filter[aria-current="true"] {
+  background: var(--hub-border-muted);
+  color: var(--hub-fg-default);
+  font-weight: 600;
+}
+
+.learning-library__filter:focus-visible,
+.learning-library__learning-link:focus-visible,
+.learning-library__back:focus-visible {
+  outline: 2px solid var(--hub-focus);
+  outline-offset: 2px;
+}
+
+.learning-library__search {
+  width: min(100%, 20rem);
+}
+
+.learning-library__table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+}
+
+.learning-library__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.learning-library__table th,
+.learning-library__table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--hub-border-muted);
+  text-align: start;
+  vertical-align: top;
+}
+
+.learning-library__table th {
+  color: var(--hub-fg-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.learning-library__table tr:last-child td {
+  border-bottom: 0;
+}
+
+.learning-library__table td {
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+}
+
+.learning-library__table td:last-child {
+  width: 9rem;
+  white-space: nowrap;
+}
+
+.learning-library__learning-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+
+.learning-library__learning-cell p {
+  margin-top: 0.375rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.learning-library__state-icon {
+  flex: none;
+  margin-top: 0.125rem;
+}
+
+.learning-library__state-icon--suggested {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__state-icon--active {
+  color: var(--hub-fg-success);
+}
+
+.learning-library__state-icon--rejected {
+  color: var(--hub-fg-danger);
+}
+
+.learning-library__learning-link {
+  color: var(--hub-fg-default);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.learning-library__learning-link:hover,
+.learning-library__evidence-meta a:hover {
+  color: var(--hub-fg-link);
+  text-decoration: underline;
+}
+
+.learning-library__pagination {
+  justify-self: center;
+}
+
+.learning-library__back {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 0.375rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.learning-library__back:hover {
+  color: var(--hub-fg-link);
+}
+
+.learning-library__detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--hub-border-default);
+}
+
+.learning-library__detail-header > div:first-child {
+  display: grid;
+  flex: 1 1 28rem;
+  justify-items: start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.learning-library__title {
+  overflow-wrap: anywhere;
+}
+
+.learning-library__guidance {
+  font-size: 1.125rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.learning-library__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+  list-style: none;
+}
+
+.learning-library__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.learning-library__form {
+  display: grid;
+  gap: 1rem;
+}
+
+/* Inline forms around a single button should not stretch into a grid. */
+.learning-library__actions > .learning-library__form {
+  display: contents;
+}
+
+.learning-library__reason {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--hub-fg-danger) 40%, transparent);
+  border-radius: var(--hub-radius-medium);
+  /* Brand's danger-subtle is close to the heading red in dark mode, so this tints
+     the canvas instead. */
+  background: color-mix(in srgb, var(--hub-fg-danger) 8%, var(--hub-canvas-default));
+}
+
+.learning-library__reason strong {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--hub-fg-danger);
+}
+
+.learning-library__section {
+  display: grid;
+  gap: 0.75rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--hub-border-muted);
+}
+
+.learning-library__section:last-child {
+  border-bottom: 0;
+}
+
+/* Section labels stay smaller than the guidance so the learning itself reads first. */
+.learning-library__detail .learning-library__section-heading {
+  color: var(--hub-fg-default);
+  font-family: var(--brand-body-fontFamily);
+  font-size: var(--brand-text-size-100);
+  font-weight: var(--brand-text-weight-semibold);
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+
+.learning-library__section-header {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.learning-library__section-header p {
+  color: var(--hub-fg-muted);
+  font-size: var(--brand-text-size-100);
+}
+
+.learning-library__history,
+.learning-library__evidence-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.learning-library__history li {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.learning-library__history li > p {
+  color: var(--hub-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.learning-library__evidence-item {
+  display: grid;
+  gap: 0.375rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-subtle);
+  overflow-wrap: anywhere;
+}
+
+.learning-library__evidence-item p {
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.learning-library__evidence-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+}
+
+.learning-library__evidence-meta a {
+  color: var(--hub-fg-link);
+}
+
+@container (max-width: 40rem) {
+  .learning-library__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .learning-library__search {
+    width: 100%;
+  }
+}
