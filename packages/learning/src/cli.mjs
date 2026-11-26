@@ -64,8 +64,8 @@ Capture and propose
   import hub-comments <log.json> --grant <grant-id>... [--actor <id>] [--redact-deleted]
                                   --redact-deleted also removes the text of deleted comments
   import agent-session <session.json> --grant <grant-id>... --actor <agent:name>
-                                  Store a coding agent session's task, user and agent
-                                  messages, and outcome; sending it again updates it
+                                  Store a coding agent session's user and agent
+                                  messages and outcome; sending it again updates it
   label [--limit <n>] [--max-requests <n>] [--since <time>] [--model <model>]
                                   With Copilot, or the configured labeler, label the
                                   comments it has not been asked about and report its
