@@ -20,7 +20,6 @@ import { BuildStateLabel } from "@components/build-state-label"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubSpinner } from "@components/hub-spinner"
 import { HubUserAvatar } from "@components/hub-user-avatar"
-import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { PrototypeReviewControls } from "@features/prototype-review-controls"
 import { PrototypeWorkspaceHeaderLayout } from "@features/prototype-workspace-header-layout"
 import { useHubTheme } from "@hooks/use-hub-theme"
@@ -229,6 +228,7 @@ export function PrototypeWorkspaceHeader({
                     value={String(build.number)}
                     className="review-shell__build-option"
                     aria-current={build.number === data.selectedBuild?.number ? "page" : undefined}
+                    aria-label={build.stateLabel ? `${build.label} ${build.stateLabel}` : undefined}
                     onClick={(event) => {
                       if (
                         !visit ||
@@ -268,7 +268,6 @@ export function PrototypeWorkspaceHeader({
                           ) : (
                             <HubSpinner decorative size="small" />
                           )}
-                          <HubVisuallyHidden>{build.stateLabel}</HubVisuallyHidden>
                         </span>
                       ) : null}
                     </span>

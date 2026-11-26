@@ -32,6 +32,51 @@ describe("PrototypeWorkspaceHeader()", () => {
     )
   })
 
+  it("includes each available Build status in the option's accessible name", () => {
+    render(
+      <HubThemeProvider>
+        <PrototypeWorkspaceHeader
+          {...story.args}
+          data={{
+            ...story.args.data,
+            buildOptions: [
+              { number: 1, label: "v1", path: "?build=1", state: "queued", stateLabel: "Queued" },
+              { number: 2, label: "v2", path: "?build=2", state: "running", stateLabel: "Running" },
+              { number: 3, label: "v3", path: "?build=3", state: "failed", stateLabel: "Failed" },
+              {
+                number: 4,
+                label: "v4",
+                path: "?build=4",
+                state: "successful",
+                stateLabel: "Ready to review",
+              },
+              {
+                number: 5,
+                label: "v5",
+                path: "?build=5",
+                state: "superseded",
+                stateLabel: "Superseded",
+              },
+              { number: 6, label: "v6", path: "?build=6", state: "successful" },
+            ],
+          }}
+        />
+      </HubThemeProvider>,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose build, v1" }))
+    for (const name of [
+      "v1 Queued",
+      "v2 Running",
+      "v3 Failed",
+      "v4 Ready to review",
+      "v5 Superseded",
+      "v6",
+    ]) {
+      expect(screen.getByRole("menuitem", { name })).toBeInTheDocument()
+    }
+  })
+
   it("uses Superglue navigation once when Space activates a focused Build option", () => {
     const visit = vi.fn()
     const path = "/repositories/2001/prototypes/1?build=2"
