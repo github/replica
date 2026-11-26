@@ -351,6 +351,50 @@ describe("replica-learning CLI: the first learning milestone", () => {
     assert.ok(existsSync(path.join(repo, ".replica", "learning", "json-file-store.json")))
     assert.equal(existsSync(path.join(repo, ".replica", "learning", "learning.sqlite")), false)
   })
+
+  it("imports an agent session and lists what the person asked for", async () => {
+    const repo = checkout("agent-session")
+    writeFileSync(
+      path.join(repo, "session.json"),
+      JSON.stringify({
+        sessionId: "session-one",
+        user: "github:ana-designer",
+        messages: [
+          { role: "user", text: "Keep the field labels visible." },
+          { role: "tool", text: "npm test" },
+          { role: "agent", text: "I moved each label above its field." },
+        ],
+      }),
+    )
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const session = ["import", "agent-session", "session.json", "--grant", grant.id]
+
+    const refused = await cli(repo, session)
+    const imported = await ok(repo, [...session, "--actor", "agent:copilot"])
+
+    assert.equal(refused.code, 2)
+    assert.match(refused.stderr, /--actor agent:<name>/)
+    assert.match(imported.stdout, /Session session-one: added 1 episodes and 2 events\./)
+    assert.match(imported.stdout, /Skipped 1 tool or empty message\(s\)\./)
+    assert.match(
+      (await ok(repo, ["observations"])).stdout,
+      /session session-one message by github:ana-designer: "Keep the field labels visible\."/,
+    )
+  })
 })
 
 describe("replica-learning CLI: labeling with a labeler", () => {

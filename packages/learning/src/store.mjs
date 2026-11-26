@@ -10,6 +10,7 @@ import {
 } from "./provider-contract.mjs"
 import { INVISIBLE, rankForRecall, renderRecall } from "./recall.mjs"
 import {
+  FEEDBACK_TYPES,
   PRODUCER,
   SCHEMA_VERSIONS,
   memoryContentDigest,
@@ -28,6 +29,13 @@ import {
   readHubReviewCollection,
   stableReviewer,
 } from "./sources/hub-review-comments.mjs"
+import {
+  SESSION_SOURCE,
+  readAgentSession,
+  sessionEpisode,
+  sessionEpisodeId,
+  sessionEvents,
+} from "./sources/agent-sessions.mjs"
 import { isTimestamp, timestampFromMilliseconds } from "./time.mjs"
 import { assertValid, validateRecord } from "./validate.mjs"
 
@@ -278,14 +286,29 @@ function citesAny(record, ids) {
 }
 
 /**
- * Every stored version of one review comment: the comment events in its thread that edit links
- * join to it, and any other version of the same Hub comment. Refuses a history whose links
+ * Events whose text a person can ask to remove, grouped so a removal follows edits within one
+ * kind. A session message can change role when it is resent, so both roles share a group.
+ */
+const TEXT_KINDS = Object.freeze({
+  human_comment: "comment",
+  user_message: "message",
+  agent_message: "message",
+  session_outcome: "outcome",
+})
+
+/**
+ * Every stored version of one review comment or session event: the events of the same kind in
+ * its episode that edit links join to it, and any other version of the same Hub comment. Refuses a history whose links
  * leave the thread or join two Hub comments, rather than guess whose text to remove.
  */
 function commentVersions(events, target) {
   const comments = new Map(
     events
-      .filter((event) => event.type === "human_comment" && event.episodeId === target.episodeId)
+      .filter(
+        (event) =>
+          TEXT_KINDS[event.type] === TEXT_KINDS[target.type] &&
+          event.episodeId === target.episodeId,
+      )
       .map((event) => [event.id, event]),
   )
   const versions = new Set()
@@ -1331,7 +1354,8 @@ class LearningStore {
   }
 
   /**
-   * Remove the text of a review comment from storage, for example when its author asks.
+   * Remove the text of a review comment from storage, for example when its author asks. An
+   * agent session message or outcome is removed the same way, with its edits in the session.
    * Every stored version of the comment, and every label on those versions, keeps its ID and
    * digest but loses its payload, with a note of who removed it, when, and why. Other comments,
    * replies included, are untouched, and a history that links this comment to another one is
@@ -1352,8 +1376,11 @@ class LearningStore {
     this.#assertRedactable()
     const { episodes, events } = await this.#observations(context)
     const target = events.find((event) => event.id === eventId)
-    if (target?.type !== "human_comment")
-      throw new LearningError("not_found", `No review comment event ${eventId} in this scope.`)
+    if (!Object.hasOwn(TEXT_KINDS, target?.type ?? ""))
+      throw new LearningError(
+        "not_found",
+        `No review comment or agent session event ${eventId} in this scope.`,
+      )
     return this.#removeCommentText(context, episodes, events, [target], reason)
   }
 
@@ -1888,6 +1915,99 @@ class LearningStore {
   }
 
   /**
+   * Store an agent session as one episode: its task, its user and agent messages in order, and
+   * its outcome. Tool calls and tool output are dropped, secrets are scrubbed, and long text is
+   * capped. Sending the same session ID again updates that episode: new messages are appended,
+   * changed messages and outcomes supersede their earlier versions, and the first task stays.
+   *
+   * The grant must name agent_session and currently permit review, so a person decides whether
+   * sessions may become learning evidence, separately from review comments.
+   *
+   * @param {object} context the principal is the agent that ran the session
+   * @param {unknown} input see readAgentSession
+   * @param {{ grantIds: string[] }} options
+   */
+  async importAgentSession(context, input, { grantIds = [] } = {}) {
+    assertContext(context)
+    if (context.principal.kind !== "agent")
+      throw new LearningError("invalid_input", "The agent that ran the session sends it.")
+    const session = readAgentSession(input)
+    const now = this.#now()
+    const { eligibility, grants } = await this.#eligibility(context, now)
+    if (!grantIds.length)
+      throw new LearningError(
+        "purpose_not_granted",
+        "Name the consent grant that covers agent sessions with --grant.",
+      )
+    for (const grantId of grantIds) {
+      const grant = grants.find((item) => item.id === grantId)
+      if (!grant) throw new LearningError("not_found", `No grant ${grantId} in this scope.`)
+      if (!grant.sources.includes(SESSION_SOURCE))
+        throw new LearningError(
+          "purpose_not_granted",
+          `Grant ${grantId} does not name ${SESSION_SOURCE}.`,
+        )
+      if (!eligibility.activePurposes(grant).includes("review"))
+        throw new LearningError(
+          "grant_inactive",
+          `Grant ${grantId} does not currently permit review.`,
+        )
+    }
+    const episodeId = sessionEpisodeId(context.scope, session.sessionId)
+    const [stored] = await this.#read("episodes", context, { ids: [episodeId] })
+    if (stored && (stored.task?.prompt ?? "") !== (session.task ?? ""))
+      throw new LearningError(
+        "conflict",
+        `Session ${session.sessionId} was first sent with a different task. Send it with the same task.`,
+      )
+    const episodes = stored
+      ? []
+      : [
+          sealEpisode(
+            sessionEpisode({
+              session,
+              scope: context.scope,
+              grantIds,
+              principal: context.principal,
+              importedAt: now,
+            }),
+          ),
+        ]
+    const existing = await this.#read("events", context, { episodeIds: [episodeId] })
+    const events = sessionEvents({
+      session,
+      scope: context.scope,
+      episodeId,
+      principal: context.principal,
+      existing,
+      now,
+    }).map(sealEvent)
+    for (const episode of episodes) assertValid("episode", episode)
+    for (const event of events) assertValid("event", event)
+    if (episodes.length || events.length)
+      await this.#provider.appendBatch(
+        { episodes, events },
+        {
+          audit: this.#auditEntries(context, "observation.append", [
+            ...episodes.map((episode) => ({
+              kind: "episode",
+              id: episode.id,
+              digest: episode.digest,
+            })),
+            ...events.map((event) => ({ kind: "event", id: event.id, digest: event.digest })),
+          ]),
+        },
+      )
+    return {
+      episodeId,
+      sessionId: session.sessionId,
+      addedEpisodes: episodes.length,
+      addedEvents: events.length,
+      skippedMessages: session.skipped,
+    }
+  }
+
+  /**
    * Append episodes and events from any source. Episode grants must exist in scope, and every
    * event must belong to an episode in scope. Use this for sources other than Hub comments.
    */
@@ -1934,9 +2054,10 @@ class LearningStore {
   }
 
   /**
-   * Label comment events with a theme, signal, and stance. A label is an annotation event in
-   * the target's episode. Labeling the same target the same way again adds nothing; a
-   * different label from the same labeler supersedes the earlier one.
+   * Label feedback events, review comments or a person's messages to an agent, with a theme,
+   * signal, and stance. A label is an annotation event in the target's episode. Labeling the
+   * same target the same way again adds nothing; a different label from the same labeler
+   * supersedes the earlier one.
    *
    * @param {object} context the principal is the labeler, usually an agent
    * @param {Array<{ target: { eventId?: string, commentId?: number }, theme: { key: string, statement: string }, signal: string, observation: string, stance: string, proposedKind?: string, trace?: object, note?: string }>} labels
@@ -1952,7 +2073,9 @@ class LearningStore {
     )
     const comments = events.filter(
       (event) =>
-        event.type === "human_comment" && event.payload !== undefined && !retracted.has(event.id),
+        FEEDBACK_TYPES.includes(event.type) &&
+        event.payload !== undefined &&
+        !retracted.has(event.id),
     )
     const created = []
     for (const [index, label] of labels.entries()) {
@@ -2010,8 +2133,8 @@ class LearningStore {
   }
 
   /**
-   * Records that the caller read these comment events and found nothing to label, so a labeler
-   * is not asked about them again. Each one must be a live comment version. A comment the
+   * Records that the caller read these feedback events and found nothing to label, so a labeler
+   * is not asked about them again. Each one must be a live comment or message version. A comment the
    * caller already marked is skipped. Returns the no_annotation events it created.
    *
    * @param {object} context
@@ -2027,7 +2150,7 @@ class LearningStore {
       events
         .filter(
           (event) =>
-            event.type === "human_comment" &&
+            FEEDBACK_TYPES.includes(event.type) &&
             event.payload !== undefined &&
             !retracted.has(event.id),
         )

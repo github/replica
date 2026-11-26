@@ -16,6 +16,18 @@ export const SCHEMA_VERSIONS = Object.freeze({
   collection: "replica.collection/v1",
 })
 
+/**
+ * Event types that carry a person's feedback and can be labeled: review comments and the
+ * messages a person sends a coding agent. Both count toward recurring themes the same way.
+ */
+export const FEEDBACK_TYPES = Object.freeze(["human_comment", "user_message"])
+
+/** A feedback event's text, or null when it was deleted at its source or removed. */
+export function feedbackText(event) {
+  if (!FEEDBACK_TYPES.includes(event?.type)) return null
+  return (event.type === "human_comment" ? event.payload?.body : event.payload?.text) ?? null
+}
+
 /** A shallow copy without the named fields. */
 export function without(record, ...keys) {
   const copy = { ...record }

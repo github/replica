@@ -10,7 +10,7 @@ The package turns saved Hub review comments into guidance that a person approved
 
 1. A person records consent for named purposes, such as review and instruction.
 2. A host imports one complete snapshot of a repository's comments. Each review thread becomes an episode pinned to its prototype and to the Build the reviewer commented on.
-3. A labeler, Copilot by default, labels design themes. A consolidator proposes the themes that recur across distinct threads, prototypes, and reviewers.
+3. A labeler, Copilot by default, labels design themes. A consolidator proposes the themes that recur in at least two threads or agent sessions.
 4. A person accepts, edits, or rejects each proposal against the digest they reviewed.
 5. Agents recall the accepted learnings when they build the next prototype.
 
@@ -41,9 +41,10 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `migrate` | Sets up the package-owned PostgreSQL schema using a privileged environment-supplied URL |
 | `import-sqlite --offline` | Copies a stopped Hub SQLite store and its migration mappings into PostgreSQL |
 | `grants add`, `grants list`, `grants withdraw` | Records, lists, and ends consent for purposes |
-| `redact <event-id>` | Removes a comment's text when a person asks: every version and its labels |
+| `redact <event-id>` | Removes a review comment's or agent session event's text when a person asks: every version and its labels |
 | `redact --comment <hub-comment-id>` | Removes the same text for a Hub comment named by its Hub ID. It imports and labels nothing and needs no active grant. `--reason` defaults to the comment being deleted at its source. `removed` in the `--json` output counts the events whose text it removed, 0 when none was left. Run it only while no import or labeling of the same store is in progress |
 | `import hub-comments <log.json>` | Imports a logged snapshot from the canvas comment actions. `--redact-deleted` also removes the text of comments the snapshot shows as deleted |
+| `import agent-session <session.json>` | Stores one coding agent session as evidence: its task, the user and agent messages in order, and its outcome. It skips tool calls and tool output, removes well-known secrets such as tokens and private keys, and keeps at most 10,000 characters of each message. Sending the same `sessionId` again adds new messages and updates changed ones. Needs `--actor agent:<name>` and a grant that names `agent_session` |
 | `label` | Labels, with Copilot or the configured labeler, each comment it has not been asked about, and reports what it cost. `--since` skips older comments, and `--max-requests` stops after that many labeler requests |
 | `label <labels.json>` | Records theme labels someone else wrote |
 | `copilot status` | Shows whether Copilot answers here, as whom, and with which models |
@@ -58,6 +59,21 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `status`, `verify` | Reports counts and anything that needs attention, and re-checks every record |
 
 Add `--json` to any command for machine output.
+
+An agent session file for `import agent-session` looks like this. Only `sessionId` and `messages` are required. Each message's `role` is `user`, `agent`, or `tool`, and `outcome.status` is `success`, `failure`, `partial`, or `unknown`.
+
+```json
+{
+  "sessionId": "2f6c1e9a",
+  "task": "Build the checkout form.",
+  "user": "github:ana-designer",
+  "messages": [
+    { "role": "user", "text": "Keep the labels above the fields.", "at": "2026-10-02T09:00:00Z" },
+    { "role": "agent", "text": "Moved the labels above the fields." }
+  ],
+  "outcome": { "status": "success", "summary": "The form is done." }
+}
+```
 
 `observations --purpose review --event <id> --event <id> --json` reads only the named events and their containing episodes. Pass at most 100 IDs per call, batching larger evidence lists instead of exporting the whole store. Missing IDs and events that consent, retraction, or redaction withholds are omitted, with no unrelated events or episodes returned. Other observation filters intersect the selection. In the API, `queryObservations(context, { purpose: "review", eventIds: [] })` returns empty `episodes` and `events`; omitting `eventIds`, or all CLI `--event` flags, preserves the unfiltered behavior.
 

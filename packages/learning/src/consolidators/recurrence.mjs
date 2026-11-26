@@ -1,6 +1,6 @@
 import { canonicalJson } from "../canonical-json.mjs"
 import { LearningError } from "../errors.mjs"
-import { PRODUCER, SCHEMA_VERSIONS, without } from "../records.mjs"
+import { FEEDBACK_TYPES, PRODUCER, SCHEMA_VERSIONS, feedbackText, without } from "../records.mjs"
 
 export const DEFAULT_RECURRENCE_OPTIONS = Object.freeze({
   minEpisodes: 2,
@@ -26,7 +26,11 @@ const OBSERVATIONS = ["observed", "preference", "question", "praise", "other"]
 /**
  * Proposes a learning for each labeled theme that recurs across distinct threads, prototypes,
  * and reviewers within the window. It is deterministic: the same evidence and labels always
- * give the same proposals.
+ * give the same proposals. Review comments and a person's messages to an agent count the same
+ * way; each agent session counts as one thread.
+ *
+ * By default two threads are enough, even from one reviewer on one prototype, so a person
+ * working alone still gets learnings. Raise the thresholds for a larger team.
  *
  * It reads annotation events, not raw text. A labeler, a person or a model, writes those with
  * a theme key, a prototype-independent statement, a signal, an observation kind, and a stance.
@@ -68,7 +72,7 @@ export function createRecurrenceConsolidator(options = {}) {
       const events = new Map(view.events.map((event) => [event.id, event]))
       const latestComments = new Map()
       for (const event of view.events) {
-        if (event.type !== "human_comment" || event.payload?.body === null) continue
+        if (feedbackText(event) === null) continue
         const key = commentIdentity(event, episodes)
         const latest = latestComments.get(key)
         if (!latest || event.at > latest) latestComments.set(key, event.at)
@@ -79,7 +83,7 @@ export function createRecurrenceConsolidator(options = {}) {
       const supersededComments = new Set(
         [...superseded]
           .map((id) => events.get(id))
-          .filter((event) => event?.type === "human_comment")
+          .filter((event) => FEEDBACK_TYPES.includes(event?.type))
           .map((event) => `${commentKey(event, episodes)}\u0000${event.actor.id}`),
       )
       const latestLabels = new Map()
@@ -111,7 +115,7 @@ export function createRecurrenceConsolidator(options = {}) {
       let edited = 0
       for (const label of latestLabels.values()) {
         const target = events.get(label.payload.target.eventId)
-        if (!target || target.type !== "human_comment" || target.payload.body === null) continue
+        if (feedbackText(target) === null) continue
         if (
           superseded.has(target.id) ||
           target.at < latestComments.get(commentIdentity(target, episodes)) ||
@@ -349,6 +353,7 @@ function evidence(target, episodes) {
       "buildId",
       "commitSha",
       "threadId",
+      "sessionId",
     ])
       if (source[key] !== undefined) pin[key] = source[key]
   if (target.payload?.commentId) pin.commentId = target.payload.commentId

@@ -18,7 +18,7 @@ import {
 } from "./config.mjs"
 import { labelComments, labelingError } from "./labeling.mjs"
 import { migratePostgres } from "./providers/postgres-database.mjs"
-import { PRODUCER } from "./records.mjs"
+import { FEEDBACK_TYPES, feedbackText, PRODUCER } from "./records.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
 import { parseTimeOption, timestampFromMilliseconds } from "./time.mjs"
@@ -63,6 +63,9 @@ Consent (a person decides; --by github:<login>)
 Capture and propose
   import hub-comments <log.json> --grant <grant-id>... [--actor <id>] [--redact-deleted]
                                   --redact-deleted also removes the text of deleted comments
+  import agent-session <session.json> --grant <grant-id>... --actor <agent:name>
+                                  Store a coding agent session's task, user and agent
+                                  messages, and outcome; sending it again updates it
   label [--limit <n>] [--max-requests <n>] [--since <time>] [--model <model>]
                                   With Copilot, or the configured labeler, label the
                                   comments it has not been asked about and report its
@@ -285,7 +288,8 @@ export async function main(
         ].includes(positionals[0]) ||
         (positionals[0] === "grants" &&
           ["list", "withdrawals", "add", "withdraw"].includes(positionals[1])) ||
-        (positionals[0] === "import" && positionals[1] === "hub-comments") ||
+        (positionals[0] === "import" &&
+          ["hub-comments", "agent-session"].includes(positionals[1])) ||
         (positionals[0] === "decision" && positionals[1] === "questions"),
     })
     const session = {
@@ -349,7 +353,10 @@ async function run(session) {
       throw new UsageError("Use grants list, grants withdrawals, grants add, or grants withdraw.")
     case "import":
       if (sub === "hub-comments") return importHub(session)
-      throw new UsageError("Use import hub-comments <log.json>.")
+      if (sub === "agent-session") return importSession(session)
+      throw new UsageError(
+        "Use import hub-comments <log.json> or import agent-session <session.json>.",
+      )
     case "label":
       return label(session)
     case "copilot":
@@ -768,6 +775,28 @@ async function importHub(session) {
   )
 }
 
+async function importSession(session) {
+  const input = await readJsonFile(session, argument(session, 2, "session file"))
+  if (!session.values.grant?.length)
+    throw new UsageError("Name the consent grant that covers agent sessions with --grant.")
+  const principal = actor(session, { required: true })
+  if (principal.kind !== "agent")
+    throw new UsageError("Name the agent that ran the session with --actor agent:<name>.")
+  const { store } = await open(session)
+  const result = await store.importAgentSession(context(session, principal), input, {
+    grantIds: session.values.grant,
+  })
+  session.out(
+    result,
+    [
+      `Session ${result.sessionId}: added ${result.addedEpisodes} episodes and ${result.addedEvents} events.`,
+      ...(result.skippedMessages
+        ? [`Skipped ${result.skippedMessages} tool or empty message(s).`]
+        : []),
+    ].join("\n"),
+  )
+}
+
 async function label(session) {
   if (!session.positionals[1]) return labelUnlabeled(session)
   if (session.values["max-requests"] !== undefined)
@@ -896,14 +925,18 @@ async function observations(session) {
     eventIds: session.values.event,
   })
   const episodes = new Map(result.episodes.map((episode) => [episode.id, episode]))
-  const comments = result.events.filter((event) => event.type === "human_comment")
+  const feedback = result.events.filter((event) => FEEDBACK_TYPES.includes(event.type))
   session.out(
     result,
     [
       `Evidence permitted for ${purpose}: ${result.episodes.length} episodes, ${result.events.length} events.`,
-      ...comments.map((event) => {
+      ...feedback.map((event) => {
         const source = episodes.get(event.episodeId).source
-        return `${event.id}  prototype ${source.prototypeId} Build ${source.buildNumber} comment ${event.payload.commentId} by ${event.actor.id}: ${quoted(event.payload.body)}`
+        const where =
+          event.type === "user_message"
+            ? `session ${source.sessionId} message`
+            : `prototype ${source.prototypeId} Build ${source.buildNumber} comment ${event.payload.commentId}`
+        return `${event.id}  ${where} by ${event.actor.id}: ${quoted(feedbackText(event))}`
       }),
     ].join("\n"),
   )

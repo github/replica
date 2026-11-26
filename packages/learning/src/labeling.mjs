@@ -2,6 +2,7 @@ import { canonicalJson } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
 import { OBSERVATIONS, SIGNALS, STANCES } from "./labelers/copilot.mjs"
 import { oneLine } from "./recall.mjs"
+import { feedbackText } from "./records.mjs"
 import { stableReviewer } from "./sources/hub-review-comments.mjs"
 import { isTimestamp } from "./time.mjs"
 
@@ -11,7 +12,8 @@ const COMMENT_CHARS = 2_000
 const THEMES = 200
 
 /**
- * Label the review comments a labeler has not been asked about. The labeler sees only comments the
+ * Label the review comments a labeler has not been asked about. Messages a person sent a coding
+ * agent count as comments too, grouped by session. The labeler sees only comments the
  * review purpose may use now, grouped in their threads, without who wrote them, and the themes
  * already in use so it can reuse their keys. Each label it returns is checked, then recorded as
  * the labeler's judgment under context.principal. Only a person turns a theme into a learning.
@@ -236,11 +238,7 @@ function labelingView(episodes, events, principalId, since) {
   }
   const candidates = events.filter(
     (event) =>
-      event.type === "human_comment" &&
-      event.payload !== undefined &&
-      event.payload.body !== null &&
-      !retracted.has(event.id) &&
-      !superseded.has(event.id),
+      feedbackText(event) !== null && !retracted.has(event.id) && !superseded.has(event.id),
   )
   function keyOf(event) {
     return canonicalJson([identity(event), event.at])
@@ -345,7 +343,7 @@ function threadsOf(comments, chosen) {
       comments: list.map((event) => ({
         id: event.id,
         label: chosen.has(event.id),
-        text: oneLine(event.payload.body).slice(0, COMMENT_CHARS),
+        text: oneLine(feedbackText(event)).slice(0, COMMENT_CHARS),
         ...where(event.payload.context),
       })),
     }))
