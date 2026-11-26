@@ -6,6 +6,7 @@ model Repository {
   // Relations
   learningRuns               LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]
+  learningShares             LearningShare[]
   decisionModelConfiguration DecisionModelConfiguration?
   decisionReviewSnapshot     DecisionReviewSnapshot?
   decisionTrainingJobs       DecisionTrainingJob[]

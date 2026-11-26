@@ -1,0 +1,24 @@
+model LearningShare {
+  // ID columns
+  id                      String  @id @default(uuid()) @db.Uuid
+  repositoryId            String  @map("repository_id") @db.Uuid
+  sharedByMembershipId    String? @map("shared_by_membership_id") @db.Uuid
+  withdrawnByMembershipId String? @map("withdrawn_by_membership_id") @db.Uuid
+
+  // Relations
+  repository            Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  sharedByMembership    Membership? @relation("LearningShareSharedBy", fields: [sharedByMembershipId], references: [id], onDelete: SetNull)
+  withdrawnByMembership Membership? @relation("LearningShareWithdrawnBy", fields: [withdrawnByMembershipId], references: [id], onDelete: SetNull)
+
+  // Attribute columns
+  learningId  String    @map("learning_id") @db.VarChar(255)
+  sharedAt    DateTime  @map("shared_at") @db.Timestamptz(3)
+  withdrawnAt DateTime? @map("withdrawn_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositoryId, learningId])
+  @@map("learning_shares")
+}

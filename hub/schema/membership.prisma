@@ -16,6 +16,8 @@ model Membership {
   rejectedDecisionCandidates DecisionCandidate[]
   decisionRuntimeDeletions   DecisionRuntimeDeletion[]
   learningDecisionOperations LearningDecisionOperation[]
+  sharedLearnings            LearningShare[]             @relation("LearningShareSharedBy")
+  withdrawnLearningShares    LearningShare[]             @relation("LearningShareWithdrawnBy")
   canvasGrants            CanvasGrant[]
 
   // Attribute columns
