@@ -1163,6 +1163,27 @@ describe("replica-learning CLI: guard rails", () => {
     assert.match(refused.stderr, /invalid_input.*budget must be at least/)
   })
 
+  it("shows people a learning that agents can no longer read", async () => {
+    const repo = checkout("purpose-reading")
+    const { grant, proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "grants",
+      "withdraw",
+      grant.id,
+      "--purpose",
+      "instruction",
+      "--by",
+      "github:ana-designer",
+    ])
+
+    const forPeople = (await ok(repo, ["memories", "--json"])).json()
+    assert.equal(forPeople[0].withheld, false)
+    const forAgents = (await ok(repo, ["memories", "--purpose", "instruction", "--json"])).json()
+    assert.equal(forAgents[0].withheld, true)
+    const shown = await ok(repo, ["show", proposal.id, "--purpose", "instruction"])
+    assert.match(shown.stdout, /Content, evidence, and rationale are withheld/)
+  })
+
   it("rejects usage errors with exit code 2", async () => {
     const repo = checkout("usage")
     assert.equal((await cli(repo, [])).code, 2)

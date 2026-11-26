@@ -136,7 +136,7 @@ The agent gets these tools:
 
 The server tells the agent when to call each tool. Errors that aren't learning refusals reach the agent as a generic message, and their cause is written to the server's standard error. Copilot CLI passes a server's instructions to the model only when the server is allowlisted or you start it with `--allow-all-mcp-server-instructions`, so the tool descriptions repeat what matters. The agent acts as `--actor`, `agent:mcp` by default. It can never accept, reject, edit, or delete a learning.
 
-Hosts such as Hub can serve the same tools by importing `createLearningMcpServer` from `@github/replica-learning/mcp` and passing their own backend. The tools and their wording then stay the same everywhere.
+Hosts such as Hub can serve the same tools by importing `createLearningMcpServer` from `@github/replica-learning/mcp` and passing their own backend. The tools and their wording then stay the same everywhere. The module also exports `LearningError`; throw it from the backend to give the agent a code and message.
 
 ## Rules
 
@@ -160,7 +160,7 @@ Hosts such as Hub can serve the same tools by importing `createLearningMcpServer
 - Damaged records stop the operations that read them. If a grant, withdrawal, episode, event, or collection that an operation reads fails its schema, digest, or scope check, that operation refuses to run until `verify` finds the damage and someone repairs it. Learning decisions read only the records tied to their evidence, so damage elsewhere in the store does not block them. `verify` still checks every record. A damaged learning is never used, and reading it shows only its ID, state, kind, theme, and digests, each strictly checked. These checks catch altered records; they cannot catch a provider that omits or replays whole records.
 - Comment text is data. It never changes settings or decisions, terminal output quotes it, and recall never includes raw comments. Input JSON that repeats a member name is refused.
 - Recall writes each learning as plain lines of data, with the learning's text quoted as a JSON string. Every field, including who accepted the learning, has its line breaks turned into spaces and its control characters and invisible formatting characters removed: zero-width characters, tag characters, and marks that reorder text. The store refuses a person or agent ID that contains such characters, and the v1 schemas refuse a record with such an actor ID, so an ID reads the same everywhere it is shown. The character budget includes the full heading, framing, quotes, and newlines. A budget too small for the required framing is refused with the minimum it needs; recall never cuts off the framing or returns oversized text.
-- Reading a learning is a use. `show` and `memories` read for review; when a learning's evidence no longer permits review, they withhold its content, evidence, and rationale. `show --history` checks each version on its own, so an older version whose evidence or counterevidence no longer permits review shows only its state and digests.
+- Reading a learning is a use. `show` and `memories` read for review; when a learning's evidence no longer permits review, they withhold its content, evidence, and rationale. Add `--purpose instruction` to see exactly what an agent may read. `show --history` checks each version on its own, so an older version whose evidence or counterevidence no longer permits review shows only its state and digests.
 
 ## Contracts
 

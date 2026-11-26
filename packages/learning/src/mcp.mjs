@@ -2,6 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { LearningError } from "./errors.mjs"
 
+// Agents see a code and message only for this exact class, so hosts need it too.
+export { LearningError }
+
 const INSTRUCTIONS = `This server holds the learnings a team accepted from past reviews of its prototypes.
 
 Before you start a task, call get_guidance with a short description of the task and follow the learnings it returns. Keep its guidanceId and each learning's deliveryId.

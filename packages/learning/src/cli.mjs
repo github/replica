@@ -40,8 +40,11 @@ Inspect
   observations [--purpose <p>] [--event <id>]...
                                   Evidence a purpose may use now; select up to
                                   100 event IDs and only their containing episodes
-  memories [--state <s>]...       Learnings with their state and whether they are recalled
-  show <memory-id> [--history]    One learning, its evidence, and its digests
+  memories [--state <s>]... [--purpose <p>]
+                                  Learnings with their state and whether they are
+                                  recalled; --purpose instruction shows what agents see
+  show <memory-id> [--history] [--purpose <p>]
+                                  One learning, its evidence, and its digests
   operation-status <memory-id> --operation-id <uuid>
                                   Whether one host decision operation is in intact history
   verify                          Re-check every record's schema, digest, and history
@@ -1029,6 +1032,7 @@ async function memories(session) {
   const { store } = await open(session)
   const items = await store.queryMemory(context(session, actor(session)), {
     states: session.values.state,
+    purpose: single(session.values.purpose, "--purpose") ?? "review",
   })
   session.out(
     items,
@@ -1051,6 +1055,7 @@ async function show(session) {
   const { store } = await open(session)
   const item = await store.getMemory(context(session, actor(session)), id, {
     history: Boolean(session.values.history),
+    purpose: single(session.values.purpose, "--purpose") ?? "review",
   })
   const { record, status } = item
   const head = [

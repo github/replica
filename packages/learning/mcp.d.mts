@@ -1,6 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { MemoryReading } from "./index.mjs"
 
+export { LearningError } from "./index.mjs"
+
 /**
  * What a host supplies to serve the learning tools. Each method receives the tool's
  * checked input and returns the JSON the agent sees. Throw a LearningError to give the
