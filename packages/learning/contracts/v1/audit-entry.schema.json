@@ -39,6 +39,9 @@
         "memory.retire",
         "memory.supersede",
         "memory.recall",
+        "memory.delete",
+        "usage.report",
+        "guidance.expire",
         "export.create"
       ]
     },
@@ -53,7 +56,20 @@
         "required": ["kind", "id"],
         "properties": {
           "kind": {
-            "enum": ["episode", "event", "memory", "grant", "withdrawal", "collection", "export"]
+            "enum": [
+              "episode",
+              "event",
+              "memory",
+              "grant",
+              "withdrawal",
+              "collection",
+              "export",
+              "guidance",
+              "delivery",
+              "usage_report",
+              "used_learning",
+              "screenshot"
+            ]
           },
           "id": { "$ref": "common.schema.json#/$defs/id" },
           "digest": { "$ref": "common.schema.json#/$defs/digest" }

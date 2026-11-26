@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "replica.usage-report/v1",
+  "id": "usage_c980d22472110f3f8aa8184f",
+  "scope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "reportId": "copilot-session-7f3a:1",
+  "guidanceIds": ["guidance_6f2d8e1a4b7c9035d1e2f3a4"],
+  "session": {
+    "id": "copilot-session-7f3a",
+    "label": "Copilot, 2026-10-12 09:30"
+  },
+  "commitSha": "0123456789abcdef0123456789abcdef01234567",
+  "contentDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "reportedBy": {
+    "kind": "agent",
+    "id": "agent:copilot",
+    "asserted": true
+  },
+  "reportedAt": "2026-10-12T10:02:00.000000Z",
+  "digest": "sha256:89fb90a5bd16a4d64e4e520b8f4223f719c097c038790e6db250bbdb76945e7e"
+}

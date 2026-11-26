@@ -47,6 +47,11 @@ const STREAM_KINDS = Object.freeze({
   collections: "collection",
   audit: "auditEntry",
   exports: "exportManifest",
+  guidance: "guidance",
+  deliveries: "deliveredLearning",
+  usageReports: "usageReport",
+  usedLearnings: "usedLearning",
+  screenshots: "screenshot",
 })
 const PROVIDER_METHODS = [
   "health",
@@ -3657,6 +3662,11 @@ const RECEIPTS = {
   withdrawals: [["grant.withdraw"], "withdrawal"],
   collections: [["collection.import"], "collection"],
   exports: [["export.create"], "export"],
+  guidance: [["memory.recall"], "guidance"],
+  deliveries: [["memory.recall"], "delivery"],
+  usageReports: [["usage.report"], "usage_report"],
+  usedLearnings: [["usage.report"], "used_learning"],
+  screenshots: [["usage.report"], "screenshot"],
 }
 
 /** The audit operation that records a learning version, named for the step that wrote it. */
@@ -3726,6 +3736,11 @@ const SUBJECTS = {
   withdrawal: "withdrawals",
   collection: "collections",
   export: "exports",
+  guidance: "guidance",
+  delivery: "deliveries",
+  usage_report: "usageReports",
+  used_learning: "usedLearnings",
+  screenshot: "screenshots",
 }
 
 /**

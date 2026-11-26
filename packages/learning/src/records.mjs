@@ -14,6 +14,11 @@ export const SCHEMA_VERSIONS = Object.freeze({
   exportManifest: "replica.export/v1",
   auditEntry: "replica.audit/v1",
   collection: "replica.collection/v1",
+  guidance: "replica.guidance/v1",
+  deliveredLearning: "replica.delivered-learning/v1",
+  usageReport: "replica.usage-report/v1",
+  usedLearning: "replica.used-learning/v1",
+  screenshot: "replica.screenshot/v1",
 })
 
 /**

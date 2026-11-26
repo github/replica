@@ -17,6 +17,11 @@ const SEALED_KINDS = new Set([
   "exportManifest",
   "auditEntry",
   "collection",
+  "guidance",
+  "deliveredLearning",
+  "usageReport",
+  "usedLearning",
+  "screenshot",
 ])
 
 /**

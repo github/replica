@@ -82,6 +82,11 @@ export const STREAMS = Object.freeze({
   collections: "capturedAt",
   audit: "at",
   exports: "createdAt",
+  guidance: "requestedAt",
+  deliveries: "deliveredAt",
+  usageReports: "reportedAt",
+  usedLearnings: "reportedAt",
+  screenshots: "capturedAt",
 })
 
 /** Streams whose contents can change whether evidence or a learning may be used. */

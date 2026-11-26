@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/learning/v1/guidance.schema.json",
+  "title": "Replica guidance v1",
+  "description": "One time an agent asked for guidance: who asked, from where, and when. The learnings it received are delivered-learning records.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "scope", "requestedAt", "requestedBy", "via", "digest"],
+  "properties": {
+    "schemaVersion": {
+      "const": "replica.guidance/v1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/scope"
+    },
+    "requestedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "requestedBy": {
+      "$ref": "common.schema.json#/$defs/actor"
+    },
+    "via": {
+      "description": "local: the command or MCP server on this machine. hub: a Hub agent connection.",
+      "enum": ["local", "hub"]
+    },
+    "session": {
+      "description": "The coding agent session, when the agent names it. The label is the agent name and when the session started.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "digest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    }
+  }
+}

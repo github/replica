@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "replica.screenshot/v1",
+  "id": "shot_493b87ea08e2efdf7ebd9ddc",
+  "scope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "usageReportId": "usage_c980d22472110f3f8aa8184f",
+  "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "role": "after",
+  "route": "/checkout",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "theme": "light",
+  "capturedAt": "2026-10-12T10:01:00.000000Z",
+  "digest": "sha256:620e318a45591df058334411b1c44e91d1c88048bd19cd14b6991d12fc462774"
+}

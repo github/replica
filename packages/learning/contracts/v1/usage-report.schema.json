@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/learning/v1/usage-report.schema.json",
+  "title": "Replica usage report v1",
+  "description": "One report from an agent about the guidance it used for a change. Its used learnings are separate records, so deleting a learning leaves the rest of the report.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "scope",
+    "reportId",
+    "guidanceIds",
+    "commitSha",
+    "contentDigest",
+    "reportedBy",
+    "reportedAt",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "replica.usage-report/v1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/scope"
+    },
+    "reportId": {
+      "description": "The ID the agent chose, so a retry finds the same report.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+    },
+    "guidanceIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      }
+    },
+    "session": {
+      "description": "The coding agent session, when the agent names it. The label is the agent name and when the session started.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "commitSha": {
+      "$ref": "common.schema.json#/$defs/commitSha"
+    },
+    "prototypeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "contentDigest": {
+      "$ref": "common.schema.json#/$defs/digest",
+      "description": "Digest of what the agent submitted, so a retry with other content is refused."
+    },
+    "reportedBy": {
+      "$ref": "common.schema.json#/$defs/actor"
+    },
+    "reportedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "digest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    }
+  }
+}

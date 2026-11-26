@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/learning/v1/delivered-learning.schema.json",
+  "title": "Replica delivered learning v1",
+  "description": "One learning version a guidance record gave an agent, with the exact text the agent received.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "scope",
+    "guidanceId",
+    "memoryId",
+    "contentDigest",
+    "sourceScope",
+    "position",
+    "text",
+    "deliveredAt",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "replica.delivered-learning/v1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/scope"
+    },
+    "guidanceId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "memoryId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "contentDigest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "sourceScope": {
+      "$ref": "common.schema.json#/$defs/scope",
+      "description": "The repository the learning belongs to. A shared learning names its source repository."
+    },
+    "position": {
+      "$ref": "common.schema.json#/$defs/positiveInteger"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "deliveredAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "digest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    }
+  }
+}

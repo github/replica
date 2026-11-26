@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "replica.delivered-learning/v1",
+  "id": "delivery_fbbcf94c3c8ea410b4924ee7",
+  "scope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "guidanceId": "guidance_6f2d8e1a4b7c9035d1e2f3a4",
+  "memoryId": "memory_3c1f0a9b8e7d6c5b4a392817",
+  "contentDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "sourceScope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "position": 1,
+  "text": "Keep the order summary visible on narrow screens.",
+  "deliveredAt": "2026-10-12T09:31:00.000000Z",
+  "digest": "sha256:391d3ae346c7901bda136f984b8eb2535e071a7c901c68e2597ddf68d7012ae2"
+}
