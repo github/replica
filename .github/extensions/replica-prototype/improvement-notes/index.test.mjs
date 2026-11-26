@@ -1318,6 +1318,18 @@ for (const { label, skills } of [
       },
     ],
   },
+  {
+    label: "enabled with the runtime's qualified plugin command",
+    skills: [
+      {
+        name: "replica-pick-and-polish",
+        commandName: "replica-prototype:replica-pick-and-polish",
+        source: "plugin",
+        pluginName: "replica-prototype",
+        enabled: true,
+      },
+    ],
+  },
 ]) {
   it(`dispatches a compact request when the skill is ${label}`, async () => {
     await fixture(async ({ create, session, anchor, root, directory }) => {
@@ -1367,7 +1379,7 @@ for (const { label, skills } of [
         state.notes[0].thread.messages[0].id,
       ])
       assert.equal(discoveries, 1)
-      assert.match(prompt, /\/replica-pick-and-polish\b/)
+      assert.ok(prompt.includes(`/${skills[0].commandName ?? "replica-pick-and-polish"}`))
       assert.equal(prompt.includes(root), false)
       assert.doesNotMatch(prompt, /"checkout"|"branch"|prototype\/demo/)
       assert.doesNotMatch(prompt, /fallback procedure/i)
@@ -1414,10 +1426,40 @@ for (const { label, error, configure } of [
     },
   },
   {
-    label: "the runtime has no skill catalog",
+    label: "the qualified plugin skill is disabled",
     error: /skill is unavailable/i,
     configure: (session) => {
-      delete session.rpc
+      session.rpc = {
+        skills: {
+          list: async () => ({
+            skills: [
+              {
+                name: "replica-pick-and-polish",
+                commandName: "replica-prototype:replica-pick-and-polish",
+                enabled: false,
+              },
+            ],
+          }),
+        },
+      }
+    },
+  },
+  {
+    label: "the catalog is malformed",
+    error: /invalid skill catalog/i,
+    configure: (session) => {
+      session.rpc = { skills: { list: async () => ({ skills: [null] }) } }
+    },
+  },
+  {
+    label: "the skill's enabled policy is unknown",
+    error: /invalid skill catalog/i,
+    configure: (session) => {
+      session.rpc = {
+        skills: {
+          list: async () => ({ skills: [{ name: "replica-pick-and-polish" }] }),
+        },
+      }
     },
   },
   {
@@ -1453,6 +1495,106 @@ for (const { label, error, configure } of [
     })
   })
 }
+
+for (const catalogAvailable of [true, false]) {
+  it(`sends the complete bundled procedure when ${catalogAvailable ? "the skill is missing" : "the catalog RPC is absent"}`, async () => {
+    await fixture(async ({ create, session, anchor, messages }) => {
+      if (catalogAvailable)
+        session.rpc = { skills: { list: async () => ({ skills: [] }) } }
+      else delete session.rpc
+      const store = create()
+      const state = await store.save({
+        ...(await store.load()),
+        operation: "create",
+        body: "private-request",
+        anchor,
+      })
+      const result = await store.fix({
+        ...state,
+        noteIds: [{ id: 1, revision: state.notes[0].revision }],
+        scope: "selected",
+      })
+      const skill = await readFile(
+        new URL("../skills/replica-pick-and-polish/SKILL.md", import.meta.url),
+        "utf8",
+      )
+      const instructions = skill.slice(skill.indexOf("\n---\n", 4) + 5).trim()
+      assert.equal(messages.length, 1)
+      assert.ok(messages[0].prompt.includes(instructions))
+      assert.match(messages[0].prompt, /complete fallback procedure/i)
+      assert.match(messages[0].prompt, /Fix selected request/)
+      assert.doesNotMatch(messages[0].prompt, /private-request/)
+      const batch = await store.batch({ batchId: result.activeBatch })
+      assert.equal(batch.notes[0].body, "private-request")
+      const queued = await store.save({
+        ...(await store.load()),
+        operation: "create",
+        body: "private-queued-request",
+        anchor,
+      })
+      await store.fix(queued)
+      assert.equal(messages.length, 1)
+      await store.results({
+        batchId: batch.id,
+        results: batch.notes.map(({ localId, revision }) => ({
+          localId,
+          revision,
+          status: "ready",
+          message: "Implemented",
+        })),
+      })
+      assert.equal((await store.load()).notes[0].status, "ready")
+      assert.equal(messages.length, 2)
+      assert.ok(messages[1].prompt.includes(instructions))
+      assert.doesNotMatch(messages[1].prompt, /private-queued-request/)
+    })
+  })
+}
+
+it("pauses a queued batch if its skill is disabled before dispatch", async () => {
+  await fixture(async ({ create, session, anchor, messages }) => {
+    const store = create()
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "First",
+      anchor,
+    })
+    state = await store.fix(state)
+    const running = await store.batch({ batchId: state.activeBatch })
+    state = await store.save({
+      ...state,
+      operation: "create",
+      body: "Queued",
+      anchor,
+    })
+    await store.fix(state)
+    session.rpc.skills.list = async () => ({
+      skills: [
+        {
+          name: "replica-pick-and-polish",
+          commandName: "replica-prototype:replica-pick-and-polish",
+          enabled: false,
+        },
+      ],
+    })
+    await store.results({
+      batchId: running.id,
+      results: running.notes.map(({ localId, revision }) => ({
+        localId,
+        revision,
+        status: "ready",
+        message: "Implemented",
+      })),
+    })
+    const current = await store.load()
+    assert.equal(messages.length, 1)
+    const queued = await store.batch({ batchId: current.activeBatch })
+    assert.equal(queued.state, "delivery_unknown")
+    assert.match(queued.deliveryError, /skill is unavailable/i)
+    assert.equal(current.notes[1].status, "sent")
+  })
+})
 
 it("keeps untrusted note payloads out of dispatch and preserves them in the captured batch", async () => {
   await fixture(async ({ create, anchor, messages }) => {
