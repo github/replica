@@ -159,6 +159,7 @@ export function createGitHubActionsClient(
         ...init,
         headers: {
           Accept: "application/vnd.github+json",
+          ...(init.headers as Record<string, string> | undefined),
           Authorization: `Bearer ${authorization}`,
           "User-Agent": "Replica-Hub",
           "X-GitHub-Api-Version": "2022-11-28",
@@ -313,6 +314,24 @@ export function createGitHubActionsClient(
             avatarUrl: commit.author.avatar_url ?? null,
           }
         : null
+    },
+
+    /**
+     * Reads one commit's changes as a unified diff, for an evaluator judging the work. A diff
+     * too large to read whole returns null, since a partial one could mislead.
+     */
+    async getCommitDiff(commitSha: string) {
+      if (!/^[0-9a-f]{40}$/.test(commitSha)) {
+        throw new GitHubProviderRequestError({ cause: new Error("Invalid commit SHA.") })
+      }
+      const response = await send(
+        `${repositoryPath}/commits/${commitSha}`,
+        await installationToken(),
+        { headers: { Accept: "application/vnd.github.diff" } },
+      )
+      if (!response.ok) throw new GitHubCommitLookupError(response.status)
+      const bytes = await readBounded(response, 2_097_152)
+      return bytes === undefined ? null : bytes.toString("utf8")
     },
 
     /** Lists branch heads without assuming a truncated response is a complete snapshot. */

@@ -586,6 +586,24 @@ describe("createGitHubActionsClient", () => {
     await expect(client.getCommitAuthor("a".repeat(40))).rejects.toThrow(GitHubProviderRequestError)
   })
 
+  it("reads a commit's diff, and nothing when it is too large to read whole", async () => {
+    const sha = "a".repeat(40)
+    const diff = "diff --git a/app.tsx b/app.tsx\n"
+    const fetch = respond((url, init) => {
+      expect(url.pathname).toBe(`/repositories/56/commits/${sha}`)
+      expect(init.headers).toMatchObject({ Accept: "application/vnd.github.diff" })
+      return new Response(diff)
+    })
+    const oversized = respond(
+      () => new Response("x", { headers: { "content-length": String(3_000_000) } }),
+    )
+
+    await expect(createGitHubActionsClient(input, { fetch }).getCommitDiff(sha)).resolves.toBe(diff)
+    await expect(
+      createGitHubActionsClient(input, { fetch: oversized }).getCommitDiff(sha),
+    ).resolves.toBeNull()
+  })
+
   it("downloads from the redirect without forwarding the token", async () => {
     const fetch = respond((url) =>
       url.hostname === "api.github.com"
