@@ -58,6 +58,7 @@ describe("Learnings contracts", () => {
           acceptedBy: "octocat",
           acceptedAt: "2026-11-08T20:00:00.000Z",
           edited: true,
+          lastDecision: "accepted",
           status: "recalled" as const,
         },
         {
@@ -68,6 +69,7 @@ describe("Learnings contracts", () => {
           acceptedBy: null,
           acceptedAt: null,
           edited: false,
+          lastDecision: "accepted",
           status: "damaged" as const,
         },
       ],

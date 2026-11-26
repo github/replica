@@ -402,9 +402,17 @@ export function settingsLearnings(
       decisionPath: `/repositories/${repositoryId}/learnings/${encodeURIComponent(entry.id)}/decision`,
       accepted:
         entry.acceptedBy && entry.acceptedAt
-          ? `Accepted by @${entry.acceptedBy} on ${new Intl.DateTimeFormat("en-US", {
+          ? `${
+              entry.lastDecision === "edited"
+                ? "Edited"
+                : entry.lastDecision === "reinstated"
+                  ? "Reinstated"
+                  : "Accepted"
+            } by @${entry.acceptedBy} on ${new Intl.DateTimeFormat("en-US", {
               dateStyle: "long",
-            }).format(new Date(entry.acceptedAt))}${entry.edited ? ", with edits" : ""}`
+            }).format(new Date(entry.acceptedAt))}${
+              entry.lastDecision === "accepted" && entry.edited ? ", with edits" : ""
+            }`
           : null,
       recalled: entry.status === "recalled",
       status:
@@ -419,50 +427,53 @@ export function settingsLearnings(
                 : "This learning is eligible, but an agent's task can change its order and whether it fits.",
     })),
     recall: state.recall,
-    runs: state.runs.map((run) => ({
-      id: run.id,
-      startedAt: run.startedAt,
-      startedBy:
-        run.startedBy.type === "daily"
-          ? "Daily"
-          : run.startedBy.type === "user"
-            ? `@${run.startedBy.login}`
-            : "Someone",
-      state: run.state,
-      stateLabel:
-        run.state === "succeeded"
-          ? "Finished"
-          : run.state === "failed"
-            ? "Failed"
-            : run.state === "running"
-              ? "Running"
-              : "Waiting",
-      result:
-        run.result?.type === "failed"
-          ? run.result.summary
-          : run.result
-            ? [
-                formatCount(run.result.commentsConsidered, "new comment"),
-                ...(run.result.commentsConsidered > 0
-                  ? [formatCount(run.result.commentsLabeled, "labeled", "labeled")]
-                  : []),
-                formatCount(run.result.suggestions, "new suggestion"),
-                ...(run.result.commentsRemaining > 0
-                  ? [
-                      `${formatCount(run.result.commentsRemaining, "comment")} left for the next run`,
-                    ]
-                  : []),
-                ...(run.result.suggestionsRemaining > 0
-                  ? [
-                      `${formatCount(run.result.suggestionsRemaining, "suggestion")} left for the next run`,
-                    ]
-                  : []),
-              ].join(", ")
-            : null,
-      usage: run.usage
-        ? `${formatCredits(run.usage.credits)} in ${formatCount(run.usage.requests, "request")}`
-        : "None",
-    })),
+    // The API sends members no runs, so show none rather than an empty history.
+    runs: state.capabilities.administerRepository
+      ? state.runs.map((run) => ({
+          id: run.id,
+          startedAt: run.startedAt,
+          startedBy:
+            run.startedBy.type === "daily"
+              ? "Daily"
+              : run.startedBy.type === "user"
+                ? `@${run.startedBy.login}`
+                : "Someone",
+          state: run.state,
+          stateLabel:
+            run.state === "succeeded"
+              ? "Finished"
+              : run.state === "failed"
+                ? "Failed"
+                : run.state === "running"
+                  ? "Running"
+                  : "Waiting",
+          result:
+            run.result?.type === "failed"
+              ? run.result.summary
+              : run.result
+                ? [
+                    formatCount(run.result.commentsConsidered, "new comment"),
+                    ...(run.result.commentsConsidered > 0
+                      ? [formatCount(run.result.commentsLabeled, "labeled", "labeled")]
+                      : []),
+                    formatCount(run.result.suggestions, "new suggestion"),
+                    ...(run.result.commentsRemaining > 0
+                      ? [
+                          `${formatCount(run.result.commentsRemaining, "comment")} left for the next run`,
+                        ]
+                      : []),
+                    ...(run.result.suggestionsRemaining > 0
+                      ? [
+                          `${formatCount(run.result.suggestionsRemaining, "suggestion")} left for the next run`,
+                        ]
+                      : []),
+                  ].join(", ")
+                : null,
+          usage: run.usage
+            ? `${formatCredits(run.usage.credits)} in ${formatCount(run.usage.requests, "request")}`
+            : "None",
+        }))
+      : null,
     decisionModel: decisionModelData(repositoryId, state, decisionModel),
   }
 }

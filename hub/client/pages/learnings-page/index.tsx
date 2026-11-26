@@ -157,47 +157,49 @@ function LearningsContent({
         )}
       </section>
 
-      <section className="learnings-page__section" aria-labelledby="learnings-runs">
-        <Heading as="h2" size="5" id="learnings-runs">
-          {copy.runsHeading}
-        </Heading>
-        {data.runs.length ? (
-          <div
-            className="learnings-page__runs"
-            role="region"
-            aria-labelledby="learnings-runs"
-            tabIndex={0}
-          >
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">{copy.runColumns.started}</th>
-                  <th scope="col">{copy.runColumns.startedBy}</th>
-                  <th scope="col">{copy.runColumns.result}</th>
-                  <th scope="col">{copy.runColumns.usage}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.runs.map((run) => (
-                  <tr key={run.id}>
-                    <td>
-                      <ReviewRelativeTime value={run.startedAt} />
-                    </td>
-                    <td>{run.startedBy}</td>
-                    <td>
-                      <span className="learnings-page__run-state">{run.stateLabel}</span>
-                      {run.result ? `: ${run.result}` : null}
-                    </td>
-                    <td>{run.usage}</td>
+      {data.runs ? (
+        <section className="learnings-page__section" aria-labelledby="learnings-runs">
+          <Heading as="h2" size="5" id="learnings-runs">
+            {copy.runsHeading}
+          </Heading>
+          {data.runs.length ? (
+            <div
+              className="learnings-page__runs"
+              role="region"
+              aria-labelledby="learnings-runs"
+              tabIndex={0}
+            >
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">{copy.runColumns.started}</th>
+                    <th scope="col">{copy.runColumns.startedBy}</th>
+                    <th scope="col">{copy.runColumns.result}</th>
+                    <th scope="col">{copy.runColumns.usage}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <Text as="p">{copy.runsEmpty}</Text>
-        )}
-      </section>
+                </thead>
+                <tbody>
+                  {data.runs.map((run) => (
+                    <tr key={run.id}>
+                      <td>
+                        <ReviewRelativeTime value={run.startedAt} />
+                      </td>
+                      <td>{run.startedBy}</td>
+                      <td>
+                        <span className="learnings-page__run-state">{run.stateLabel}</span>
+                        {run.result ? `: ${run.result}` : null}
+                      </td>
+                      <td>{run.usage}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Text as="p">{copy.runsEmpty}</Text>
+          )}
+        </section>
+      ) : null}
 
       <DecisionModelPanel
         key={

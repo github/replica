@@ -56,7 +56,12 @@ export async function clientLoader({ request, params }: LoaderFunctionArgs) {
     throw new Response("This repository is not available.", { status: 404 })
   }
   let decisionModel: DecisionModelAvailability | null = null
-  if (!response.accessDenied && response.capabilities.administerHub) {
+  // The decision model needs both roles, so skip a request that can only be refused.
+  if (
+    !response.accessDenied &&
+    response.capabilities.administerHub &&
+    response.capabilities.administerRepository
+  ) {
     try {
       decisionModel = {
         state: "available",

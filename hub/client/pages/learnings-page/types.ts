@@ -99,6 +99,7 @@ export type LearningsPageData =
       suggestions: LearningSuggestion[]
       learnings: AcceptedLearning[]
       recall: { text: string; count: number }
-      runs: LearningRun[]
+      /** Null when the viewer cannot see run history, so it is hidden, not empty. */
+      runs: LearningRun[] | null
       decisionModel: DecisionModelPanelData
     })

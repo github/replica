@@ -766,6 +766,18 @@ export const ReplacingGuidance: Story = {
   },
 }
 
+export const ReadableMember: Story = {
+  args: {
+    data: {
+      ...data,
+      canDecide: false,
+      status: { ...data.status, usage: null },
+      run: { ...data.run, available: false },
+      runs: null,
+    },
+  },
+}
+
 export const CopilotRefused: Story = {
   args: {
     data: {
@@ -798,7 +810,7 @@ export const Running: Story = {
           result: null,
           usage: "None",
         },
-        ...data.runs,
+        ...(data.runs ?? []),
       ],
     },
   },
@@ -819,7 +831,7 @@ export const DailyRunWaiting: Story = {
           result: null,
           usage: "None",
         },
-        ...data.runs,
+        ...(data.runs ?? []),
       ],
     },
   },
@@ -839,7 +851,7 @@ export const FailedRun: Story = {
           result: "Copilot could not label the remaining comments.",
           usage: "0.011 AI credits in 1 request",
         },
-        ...data.runs,
+        ...(data.runs ?? []),
       ],
     },
   },

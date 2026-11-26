@@ -37,12 +37,15 @@ export const learningEvidenceResponseSchema = z
   })
   .strict() satisfies z.ZodType<LearningEvidenceResponse>
 
-const title = z.string().trim().min(1).max(120)
+// The package owns stored titles, so responses accept any title it returns. Only
+// titles people type are held to Hub's stricter rule.
+const storedTitle = z.string().nullable()
+const titleInput = z.string().trim().min(1).max(120)
 
 export const learningSuggestionResponseSchema = z
   .object({
     id: learningIdentifier,
-    title: title.nullable(),
+    title: storedTitle,
     content: z.string().trim().min(1).max(2000),
     reviewDigest: digest,
     support: z.object({ reviewers: count, prototypes: count }).strict().nullable(),
@@ -59,12 +62,13 @@ export const learningSuggestionResponseSchema = z
 export const acceptedLearningResponseSchema = z
   .object({
     id: learningIdentifier,
-    title: title.nullable(),
+    title: storedTitle,
     content: z.string().nullable(),
     digest: digest.nullable(),
     acceptedBy: z.string().nullable(),
     acceptedAt: timestamp.nullable(),
     edited: z.boolean(),
+    lastDecision: z.enum(["accepted", "edited", "reinstated"]),
     status: z.enum(["recalled", "not-recalled", "budget-excluded", "damaged", "identity-review"]),
   })
   .strict() satisfies z.ZodType<AcceptedLearningResponse>
@@ -72,7 +76,7 @@ export const acceptedLearningResponseSchema = z
 export const rejectedLearningResponseSchema = z
   .object({
     id: learningIdentifier,
-    title: title.nullable(),
+    title: storedTitle,
     content: z.string().nullable(),
     digest: digest.nullable(),
     state: z.enum(["rejected", "retired"]),
@@ -98,6 +102,8 @@ export const learningHistoryResponseSchema = z
     ),
     evidence: z.array(learningEvidenceResponseSchema),
     otherEvidenceCount: count,
+    contradictions: z.array(learningEvidenceResponseSchema),
+    otherContradictionsCount: count,
   })
   .strict() satisfies z.ZodType<LearningHistoryResponse>
 
@@ -214,7 +220,7 @@ export const learningDecisionInputSchema = z.discriminatedUnion("decision", [
     .object({
       decision: z.literal("edit"),
       digest,
-      title: title.optional(),
+      title: titleInput.optional(),
       content: z.string().trim().min(1).max(2000).optional(),
       reason: z.string().trim().min(1).max(500),
     })

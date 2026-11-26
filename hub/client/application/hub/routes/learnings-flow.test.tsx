@@ -82,6 +82,7 @@ function learningsResponse() {
         acceptedBy: "octocat",
         acceptedAt: "2026-11-08T20:00:00.000Z",
         edited: true,
+        lastDecision: "accepted",
         status: "recalled" as const,
       },
       {
@@ -92,6 +93,7 @@ function learningsResponse() {
         acceptedBy: null,
         acceptedAt: null,
         edited: false,
+        lastDecision: "accepted",
         status: "damaged" as const,
       },
     ],
@@ -662,6 +664,7 @@ describe("Learnings frontend integration", () => {
                     acceptedBy: "octocat",
                     acceptedAt: "2026-11-10T12:00:00Z",
                     edited: false,
+                    lastDecision: "accepted",
                     status: "recalled",
                   },
                 ],
@@ -815,6 +818,27 @@ describe("Learnings frontend integration", () => {
       expect(bodies).toEqual([expected])
     },
   )
+
+  it("shows a Hub administrator without repository authority a read-only library", async () => {
+    const server = stubHubFetch(
+      ...learningsWorkspace(),
+      http.get("/api/repositories/2001/learnings", () =>
+        Response.json({
+          ...learningsResponse(),
+          capabilities: { administerHub: true, administerRepository: false },
+          permissions: { viewEvidence: true, decide: false, requestRun: false },
+          usageCredits: null,
+          runAvailable: false,
+          runs: [],
+        }),
+      ),
+    )
+    await renderHubFlow(server, "/repositories/2001/learnings")
+
+    expect(await screen.findByRole("heading", { name: "Accepted learnings" })).toBeVisible()
+    expect(screen.queryByRole("heading", { name: "Recent runs" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
+  })
 
   it("shows access denied without exposing learning data or decision controls", async () => {
     const server = stubHubFetch(

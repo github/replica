@@ -235,6 +235,43 @@ describe("settingsLearnings()", () => {
     expect(result.decisionModel.state).toBe("repository-learning-only")
   })
 
+  it("credits an edit to the person who made it", () => {
+    const state: LearningsResponse = {
+      accessDenied: false,
+      repository,
+      capabilities: { administerHub: false, administerRepository: true },
+      permissions: { viewEvidence: true, decide: true, requestRun: true },
+      copilot: { state: "connected", connectedBy: null },
+      automaticRunsEnabled: false,
+      usageCredits: "0",
+      runAvailable: true,
+      loadError: null,
+      identityReviewCount: 0,
+      suggestions: [],
+      learnings: [
+        {
+          id: "mem_1",
+          title: null,
+          content: "Use one primary action.",
+          digest: `sha256:${"c".repeat(64)}`,
+          acceptedBy: "hubot",
+          acceptedAt: "2026-11-10T12:00:00Z",
+          edited: true,
+          lastDecision: "edited",
+          status: "recalled",
+        },
+      ],
+      rejected: [],
+      recall: { text: "", count: 0 },
+      runs: [],
+    }
+
+    const result = settingsLearnings(workspace, state, null)
+
+    if (result.accessDenied) throw new Error("Expected repository learning access.")
+    expect(result.learnings[0]?.accepted).toBe("Edited by @hubot on November 10, 2026")
+  })
+
   it("keeps Hub administration navigation for a denied repository", () => {
     const state: LearningsResponse = {
       accessDenied: true,

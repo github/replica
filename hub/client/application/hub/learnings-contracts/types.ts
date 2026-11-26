@@ -32,6 +32,7 @@ export interface AcceptedLearningResponse {
   acceptedBy: string | null
   acceptedAt: string | null
   edited: boolean
+  lastDecision: "accepted" | "edited" | "reinstated"
   status: "recalled" | "not-recalled" | "budget-excluded" | "damaged" | "identity-review"
 }
 
@@ -57,6 +58,8 @@ export interface LearningHistoryResponse {
   }>
   evidence: LearningEvidenceResponse[]
   otherEvidenceCount: number
+  contradictions: LearningEvidenceResponse[]
+  otherContradictionsCount: number
 }
 
 export interface LearningRunResponse {
