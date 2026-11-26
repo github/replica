@@ -55,6 +55,8 @@ const STREAM_KINDS = Object.freeze({
   usedLearnings: "usedLearning",
   screenshots: "screenshot",
   scores: "score",
+  updateProposals: "updateProposal",
+  updateDecisions: "updateDecision",
 })
 const PROVIDER_METHODS = [
   "health",
@@ -3838,6 +3840,276 @@ class LearningStore {
   }
 
   /**
+   * Keep suggested new wording for one version of an accepted learning. The caller decides the
+   * evidence is strong enough; the store checks that the version is the learning's current
+   * one and that every score belongs to it. The ID comes from the version, issue, and scores,
+   * so a retry with the same evidence keeps the first proposal instead of a second one.
+   */
+  async proposeUpdate(
+    context,
+    {
+      memoryId,
+      versionDigest,
+      issueKey,
+      issue,
+      title,
+      content,
+      reasoning,
+      support,
+      counter = [],
+      route,
+    } = {},
+  ) {
+    assertContext(context)
+    if (!Array.isArray(support) || !Array.isArray(counter))
+      throw new LearningError("invalid_input", "List the supporting and opposing score IDs.")
+    const entry = (await this.#memories(context, [memoryId])).get(memoryId)
+    if (!entry) throw new LearningError("not_found", `No memory ${memoryId} in this scope.`)
+    const latest = entry.record
+    if (entry.problems.length || latest.state !== "accepted" || latest.digest !== versionDigest)
+      throw new LearningError(
+        "stale_review",
+        `Memory ${memoryId} is no longer at the version this update would replace.`,
+      )
+    const id = derivedId("update", {
+      memoryId,
+      versionDigest,
+      issueKey,
+      support: [...support].sort(),
+      counter: [...counter].sort(),
+    })
+    if (!(await this.#updatable(context, memoryId)))
+      throw new LearningError(
+        "invalid_transition",
+        `Memory ${memoryId} is superseded or conflicts with another learning.`,
+      )
+    const current = new Set(
+      (await this.outcomesFor(context, { memoryId }))
+        .filter((outcome) => outcome.version === latest.version)
+        .map((outcome) => outcome.id),
+    )
+    if (
+      new Set([...support, ...counter]).size !== support.length + counter.length ||
+      [...support, ...counter].some((scoreId) => !current.has(scoreId))
+    )
+      throw new LearningError(
+        "invalid_input",
+        "Every score must be a different score of this learning's current version.",
+      )
+    // Checked after the scores, so a retry cannot read wording its evidence no longer allows.
+    const [existing] = await this.#read("updateProposals", context, { ids: [id] })
+    if (existing) return { id, stored: false, proposal: existing }
+    const proposal = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.updateProposal,
+      id,
+      scope: context.scope,
+      memoryId,
+      version: latest.version,
+      versionDigest,
+      issueKey,
+      issue,
+      ...(title !== undefined ? { title } : {}),
+      content,
+      reasoning,
+      support,
+      counter,
+      route,
+      proposedBy: context.principal,
+      proposedAt: this.#now(),
+    })
+    assertValid("updateProposal", proposal)
+    try {
+      const result = await this.#provider.appendBatch(
+        { updateProposals: [proposal] },
+        {
+          audit: this.#auditEntries(context, "update.propose", [
+            { kind: "update_proposal", id, digest: proposal.digest },
+          ]),
+        },
+      )
+      return { id, stored: result.updateProposals.appended === 1, proposal }
+    } catch (error) {
+      // A run with the same evidence stored first; its wording is the one kept.
+      if (error?.code !== "conflict") throw error
+      const [winner] = await this.#read("updateProposals", context, { ids: [id] })
+      if (!winner) throw error
+      return { id, stored: false, proposal: winner }
+    }
+  }
+
+  /**
+   * One learning's update proposals, oldest first, each with its state. A proposal is open
+   * until a person applies or dismisses it. It goes stale when the learning's wording
+   * changes, when a score it relied on can no longer be shown, or when a newer proposal for
+   * the same issue replaces it, so a person only ever sees one open proposal per issue.
+   */
+  async updatesFor(context, { memoryId } = {}) {
+    assertContext(context)
+    if (typeof memoryId !== "string" || !RECORD_ID.test(memoryId))
+      throw new LearningError("invalid_input", "Name the learning with its memory ID.")
+    const proposals = (await this.#read("updateProposals", context)).filter(
+      (record) => record.memoryId === memoryId,
+    )
+    if (!proposals.length) return []
+    const decisions = new Map(
+      (await this.#read("updateDecisions", context))
+        .filter((record) => record.memoryId === memoryId)
+        .map((record) => [record.proposalId, record]),
+    )
+    const entry = (await this.#memories(context, [memoryId])).get(memoryId)
+    const current = entry && !entry.problems.length ? entry.record : null
+    const shown = new Set((await this.outcomesFor(context, { memoryId })).map((item) => item.id))
+    const updatable = await this.#updatable(context, memoryId)
+    const sorted = proposals.sort((a, b) => a.proposedAt.localeCompare(b.proposedAt))
+    return sorted.map((proposal, index) => {
+      const decision = decisions.get(proposal.id)
+      const replaced = sorted
+        .slice(index + 1)
+        .some(
+          (later) =>
+            later.versionDigest === proposal.versionDigest && later.issueKey === proposal.issueKey,
+        )
+      // Wording drawn from scores that may no longer be read is withheld, like the scores.
+      const withheld = !proposal.support.every((id) => shown.has(id))
+      const state = decision
+        ? decision.decision
+        : current?.state !== "accepted" ||
+            current.digest !== proposal.versionDigest ||
+            withheld ||
+            replaced ||
+            !updatable
+          ? "stale"
+          : "open"
+      return {
+        id: proposal.id,
+        memoryId,
+        version: proposal.version,
+        issueKey: proposal.issueKey,
+        ...(withheld
+          ? { withheld: true }
+          : {
+              issue: proposal.issue,
+              ...(proposal.title !== undefined ? { title: proposal.title } : {}),
+              content: proposal.content,
+              reasoning: proposal.reasoning,
+            }),
+        support: proposal.support,
+        counter: proposal.counter,
+        proposedAt: proposal.proposedAt,
+        state,
+        ...(decision
+          ? {
+              decision: {
+                reason: decision.reason,
+                decidedBy: decision.decidedBy,
+                decidedAt: decision.decidedAt,
+                ...(decision.appliedVersion ? { appliedVersion: decision.appliedVersion } : {}),
+              },
+            }
+          : {}),
+      }
+    })
+  }
+
+  /**
+   * Apply an open update proposal: its wording, or a person's edit of it, becomes the
+   * learning's next version through the same edit a person makes by hand. Retrying with the
+   * same operation ID finishes an apply that stopped after the edit.
+   */
+  async applyUpdate(context, proposalId, { title, content, reason, operationId } = {}) {
+    assertContext(context)
+    requireHuman(context, "apply an update")
+    // Without an ID, an apply that stopped after the edit could never be finished.
+    if (typeof operationId !== "string" || !operationId)
+      throw new LearningError("invalid_input", "Name the apply with an operation ID.")
+    const { proposal, update } = await this.#update(context, proposalId)
+    if (update.state === "applied") return { update, memory: null, stored: false }
+    const entry = (await this.#memories(context, [proposal.memoryId])).get(proposal.memoryId)
+    // Later edits replace the latest version, so look for this apply in all intact ones.
+    const retried = entry?.intact.some((version) => version.accepted?.operationId === operationId)
+    if (update.state !== "open" && !retried)
+      throw new LearningError("invalid_transition", `Update ${proposalId} is ${update.state}.`)
+    const memory = await this.editMemory(context, proposal.memoryId, {
+      expectedDigest: proposal.versionDigest,
+      title: title ?? proposal.title,
+      content: content ?? proposal.content,
+      reason,
+      operationId,
+    })
+    const stored = await this.#decideUpdate(context, proposal, {
+      decision: "applied",
+      appliedVersion: memory.version,
+      reason,
+    })
+    return { update: (await this.#update(context, proposalId)).update, memory, stored }
+  }
+
+  /** Dismiss an open update proposal, so it returns only with new evidence. */
+  async dismissUpdate(context, proposalId, { reason } = {}) {
+    assertContext(context)
+    requireHuman(context, "dismiss an update")
+    if (typeof reason !== "string" || !reason.trim() || reason.length > 2000)
+      throw new LearningError("invalid_input", "Give a reason for the decision.")
+    const { proposal, update } = await this.#update(context, proposalId)
+    if (update.state === "dismissed") return { update, stored: false }
+    if (update.state !== "open")
+      throw new LearningError("invalid_transition", `Update ${proposalId} is ${update.state}.`)
+    const stored = await this.#decideUpdate(context, proposal, { decision: "dismissed", reason })
+    return { update: (await this.#update(context, proposalId)).update, stored }
+  }
+
+  /** Whether recall can still take new wording for this learning. */
+  async #updatable(context, memoryId) {
+    const { items } = await this.#statuses(context, "instruction")
+    const status = items.find((item) => item.id === memoryId)?.status
+    return Boolean(status) && !status.superseded && !status.conflicts.length
+  }
+
+  async #update(context, proposalId) {
+    if (typeof proposalId !== "string" || !RECORD_ID.test(proposalId))
+      throw new LearningError("invalid_input", "Name the update with its proposal ID.")
+    const [proposal] = await this.#read("updateProposals", context, { ids: [proposalId] })
+    if (!proposal) throw new LearningError("not_found", `No update ${proposalId} in this scope.`)
+    const update = (await this.updatesFor(context, { memoryId: proposal.memoryId })).find(
+      (item) => item.id === proposalId,
+    )
+    return { proposal, update }
+  }
+
+  /** Keep one decision per proposal; when two people decide at once, the first one stands. */
+  async #decideUpdate(context, proposal, { decision, appliedVersion, reason }) {
+    const record = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.updateDecision,
+      id: derivedId("update_decision", { proposalId: proposal.id }),
+      scope: context.scope,
+      proposalId: proposal.id,
+      memoryId: proposal.memoryId,
+      decision,
+      ...(appliedVersion ? { appliedVersion } : {}),
+      reason,
+      decidedBy: context.principal,
+      decidedAt: this.#now(),
+    })
+    assertValid("updateDecision", record)
+    try {
+      const result = await this.#provider.appendBatch(
+        { updateDecisions: [record] },
+        {
+          audit: this.#auditEntries(context, "update.decide", [
+            { kind: "update_decision", id: record.id, digest: record.digest },
+          ]),
+        },
+      )
+      return result.updateDecisions.appended === 1
+    } catch (error) {
+      if (error?.code !== "conflict") throw error
+      const [winner] = await this.#read("updateDecisions", context, { ids: [record.id] })
+      if (winner?.decision !== decision) throw error
+      return false
+    }
+  }
+
+  /**
    * Refuse screenshots unless the grant lets agent screenshots be evaluated now, and each was
    * captured inside the period the grant covers.
    */
@@ -3862,10 +4134,11 @@ class LearningStore {
 
   /**
    * Remove one learning for good, at a person's request: every version, the deliveries that
-   * gave it to agents, the claims that agents used it, and their screenshots and scores. A
-   * usage report goes too once none of its used learnings remain; one that said it used none
-   * stays, as does the guidance. A learning that replaced another, or was replaced, stays:
-   * removing it would break the history recall follows, so retire it instead.
+   * gave it to agents, the claims that agents used it, their screenshots and scores, and its
+   * update proposals. A usage report goes too once none of its used learnings remain; one
+   * that said it used none stays, as does the guidance. A learning that replaced another, or
+   * was replaced, stays: removing it would break the history recall follows, so retire it
+   * instead.
    */
   async deleteMemory(context, id, { reason } = {}) {
     assertContext(context)
@@ -3909,12 +4182,20 @@ class LearningStore {
     const scores = (await this.#read("scores", context)).filter((record) =>
       gone.has(record.usedLearningId),
     )
+    const updateProposals = (await this.#read("updateProposals", context)).filter(
+      (record) => record.memoryId === id,
+    )
+    const updateDecisions = (await this.#read("updateDecisions", context)).filter(
+      (record) => record.memoryId === id,
+    )
     const selection = {
       deliveries,
       usedLearnings: used,
       usageReports: reports,
       screenshots: shots,
       scores,
+      updateProposals,
+      updateDecisions,
     }
     const subjects = [
       { kind: "memory", id },
@@ -4546,6 +4827,8 @@ const RECEIPTS = {
   usedLearnings: [["usage.report"], "used_learning"],
   screenshots: [["usage.report"], "screenshot"],
   scores: [["usage.score"], "score"],
+  updateProposals: [["update.propose"], "update_proposal"],
+  updateDecisions: [["update.decide"], "update_decision"],
 }
 
 /** The audit operation that records a learning version, named for the step that wrote it. */
@@ -4615,6 +4898,8 @@ const SUBJECT_KINDS = {
   usedLearnings: "used_learning",
   screenshots: "screenshot",
   scores: "score",
+  updateProposals: "update_proposal",
+  updateDecisions: "update_decision",
 }
 
 /** The stream that holds each kind of record an audit entry names, other than a learning. */
@@ -4631,6 +4916,8 @@ const SUBJECTS = {
   used_learning: "usedLearnings",
   screenshot: "screenshots",
   score: "scores",
+  update_proposal: "updateProposals",
+  update_decision: "updateDecisions",
 }
 
 /**

@@ -22,6 +22,8 @@ export type Stream =
   | "usedLearnings"
   | "screenshots"
   | "scores"
+  | "updateProposals"
+  | "updateDecisions"
 
 /** The coding agent session asking for guidance or reporting its use. */
 export interface AgentSessionRef {
@@ -372,6 +374,64 @@ export interface ScoreRecord {
   digest: Digest
 }
 
+/** Suggested new wording for one learning version, kept until a person decides. */
+export interface UpdateProposalRecord {
+  schemaVersion: "replica.update-proposal/v1"
+  id: string
+  scope: Scope
+  memoryId: string
+  version: number
+  versionDigest: Digest
+  issueKey: string
+  issue: string
+  title?: string
+  content: string
+  reasoning: string
+  /** Scores that showed the issue. */
+  support: string[]
+  /** Scores of the same version that went well. */
+  counter: string[]
+  route: ScoreRoute
+  proposedBy: Actor
+  proposedAt: Timestamp
+  digest: Digest
+}
+
+/** A person's decision on one update proposal. */
+export interface UpdateDecisionRecord {
+  schemaVersion: "replica.update-decision/v1"
+  id: string
+  scope: Scope
+  proposalId: string
+  memoryId: string
+  decision: "applied" | "dismissed"
+  /** The version the applied wording became. */
+  appliedVersion?: number
+  reason: string
+  decidedBy: Actor
+  decidedAt: Timestamp
+  digest: Digest
+}
+
+/**
+ * An update proposal as a person sees it, with its state. Its wording is withheld, and the
+ * proposal is stale, once a score behind it may no longer be read.
+ */
+export type LearningUpdate = {
+  id: string
+  memoryId: string
+  version: number
+  issueKey: string
+  support: string[]
+  counter: string[]
+  proposedAt: Timestamp
+  state: "open" | "applied" | "dismissed" | "stale"
+  decision?: { reason: string; decidedBy: Actor; decidedAt: Timestamp; appliedVersion?: number }
+} & (
+  | { withheld?: never; issue: string; title?: string; content: string; reasoning: string }
+  | { withheld: true }
+)
+
 export type ScoreRoute =
   { kind: "fusion"; fusionTier: string } | { kind: "auto"; model: string; reasoningEffort?: string }
 
@@ -390,6 +450,8 @@ export type StoredRecord =
   | UsedLearning
   | ScreenshotRecord
   | ScoreRecord
+  | UpdateProposalRecord
+  | UpdateDecisionRecord
 
 export interface RecalledMemory {
   id: string
@@ -1215,8 +1277,45 @@ export interface LearningStore {
     },
   ): Promise<{ id: string; stored: boolean; score: ScoreRecord }>
   /**
-   * Remove a learning for good, with its deliveries, use, screenshots, and scores. Needs a
-   * person.
+   * Keep suggested new wording for the current version of an accepted learning. A retry with
+   * the same version, issue, and scores keeps the first proposal.
+   */
+  proposeUpdate(
+    context: LearningContext,
+    input: {
+      memoryId: string
+      versionDigest: Digest
+      issueKey: string
+      issue: string
+      title?: string
+      content: string
+      reasoning: string
+      support: string[]
+      counter?: string[]
+      route: ScoreRoute
+    },
+  ): Promise<{ id: string; stored: boolean; proposal: UpdateProposalRecord }>
+  /** One learning's update proposals, oldest first, each with its state. */
+  updatesFor(context: LearningContext, request: { memoryId: string }): Promise<LearningUpdate[]>
+  /**
+   * Make an open proposal's wording, or a person's edit of it, the learning's next version.
+   * Needs a person.
+   */
+  applyUpdate(
+    context: LearningContext,
+    proposalId: string,
+    /** Retrying with the same operation ID finishes an apply that stopped after the edit. */
+    input: { title?: string; content?: string; reason: string; operationId: string },
+  ): Promise<{ update: LearningUpdate; memory: MemoryRecord | null; stored: boolean }>
+  /** Dismiss an open proposal. Needs a person. */
+  dismissUpdate(
+    context: LearningContext,
+    proposalId: string,
+    input: { reason: string },
+  ): Promise<{ update: LearningUpdate; stored: boolean }>
+  /**
+   * Remove a learning for good, with its deliveries, use, screenshots, scores, and update
+   * proposals. Needs a person.
    */
   deleteMemory(
     context: LearningContext,

@@ -1626,6 +1626,117 @@ export function memoryProviderConformance({ name, createProvider }) {
       assert.equal((await store.verify(designer())).ok, true)
     })
 
+    it("updates: a suggestion is kept once, replaced, dismissed, or applied as a new version", async (t) => {
+      const { store, provider, proposal } = await proposed()
+      if (!supportsIndexedDecisions(provider)) {
+        t.skip("Provider does not support indexed learning decisions.")
+        return
+      }
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+      const recalled = await store.recall(agent())
+      for (const [reportId, commit] of [
+        ["change-1", "a"],
+        ["change-2", "b"],
+        ["change-3", "c"],
+      ])
+        await store.reportUsage(agent(), {
+          reportId,
+          guidanceIds: [recalled.guidanceId],
+          commitSha: commit.repeat(40),
+          used: [{ deliveryId: recalled.memories[0].deliveryId }],
+        })
+      const scores = []
+      for (const used of await provider.readRecords("usedLearnings", { scope: SCOPE }))
+        scores.push(
+          await store.recordScore(agent(), {
+            usedLearningId: used.id,
+            operationId: "33333333-3333-4333-8333-333333333333",
+            efficiency: 2,
+            followed: "followed",
+            reasoning: "The agent added labels but put them beside the fields.",
+            issue: "The rule does not say where the label goes.",
+            inputs: ["build_diff"],
+            route: { kind: "fusion", fusionTier: "max" },
+          }),
+        )
+      const { record } = await store.getMemory(designer(), proposal.id)
+      const update = {
+        memoryId: proposal.id,
+        versionDigest: record.digest,
+        issueKey: "label-placement",
+        issue: "The rule does not say where the label goes.",
+        content: "Show a visible label above every form field.",
+        reasoning: "Naming the position removes the guess.",
+        support: scores.slice(0, 2).map((item) => item.id),
+        route: { kind: "fusion", fusionTier: "max" },
+      }
+      const operationId = "55555555-5555-4555-8555-555555555555"
+
+      const first = await store.proposeUpdate(agent(), update)
+      const again = await store.proposeUpdate(agent(), { ...update, content: "Other wording." })
+      const other = await store.proposeUpdate(agent(), { ...update, issueKey: "label-contrast" })
+      const dismissed = await store.dismissUpdate(designer(), other.id, { reason: "Not it." })
+      const redismissed = await store.dismissUpdate(designer(), other.id, { reason: "Not it." })
+      // A newer suggestion for the same issue replaces the first one.
+      const newer = await store.proposeUpdate(agent(), {
+        ...update,
+        support: scores.map((item) => item.id),
+      })
+      // The edit lands but saving the decision fails, so a retry must finish the apply.
+      const append = provider.appendBatch
+      provider.appendBatch = async (batch, options) => {
+        if (batch.updateDecisions) throw new Error("The decision could not be saved.")
+        return append.call(provider, batch, options)
+      }
+      const decision = { reason: "Matches reviews.", content: "Put a label above each field." }
+      await assert.rejects(
+        store.applyUpdate(designer(), newer.id, { ...decision, operationId }),
+        /could not be saved/,
+      )
+      provider.appendBatch = append
+      await assert.rejects(
+        store.applyUpdate(designer(), newer.id, {
+          ...decision,
+          operationId: "66666666-6666-4666-8666-666666666666",
+        }),
+        { code: "invalid_transition" },
+      )
+      const applied = await store.applyUpdate(designer(), newer.id, { ...decision, operationId })
+
+      assert.deepEqual([first.stored, again.stored], [true, false])
+      assert.equal(again.proposal.content, update.content)
+      assert.deepEqual([dismissed.stored, redismissed.stored], [true, false])
+      assert.equal(applied.memory.version, record.version + 1)
+      assert.equal(applied.memory.content, decision.content)
+      assert.equal(
+        (await store.getMemory(designer(), proposal.id)).record.version,
+        record.version + 1,
+      )
+      assert.deepEqual(
+        (await store.updatesFor(designer(), { memoryId: proposal.id })).map((item) => [
+          item.id,
+          item.state,
+          item.decision?.appliedVersion,
+        ]),
+        [
+          [first.id, "stale", undefined],
+          [other.id, "dismissed", undefined],
+          [newer.id, "applied", record.version + 1],
+        ],
+      )
+      await assert.rejects(
+        store.applyUpdate(designer(), other.id, {
+          reason: "Changed my mind.",
+          operationId: "77777777-7777-4777-8777-777777777777",
+        }),
+        { code: "invalid_transition" },
+      )
+      await assert.rejects(store.proposeUpdate(agent(), { ...update, issueKey: "late" }), {
+        code: "stale_review",
+      })
+      assert.equal((await store.verify(designer())).ok, true)
+    })
+
     it("deletion: a deleted learning takes its usage records, and old guidance expires", async (t) => {
       let now = NOW
       const { store, provider, proposal } = await proposed(undefined, undefined)
