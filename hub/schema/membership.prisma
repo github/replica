@@ -19,6 +19,7 @@ model Membership {
   sharedLearnings            LearningShare[]             @relation("LearningShareSharedBy")
   withdrawnLearningShares    LearningShare[]             @relation("LearningShareWithdrawnBy")
   canvasGrants            CanvasGrant[]
+  agentConnections        AgentConnection[]
 
   // Attribute columns
   lifecycle MembershipLifecycle @default(ACTIVE)

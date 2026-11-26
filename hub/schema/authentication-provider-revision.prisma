@@ -11,6 +11,7 @@ model AuthenticationProviderRevision {
   hubSessions HubSession[]
   membershipAssignments MembershipAssignment[]
   canvasGrants CanvasGrant[]
+  agentConnections AgentConnection[]
 
   // Attribute columns
   revision            Int

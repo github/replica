@@ -1,0 +1,32 @@
+model AgentConnection {
+  // ID columns
+  id                 String @id @default(uuid()) @db.Uuid
+  clientId           String @map("client_id") @db.Uuid
+  membershipId       String @map("membership_id") @db.Uuid
+  externalIdentityId String @map("external_identity_id") @db.Uuid
+  providerRevisionId String @map("provider_revision_id") @db.Uuid
+
+  // Relations
+  client           AgentClient                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  membership       Membership                     @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  externalIdentity ExternalIdentity               @relation(fields: [externalIdentityId], references: [id], onDelete: Cascade)
+  providerRevision AuthenticationProviderRevision @relation(fields: [providerRevisionId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  revocationRevision Int       @map("revocation_revision")
+  tokenDigest        String    @unique @map("token_digest") @db.VarChar(64)
+  refreshDigest      String    @unique @map("refresh_digest") @db.VarChar(64)
+  expiresAt          DateTime  @map("expires_at") @db.Timestamptz(3)
+  inactiveAt         DateTime  @map("inactive_at") @db.Timestamptz(3)
+  lastUsedAt         DateTime? @map("last_used_at") @db.Timestamptz(3)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([clientId])
+  @@index([externalIdentityId])
+  @@index([providerRevisionId])
+  @@index([membershipId, externalIdentityId, createdAt])
+  @@map("agent_connections")
+}

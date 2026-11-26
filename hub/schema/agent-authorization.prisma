@@ -1,0 +1,24 @@
+model AgentAuthorization {
+  // ID columns
+  id        String  @id @default(uuid()) @db.Uuid
+  clientId  String  @map("client_id") @db.Uuid
+  sessionId String? @map("session_id") @db.Uuid
+
+  // Relations
+  client  AgentClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  session HubSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  // Attribute columns
+  redirectUri   String    @map("redirect_uri") @db.VarChar(2048)
+  codeChallenge String    @map("code_challenge") @db.VarChar(128)
+  state         String?   @db.VarChar(1024)
+  codeDigest    String?   @unique @map("code_digest") @db.VarChar(64)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
+  approvedAt    DateTime? @map("approved_at") @db.Timestamptz(3)
+  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(3)
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([expiresAt])
+  @@map("agent_authorizations")
+}

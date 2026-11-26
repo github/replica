@@ -10,6 +10,7 @@ model ExternalIdentity {
   hubSessions             HubSession[]
   sensitiveAuthorizations SensitiveAuthorization[]
   canvasGrants            CanvasGrant[]
+  agentConnections        AgentConnection[]
   shareLinks               ShareLink[]
 
   // Attribute columns

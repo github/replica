@@ -1,0 +1,17 @@
+model AgentClient {
+  // ID columns
+  id String @id @default(uuid()) @db.Uuid
+
+  // Relations
+  authorizations AgentAuthorization[]
+  connections    AgentConnection[]
+
+  // Attribute columns
+  name         String   @db.VarChar(200)
+  redirectUris String[] @map("redirect_uris")
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("agent_clients")
+}
