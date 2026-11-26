@@ -8,7 +8,7 @@ Hub owns this source in `app/javascript/utils/prototype-controls/`. It includes 
 
 API value bindings may opt into `initial: "app"` to adopt the app's current value without a startup write. Page selectors can then respect direct links and Back/Forward while the app's router remains the source of truth. These values are never saved in `rc.*`; legacy overrides are ignored. Edits and reset still write through the app API, and reset uses the declared default. Other bindings retain their existing defaults and persistence. Hidden controls still return to their defaults.
 
-The option requires Copilot plugin 1.9.1 or a Hub/Build capture runtime containing this schema. Older runtimes reject the definition without breaking the ordinary app. The definition format and Controls protocol remain version `1`.
+The option requires Copilot plugin 1.10.1 or a Hub/Build capture runtime containing this schema. Older runtimes reject the definition without breaking the ordinary app. The definition format and Controls protocol remain version `1`.
 
 Run Hub commands in the devcontainer, using its normal locked dependencies. `npm run controls:runtime:test` checks the engine, schema and bindings. `npm run controls:schema:check` checks the generated validator; schema edits require `npm run controls:schema:generate`.
 

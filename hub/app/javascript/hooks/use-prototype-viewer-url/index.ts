@@ -45,6 +45,7 @@ export function usePrototypeViewerUrl({
     const previousPath =
       buildSelection === "ignore" ||
       !url.searchParams.has("build") ||
+      url.searchParams.get("build") === "latest" ||
       url.searchParams.get("build") === String(selectedBuild.number)
         ? url.searchParams.get("return_path")
         : null

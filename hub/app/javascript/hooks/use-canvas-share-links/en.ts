@@ -4,6 +4,8 @@ export const shareCopy = {
   internal: "Internal prototype link",
   internalDescription:
     "People with GitHub sign-in and repository access can view and comment on the prototype.",
+  internalPinned: (number: number) =>
+    `This link shares Build ${number}. Update Hub to share the latest Build instead.`,
   internalUnavailable: "Internal prototype link unavailable.",
   internalCopy: "Copy internal prototype link",
   internalOpen: "Open internal prototype link",

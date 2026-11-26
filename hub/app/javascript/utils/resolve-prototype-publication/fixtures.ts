@@ -63,6 +63,7 @@ export const importedPrototype: NonNullable<HubStatus["prototype"]> = {
   viewerLogin: "octocat",
   registered: true,
   canEdit: true,
+  supportsLatestBuildLinks: true,
   canRegister: true,
   published: true,
   buildState: "successful",

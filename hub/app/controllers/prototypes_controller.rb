@@ -46,7 +46,7 @@ class PrototypesController < SuperglueController
   # Returns the requested successful Build or the latest successful Build.
   def selected_build
     builds = @prototype.builds.where(state: "successful")
-    return builds.chronological.first if !params.key?(:build)
+    return builds.chronological.first if !params.key?(:build) || params[:build] == "latest"
 
     number = params[:build]
     if !number.is_a?(String) || !number.match?(/\A[1-9]\d*\z/)

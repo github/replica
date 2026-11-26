@@ -23,7 +23,7 @@ Add `public/controls.replica.json` to expose settings in Replica's Controls pane
 
 The prototype owns the field and its ordinary app behavior. Replica supplies the engine, validation and panel through the optional Copilot plugin or Hub preview. No Replica npm dependency, Vite plugin, generated source or app helper library is required. Use the build tool's equivalent static-assets directory if it is not `public/`. The output must serve this document at `/controls.replica.json` and include it in the retained Build.
 
-An ordinary standalone prototype keeps its own app defaults and interactions. In Replica and Build screenshots, the injected adapter applies JSON defaults and valid URL overrides, except for API values that opt into app-owned initialization. Do not make ordinary app behavior depend on the adapter.
+An ordinary standalone prototype keeps its own app defaults and interactions. In Replica and Build screenshots, the injected adapter applies JSON defaults and valid URL overrides. Do not make ordinary app behavior depend on the adapter.
 
 ## Definitions
 
@@ -110,43 +110,64 @@ Choose notifications or periodic reads for each API value binding. A notificatio
 
 Object paths and method names are identifiers, not executable expressions. No eval, configurable method arguments, framework-internal state access or router detection is supported.
 
-### Page selectors
+## Switch between app pages
 
-Use an app API for a page selector so the app's router owns navigation. Expose methods that read the current page, navigate to a selected page, and notify subscribers when the route changes. Map routes to the declared options in the app; do not detect router internals or rewrite the pathname from the binding.
+Use an app API binding when a control should navigate between pages owned by the app's router. Give the options friendly values, then map each value to a route in the app. Keep the control in a shared set so it remains available while pages change; `role: "shared"` affects panel ordering and width, not route matching.
 
 ```json
 {
   "version": 1,
-  "scope": "navigation",
-  "controls": [
+  "sets": [
     {
-      "id": "page",
-      "label": "Page",
-      "type": "select",
-      "default": "Overview",
-      "options": ["Overview", "Settings"],
-      "binding": {
-        "type": "api",
-        "object": "navigationPreview",
-        "initial": "app",
-        "read": "readPage",
-        "write": "navigatePage",
-        "subscribe": "subscribePage"
-      }
+      "version": 1,
+      "scope": "navigation",
+      "label": "Navigation",
+      "role": "shared",
+      "controls": [
+        {
+          "id": "page",
+          "label": "Page",
+          "type": "select",
+          "default": "Organization",
+          "options": ["Organization", "Enterprise"],
+          "binding": {
+            "type": "api",
+            "object": "pageNavigation",
+            "initial": "app",
+            "read": "readPage",
+            "write": "writePage",
+            "subscribe": "subscribePage"
+          }
+        }
+      ]
     }
   ]
 }
 ```
 
-`initial: "app"` reads the current app value on startup without writing the JSON default. A direct link to Settings therefore stays on Settings. Replica never saves this control in `rc.*` and ignores legacy saved overrides for it. Back/Forward adopts the current route without writing a value. Edits and reset still call the write method; reset navigates to the declared default. The read method must return a valid declared value.
+`readPage` returns a declared option matching the current route. Define how the selector represents routes outside those options; an undeclared value produces a control error. `writePage` maps the selected option to its route and does nothing when that route is already current. `subscribePage` notifies Replica when the app's router changes and returns a cleanup function. Replace the example names with methods that use the app's existing router; do not read or change framework-internal state.
 
-This opt-in is only for API value bindings, not buttons. Ordinary API bindings keep their default-first behavior. It requires Copilot plugin 1.9.1 or a Hub/Build capture runtime containing this option. Older runtimes reject the definition and show a Controls error while the ordinary app keeps working. The definition and transport versions remain `1`.
+Define the page API once at module scope and register it from app startup code so it is available when Controls initializes. Keep that same object while pages change. If a page component replaces or removes the API object after a route change, Replica can no longer read the selected value back. It restores the previous control value and reports a binding error; it does not navigate the app back.
+
+Leave the navigation set without a page `container` or a `when` condition on its selector. A page container can remove the selector during navigation; hiding a conditional control restores its default, which can navigate away from the current page.
+
+Do not bind a page selector directly to `hash` or `query` navigation. Those bindings change URL strings rather than mapping friendly labels through the app's router. They can also carry a saved control override into another route, which can make Back or Reset return to the saved page.
+
+### Startup and direct links
+
+`initial: "app"` reads the current app value on startup without writing the JSON default, so a direct link to Enterprise stays on Enterprise. Replica never saves this control in `rc.*` and ignores legacy saved overrides for it. Back/Forward adopts the current route without writing a value. Edits and Reset all still call the write method; Reset all navigates to the declared default. The read method must return a declared value.
+
+The option is only for API value bindings with a `read` method, not buttons. Ordinary API bindings keep their default-first behavior: a missing saved override writes the JSON `default` on initialization. Keep `writePage` idempotent either way.
+
+`initial: "app"` requires Copilot plugin 1.10.1 or a Hub/Build capture runtime containing this option. Older runtimes reject the definition and show a Controls error while the ordinary app keeps working. The definition and Controls protocol versions remain `1`.
 
 ## Defaults, URLs and reset
 
-Canvas and Hub persist ordinary overrides in prototype URLs as `rc.<scope>.<controlId>`. Missing overrides use JSON defaults; API bindings with `initial: "app"` use the app's current value instead and are never persisted. Edits use `replaceState`, preserving router-owned history state without reload or extra history entries. These settings never belong in a private renderer/proxy capability URL or review route.
+Canvas and Hub persist ordinary overrides in prototype URLs as `rc.<scope>.<controlId>`. Missing overrides use JSON defaults. Edits use `replaceState`, preserving router-owned history state without reload or extra history entries. These settings never belong in a private renderer/proxy capability URL or review route.
 
 Back/Forward restores the settings in that history entry. Invalid or duplicate overrides produce a visible notice; settings exceeding the 8 KB limit remain in memory with a saving error. Actions and results are never persisted. **Reset all controls** restores every set, including inactive sets, and removes overrides. Existing private Controls files are not read, migrated or deleted.
+
+For a page selector, test a direct link to both the default and a non-default page without any `rc` override, app Back/Forward, and Reset all. With `initial: "app"`, the non-default link stays on its page and Reset all navigates to the default.
 
 Definition edits need a page reload; there is no Replica file watcher or live schema replacement. After each edit, follow the skill's validate-and-reload loop, including worktree verification and runtime status. Missing definitions mean no Controls. Invalid/unsupported definitions show a local Controls error without breaking the ordinary app, and reject publication when present in the actual retained asset.
 

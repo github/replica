@@ -25,7 +25,7 @@ describe("App()", () => {
     const page = await screen.findByRole("main", { name: "Share prototype" })
     expect(
       await within(page).findByRole("textbox", { name: "Internal prototype link" }),
-    ).toHaveValue(`${importedPrototype.build!.url}?view=minimized`)
+    ).toHaveValue(`${importedPrototype.build!.url}?build=latest&view=minimized`)
     expect(
       within(page).queryByRole("button", { name: "Create share link" }),
     ).not.toBeInTheDocument()
@@ -185,7 +185,9 @@ describe("App()", () => {
       await waitFor(() => expect(screen.getByRole("button", { name: "Welcome" })).toBeEnabled())
       fireEvent.click(screen.getByRole("button", { name: "Share prototype" }))
       const page = await screen.findByRole("main", { name: "Share prototype" })
-      await waitFor(() => expect(within(page).getByText("Build 1")).toBeInTheDocument())
+      await waitFor(() =>
+        expect(within(page).getByText("Build 1", { selector: "strong" })).toBeInTheDocument(),
+      )
       expect(
         within(page).getByText("This is the last published Build, not the current local preview."),
       ).toBeInTheDocument()
@@ -246,11 +248,13 @@ describe("App()", () => {
     expect(previewShell).toHaveAttribute("aria-hidden", "true")
     expect(previewShell).toHaveClass("canvas-shell--inactive")
     expect(view.container.querySelector("iframe")).toBe(frame)
-    await waitFor(() => expect(within(page).getByText("Build 1")).toBeInTheDocument())
+    await waitFor(() =>
+      expect(within(page).getByText("Build 1", { selector: "strong" })).toBeInTheDocument(),
+    )
     buildNumber = 2
     fireEvent.focus(window)
     await waitFor(() => expect(calls).toContain("/api/hub/activity"))
-    expect(within(page).getByText("Build 1")).toBeInTheDocument()
+    expect(within(page).getByText("Build 1", { selector: "strong" })).toBeInTheDocument()
     expect(calls).not.toContain("/api/hub/share-links/create")
     expect(calls).not.toContain("/api/publish")
     fireEvent.click(within(page).getByRole("button", { name: "Back to preview" }))
