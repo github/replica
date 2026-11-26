@@ -1,13 +1,21 @@
 import { describe, expect, it, vi } from "vitest"
 import type { RepositoryReviewSnapshot } from "../../review-comments/types"
 
-const { capture, findThreads } = vi.hoisted(() => ({ capture: vi.fn(), findThreads: vi.fn() }))
+const { capture, findThreads, lockAccessState } = vi.hoisted(() => ({
+  capture: vi.fn(),
+  findThreads: vi.fn(),
+  lockAccessState: vi.fn(),
+}))
 vi.mock("../../review-comments/capture-repository-review-snapshot/index.ts", () => ({
   captureRepositoryReviewSnapshot: capture,
 }))
 vi.mock("../../../repositories/review-comments/find-review-threads-with-comments/index.ts", () => ({
   findReviewThreadsWithComments: findThreads,
 }))
+vi.mock(
+  "../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts",
+  () => ({ lockGitHubRepositoryAccessState: lockAccessState }),
+)
 vi.mock("../../review-comments/serialize-review-thread/index.ts", () => ({
   serializeReviewThread: (thread: unknown) => thread,
 }))
@@ -140,7 +148,9 @@ describe("createReviewCommentLearningSource()", () => {
 
   it("resolves only evidence whose source and observed comment version match", async () => {
     findThreads.mockResolvedValue(snapshot().threads)
-    const database = {}
+    lockAccessState.mockResolvedValue({ scopingActivatedAt: capturedAt })
+    const transaction = {}
+    const database = { $transaction: (run: (client: unknown) => unknown) => run(transaction) }
     const source = createReviewCommentLearningSource(database as never, "https://hub.example.com")
 
     const result = await source.resolveEvidence({
@@ -197,7 +207,7 @@ describe("createReviewCommentLearningSource()", () => {
       }),
     ])
     expect(result[1]?.evidence).toEqual([])
-    expect(findThreads).toHaveBeenCalledWith(database, repositoryId, [101])
+    expect(findThreads).toHaveBeenCalledWith(transaction, repositoryId, [101], true)
     expect(capture).not.toHaveBeenCalled()
   })
 })

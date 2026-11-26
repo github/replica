@@ -76,4 +76,33 @@ describe("getLearningHistory()", () => {
       expect.arrayContaining(["show", "mem_1", "--history"]),
     )
   })
+
+  it("never passes a stored event ID that looks like a command option", async () => {
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce({
+        withheld: false,
+        record: {
+          evidence: [{ episodeId: "ep_1", eventIds: ["evt_1", "--purpose", "evt 2"], source: {} }],
+        },
+        versions: [],
+      })
+      .mockResolvedValueOnce({ events: [] })
+
+    await getLearningHistory({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      evidenceSource: { resolveEvidence: vi.fn().mockResolvedValue([]) },
+      learningId: "mem_1",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+
+    const observationArguments = vi.mocked(runLearningCommand).mock.calls[1]?.[0] ?? []
+    expect(observationArguments.filter((argument) => argument === "--event")).toHaveLength(1)
+    expect(observationArguments).toContain("evt_1")
+    expect(observationArguments).not.toContain("evt 2")
+  })
 })

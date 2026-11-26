@@ -195,7 +195,11 @@ export async function getLearningHistory(input: {
     return { decisions: history, evidence: [], otherEvidenceCount: references.length }
   }
   // The package reads at most 100 events at once, so a detail page shows the first 100.
-  const eventIds = [...new Set(references.flatMap((reference) => reference.eventIds))].slice(0, 100)
+  // Stored IDs come from model-influenced records, so skip any that could read as an
+  // option or split into another argument.
+  const eventIds = [...new Set(references.flatMap((reference) => reference.eventIds))]
+    .filter((eventId) => /^[^\s-][^\s]*$/u.test(eventId))
+    .slice(0, 100)
   const { events } = observationsSchema.parse(
     await runLearningCommand(
       [

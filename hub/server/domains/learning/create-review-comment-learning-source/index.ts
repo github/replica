@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import { lockGitHubRepositoryAccessState } from "../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts"
 import { findReviewThreadsWithComments } from "../../../repositories/review-comments/find-review-threads-with-comments/index.ts"
 import { captureRepositoryReviewSnapshot } from "../../review-comments/capture-repository-review-snapshot/index.ts"
 import { serializeReviewThread } from "../../review-comments/serialize-review-thread/index.ts"
@@ -41,16 +42,42 @@ export function createReviewCommentLearningSource(
       }
     },
     async resolveEvidence({ repositoryId, references, events }) {
+      const observations = eventMap(events)
+      // Only look up comments that a valid Hub reference cites and a stored event backs.
       const commentIds = [
         ...new Set(
-          references.flatMap((reference) =>
-            reference.source.commentId === undefined ? [] : [reference.source.commentId],
-          ),
+          references.flatMap((reference) => {
+            const { source } = reference
+            if (
+              source.kind !== "hub_review_comments" ||
+              source.hubOrigin !== hubOrigin ||
+              source.repositoryId !== repositoryId ||
+              source.commentId === undefined
+            ) {
+              return []
+            }
+            const backed = reference.eventIds.some((eventId) => {
+              const event = observations.get(eventId)
+              return (
+                event?.episodeId === reference.episodeId &&
+                event.payload.commentId === source.commentId
+              )
+            })
+            return backed ? [source.commentId] : []
+          }),
         ),
       ]
-      const threads = (await findReviewThreadsWithComments(database, repositoryId, commentIds)).map(
-        serializeReviewThread,
-      )
+      const records = await database.$transaction(async (transaction) => {
+        // Order this read against scoping activation, as a full review snapshot does.
+        const { scopingActivatedAt } = await lockGitHubRepositoryAccessState(transaction)
+        return findReviewThreadsWithComments(
+          transaction,
+          repositoryId,
+          commentIds,
+          scopingActivatedAt !== null,
+        )
+      })
+      const threads = records.map(serializeReviewThread)
       const comments = new Map(
         threads.flatMap((thread) =>
           [thread.root, ...thread.replies].map(
@@ -58,7 +85,6 @@ export function createReviewCommentLearningSource(
           ),
         ),
       )
-      const observations = eventMap(events)
       return references.map((reference, referenceIndex) => {
         if (
           reference.source.kind !== "hub_review_comments" ||
