@@ -75,6 +75,8 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/
 const SUBJECTS_PER_ENTRY = 10_000
 const REPORT_ID = /^[A-Za-z0-9._:-]{1,128}$/
 const COMMIT_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/
+/** The grant source a person names to allow evaluating agent screenshots. */
+const SCREENSHOT_SOURCE = "agent_screenshots"
 const DAY_MS = 24 * 60 * 60 * 1000
 // The streams that hold what agents received and said they used.
 const MEMORY_STATES = ["proposed", "accepted", "rejected", "retired"]
@@ -3337,12 +3339,13 @@ class LearningStore {
    * stored one and writes nothing; sending other content under the same ID is a conflict.
    *
    * Each used learning may carry a before and an after screenshot: { role, route, viewport,
-   * theme, capturedAt, bytes }. The images stay on this machine; records hold only their
-   * SHA-256. A store opened without a screenshot store refuses screenshots.
+   * theme, capturedAt, bytes }. Records hold only each image's SHA-256. A store opened
+   * without a screenshot store refuses screenshots. A hosted store keeps no bytes, so its
+   * screenshots need consentGrantId: an active grant for evaluation of agent screenshots.
    */
   async reportUsage(
     context,
-    { reportId, guidanceIds, commitSha, session, prototypeId, used = [] } = {},
+    { reportId, guidanceIds, commitSha, session, prototypeId, used = [], consentGrantId } = {},
   ) {
     assertContext(context)
     if (typeof reportId !== "string" || !REPORT_ID.test(reportId))
@@ -3393,6 +3396,12 @@ class LearningStore {
         "unsupported",
         "This store does not keep screenshots. Send the report without them.",
       )
+    if (
+      consentGrantId !== undefined &&
+      (typeof consentGrantId !== "string" || !RECORD_ID.test(consentGrantId))
+    )
+      throw new LearningError("invalid_input", "A consent grant ID names a stored grant.")
+    const grantId = shots.length ? consentGrantId : undefined
     const contentDigest = digestOf({
       reportId,
       guidanceIds,
@@ -3415,6 +3424,8 @@ class LearningStore {
         )
       return { id, reportId, stored: false }
     }
+    if (grantId !== undefined || (shots.length && this.#screenshots.requiresGrant))
+      await this.#assertScreenshotGrant(context, grantId)
     const guidance = await this.#read("guidance", context, { ids: guidanceIds })
     const missing = guidanceIds.filter((guidanceId) => !guidance.some((g) => g.id === guidanceId))
     if (missing.length)
@@ -3469,6 +3480,7 @@ class LearningStore {
         viewport: shot.viewport,
         theme: shot.theme,
         capturedAt: shot.capturedAt,
+        ...(grantId ? { consentGrantId: grantId } : {}),
       })
       assertValid("screenshot", record)
       screenshots.set(record.id, record)
@@ -3514,6 +3526,21 @@ class LearningStore {
       { audit: this.#auditEntries(context, "usage.report", subjects) },
     )
     return { id, reportId, stored: result.usageReports.appended === 1 }
+  }
+
+  /** Refuse screenshots unless the grant lets agent screenshots be evaluated now. */
+  async #assertScreenshotGrant(context, grantId) {
+    const { eligibility, grants } = await this.#eligibility(context)
+    const grant = grants.find((item) => item.id === grantId)
+    if (
+      !grant ||
+      !grant.sources.includes(SCREENSHOT_SOURCE) ||
+      !eligibility.activePurposes(grant).includes("evaluation")
+    )
+      throw new LearningError(
+        "unsupported",
+        "Screenshots are not allowed for this repository. Send the report without them.",
+      )
   }
 
   /**

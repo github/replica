@@ -122,3 +122,22 @@ export function createScreenshotStore(directory) {
     },
   }
 }
+
+/**
+ * For a hosted store, where the host keeps screenshot bytes in its own storage. The store
+ * still checks each image and records its digest, but keeps no bytes, so a report with
+ * screenshots needs an active screenshot consent grant the host recorded.
+ */
+export function createHostKeptScreenshotStore() {
+  return {
+    requiresGrant: true,
+    async put(bytes) {
+      assertScreenshot(bytes)
+      return screenshotDigest(bytes)
+    },
+    async read() {
+      return null
+    },
+    async remove() {},
+  }
+}

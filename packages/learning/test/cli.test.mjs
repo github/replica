@@ -754,6 +754,118 @@ describe("replica-learning CLI: a store a host names", () => {
     }
   })
 
+  it("keeps agent screenshots only under an active screenshot consent grant", async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-hosted-"))
+    try {
+      writeFileSync(path.join(outside, "week-1.json"), JSON.stringify(hostedLog(weekOneLog())))
+      writeFileSync(path.join(outside, "labels.json"), JSON.stringify(weekOneLabels()))
+      const store = ["--dir", "stores/42", ...HOSTED]
+      const reviews = (
+        await ok(outside, [
+          "grants",
+          "add",
+          "--purpose",
+          "review",
+          "--purpose",
+          "instruction",
+          "--basis",
+          "A Hub administrator turned on Learnings.",
+          "--by",
+          "github:ana-designer",
+          ...store,
+          "--json",
+        ])
+      ).json()
+      await ok(outside, ["import", "hub-comments", "week-1.json", "--grant", reviews.id, ...store])
+      await ok(outside, ["label", "labels.json", "--actor", "agent:copilot", ...store])
+      const [proposal] = (
+        await ok(outside, [
+          "consolidate",
+          ...WINDOW,
+          "--actor",
+          "agent:copilot",
+          ...store,
+          "--json",
+        ])
+      ).json().proposals
+      await ok(outside, [
+        "accept",
+        proposal.id,
+        "--digest",
+        proposal.reviewDigest,
+        "--by",
+        "github:ana-designer",
+        ...store,
+      ])
+      const recalled = (await ok(outside, ["recall", ...store, "--json"])).json()
+      const screenshots = (
+        await ok(outside, [
+          "grants",
+          "add",
+          "--purpose",
+          "evaluation",
+          "--source",
+          "agent_screenshots",
+          "--basis",
+          "A repository administrator allowed screenshot capture and automated review.",
+          "--by",
+          "github:ana-designer",
+          ...store,
+          "--json",
+        ])
+      ).json()
+      function writeReport(reportId) {
+        writeFileSync(
+          path.join(outside, "report.json"),
+          JSON.stringify({
+            reportId,
+            guidanceIds: [recalled.guidanceId],
+            commitSha: "a".repeat(40),
+            used: [
+              {
+                deliveryId: recalled.memories[0].deliveryId,
+                after: {
+                  data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString(
+                    "base64",
+                  ),
+                  route: "/checkout",
+                  viewport: { width: 1280, height: 800 },
+                  theme: "light",
+                  capturedAt: "2026-10-09T12:00:00.000000Z",
+                },
+              },
+            ],
+          }),
+        )
+      }
+      const report = ["report-usage", "report.json", "--actor", "agent:copilot", ...store]
+
+      writeReport("report-1")
+      const refused = await cli(outside, report)
+      assert.match(refused.stderr, /Screenshots are not allowed for this repository/)
+      assert.equal(
+        (await ok(outside, [...report, "--grant", screenshots.id, "--json"])).json().stored,
+        true,
+      )
+      assert.equal(existsSync(path.join(outside, "stores", "42", "evidence")), false)
+      await ok(outside, [
+        "grants",
+        "withdraw",
+        screenshots.id,
+        "--purpose",
+        "evaluation",
+        "--by",
+        "github:ana-designer",
+        ...store,
+      ])
+      writeReport("report-2")
+      const withdrawn = await cli(outside, [...report, "--grant", screenshots.id])
+      assert.match(withdrawn.stderr, /Screenshots are not allowed for this repository/)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
   it("deletes one repository's records only after a person names it", async () => {
     const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-hosted-"))
     try {

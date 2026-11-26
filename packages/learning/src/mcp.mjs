@@ -24,7 +24,14 @@ const session = z
 
 const screenshot = z
   .object({
-    file: z.string().describe("A PNG file's path, inside the directory the server runs in."),
+    file: z
+      .string()
+      .optional()
+      .describe("A PNG file's path, inside the directory the server runs in. Local only."),
+    data: z
+      .string()
+      .optional()
+      .describe("The PNG bytes in base64, instead of file. Hub accepts only this."),
     route: z.string().describe("The prototype route shown, such as /settings."),
     viewport: z.object({ width: z.number().int(), height: z.number().int() }),
     theme: z.string().describe("The color theme shown, such as light or dark."),

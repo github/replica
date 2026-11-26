@@ -29,7 +29,7 @@ import { createFileLock } from "./providers/lock.mjs"
 import { createPostgresMemoryProvider } from "./providers/postgres.mjs"
 import { backupSqliteMemoryStore, createSqliteMemoryProvider } from "./providers/sqlite.mjs"
 import { migrateRepositoryScope } from "./scope-migration.mjs"
-import { createScreenshotStore } from "./screenshots.mjs"
+import { createHostKeptScreenshotStore, createScreenshotStore } from "./screenshots.mjs"
 import { createLearningStore, scopeProblem } from "./store.mjs"
 
 /**
@@ -576,13 +576,17 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
         clock,
         legacyScopes: migrations.map((migration) => migration.oldScope),
         digestMappings,
-        // The bytes stay on this machine, so a store other machines can read, through a
-        // hosted CLI or a shared database, keeps no screenshots.
-        ...(environment.hosted || !LOCAL_PROVIDERS.includes(source)
-          ? {}
-          : {
-              screenshots: createScreenshotStore(path.join(environment.dataDirectory, "evidence")),
-            }),
+        // A local store keeps the bytes on this machine. A hosted store leaves them to its
+        // host. A shared database reached without a host keeps none.
+        ...(environment.hosted
+          ? { screenshots: createHostKeptScreenshotStore() }
+          : !LOCAL_PROVIDERS.includes(source)
+            ? {}
+            : {
+                screenshots: createScreenshotStore(
+                  path.join(environment.dataDirectory, "evidence"),
+                ),
+              }),
       }),
       providerSource: source,
       migrationRedactionFollowUps: migrations

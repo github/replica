@@ -114,9 +114,10 @@ Use
                                   list of records;
                                   --preview shows a person what an agent would get,
                                   unaudited
-  report-usage <report.json> --actor <id>
+  report-usage <report.json> --actor <id> [--grant <grant-id>]
                                   Record which recalled learnings an agent used for a
-                                  commit, with optional before and after screenshots
+                                  commit, with optional before and after screenshots;
+                                  --grant names the consent that allows them
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
   mcp [--actor <agent:name>] [--grant <grant-id>]...
                                   Serve the learning tools to a coding agent over
@@ -1358,19 +1359,25 @@ function sessionOption(session) {
 }
 
 /**
- * report-usage: the report file names each screenshot by a PNG file beside it, so the bytes
- * are read here and only their digest reaches the records.
+ * report-usage: the report file names each screenshot by a PNG file beside it, or carries
+ * its base64 data, so the bytes are read here and only their digest reaches the records.
  */
 async function reportUsage(session) {
   const file = argument(session, 1, "report file")
   const report = await readJsonFile(session, file)
   const directory = path.dirname(path.resolve(session.cwd, file))
   const principal = actor(session, { required: true })
+  if ((session.values.grant?.length ?? 0) > 1)
+    throw new UsageError("Name at most one --grant for a usage report.")
   if (!report || typeof report !== "object" || Array.isArray(report))
     throw new LearningError("invalid_input", `${file} must be a JSON object.`)
   const used = await readReportScreenshots(directory, report.used)
   const { store } = await open(session)
-  const result = await store.reportUsage(context(session, principal), { ...report, used })
+  const result = await store.reportUsage(context(session, principal), {
+    ...report,
+    used,
+    ...(session.values.grant ? { consentGrantId: session.values.grant[0] } : {}),
+  })
   session.out(
     result,
     result.stored
@@ -1380,9 +1387,9 @@ async function reportUsage(session) {
 }
 
 /**
- * Swap each screenshot's file for its bytes. The store checks these limits too, but only
- * after every file is in memory, so the count and total size are checked here first and
- * files are read one at a time.
+ * Swap each screenshot's file or base64 data for its bytes. The store checks these limits
+ * too, but only after every file is in memory, so the count and total size are checked here
+ * first and files are read one at a time.
  */
 async function readReportScreenshots(directory, items) {
   if (!Array.isArray(items)) return items
@@ -1397,7 +1404,10 @@ async function readReportScreenshots(directory, items) {
     }
     const copy = { ...item }
     for (const role of ["before", "after"])
-      if (copy[role]?.file !== undefined) {
+      if (copy[role]?.data !== undefined) {
+        copy[role] = screenshotData(copy[role], MAX_REPORT_SCREENSHOT_BYTES - total)
+        total += copy[role].bytes.length
+      } else if (copy[role]?.file !== undefined) {
         copy[role] = await screenshotFile(
           directory,
           copy[role],
@@ -1408,6 +1418,25 @@ async function readReportScreenshots(directory, items) {
     used.push(copy)
   }
   return used
+}
+
+function screenshotData({ data, file, ...rest }, remaining) {
+  if (file !== undefined)
+    throw new LearningError("invalid_input", "A screenshot names a file or carries data, not both.")
+  // Strict base64, so a typo is refused instead of silently decoding to other bytes.
+  if (
+    typeof data !== "string" ||
+    !data ||
+    data.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
+  )
+    throw new LearningError("invalid_input", "A screenshot's data must be base64 PNG bytes.")
+  if (Math.floor((data.length * 3) / 4) > MAX_SCREENSHOT_BYTES + 2)
+    throw new LearningError("invalid_input", "A screenshot can be at most 10 MB.")
+  const bytes = Buffer.from(data, "base64")
+  if (bytes.length > remaining)
+    throw new LearningError("invalid_input", "A report's screenshots can total at most 100 MB.")
+  return { ...rest, bytes }
 }
 
 async function screenshotFile(directory, { file, ...rest }, remaining) {
