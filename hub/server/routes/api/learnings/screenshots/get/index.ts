@@ -9,7 +9,7 @@ const notFound = { code: "screenshot_not_found", error: "Screenshot not found." 
 
 /**
  * Serves one agent screenshot to anyone who can read the library, only while the
- * repository still allows screenshots. Access is read again before sending the bytes.
+ * repository still allows screenshots. Access and consent are read again before sending.
  */
 export function get(dependencies: LearningsRouteDependencies): RequestHandler {
   return async (request, response, next) => {
@@ -32,7 +32,7 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }
-      const bytes = await dependencies.readScreenshot({
+      const screenshot = await dependencies.readScreenshot({
         repositoryId: repositoryId.data,
         sha256: sha256.data,
       })
@@ -45,7 +45,14 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }
-      if (!bytes) {
+      // Consent may be withdrawn while the image and access are read, so check it last.
+      if (
+        !screenshot ||
+        !(await dependencies.isScreenshotGrantActive({
+          repositoryId: repositoryId.data,
+          grantId: screenshot.grantId,
+        }))
+      ) {
         response.status(404).json(notFound)
         return
       }
@@ -56,7 +63,7 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         "Content-Type": "image/png",
         "X-Content-Type-Options": "nosniff",
       })
-      response.send(Buffer.from(bytes))
+      response.send(Buffer.from(screenshot.bytes))
     } catch (error) {
       if (!respondLearningError(response, error)) next(error)
     }

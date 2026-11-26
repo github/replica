@@ -60,6 +60,7 @@ function dependencies(
     }),
     getAppliedLearnings: vi.fn().mockResolvedValue([]),
     readScreenshot: vi.fn().mockResolvedValue(null),
+    isScreenshotGrantActive: vi.fn().mockResolvedValue(true),
     getCopilot: vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" }),
     listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: null }),
     listActivity: vi.fn().mockResolvedValue([]),
@@ -725,7 +726,7 @@ describe("learning routes", () => {
   it("serves an agent screenshot only as an image", async () => {
     const sha256 = "b".repeat(64)
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
-    const readScreenshot = vi.fn().mockResolvedValue(bytes)
+    const readScreenshot = vi.fn().mockResolvedValue({ bytes, grantId: "grant-1" })
     const deps = dependencies({ readScreenshot })
 
     await withRoute(
@@ -743,6 +744,123 @@ describe("learning routes", () => {
         expect(response.headers.get("x-content-type-options")).toBe("nosniff")
         expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes)
         expect(readScreenshot).toHaveBeenCalledWith({ repositoryId, sha256 })
+      },
+    )
+  })
+
+  it("refuses an applied-learnings address without a prototype and full commit", async () => {
+    const getApplied = vi.fn()
+    const deps = dependencies({ getAppliedLearnings: getApplied })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/applied",
+      getAppliedLearnings(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/applied?prototype=cccccccc-cccc-4ccc-8ccc-cccccccccccc&commit=abc123`,
+          { headers },
+        )
+
+        expect(response.status).toBe(400)
+        expect(getApplied).not.toHaveBeenCalled()
+      },
+    )
+  })
+
+  it("hides applied learnings after repository access is lost while they load", async () => {
+    const deps = dependencies({
+      findRepository: vi.fn().mockResolvedValueOnce(repository).mockResolvedValueOnce(null),
+      getAppliedLearnings: vi
+        .fn()
+        .mockResolvedValue([{ id: "mem_1", title: "Label every field", version: 2 }]),
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/applied",
+      getAppliedLearnings(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/applied?prototype=cccccccc-cccc-4ccc-8ccc-cccccccccccc&commit=${"a".repeat(40)}`,
+          { headers },
+        )
+
+        expect(response.status).toBe(404)
+        expect(await response.json()).toEqual({
+          code: "repository_not_found",
+          error: "Repository not found.",
+        })
+      },
+    )
+  })
+
+  it("treats a malformed screenshot address as not found", async () => {
+    const readScreenshot = vi.fn()
+    const deps = dependencies({ readScreenshot })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/screenshots/:sha256",
+      getScreenshot(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/screenshots/not-a-digest`,
+          { headers },
+        )
+
+        expect(response.status).toBe(404)
+        expect(readScreenshot).not.toHaveBeenCalled()
+      },
+    )
+  })
+
+  it("withholds a screenshot from someone signed out while it loads", async () => {
+    const deps = dependencies({
+      currentSession: {
+        restore: vi.fn().mockResolvedValueOnce(session).mockResolvedValueOnce(null),
+      },
+      readScreenshot: vi
+        .fn()
+        .mockResolvedValue({ bytes: new Uint8Array([0x89]), grantId: "grant-1" }),
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/screenshots/:sha256",
+      getScreenshot(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/screenshots/${"b".repeat(64)}`,
+          { headers },
+        )
+
+        expect(response.status).toBe(401)
+      },
+    )
+  })
+
+  it("withholds a screenshot when consent is withdrawn while it loads", async () => {
+    const isScreenshotGrantActive = vi.fn().mockResolvedValue(false)
+    const deps = dependencies({
+      readScreenshot: vi
+        .fn()
+        .mockResolvedValue({ bytes: new Uint8Array([0x89]), grantId: "grant-1" }),
+      isScreenshotGrantActive,
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings/screenshots/:sha256",
+      getScreenshot(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/screenshots/${"b".repeat(64)}`,
+          { headers },
+        )
+
+        expect(response.status).toBe(404)
+        expect(isScreenshotGrantActive).toHaveBeenCalledWith({ repositoryId, grantId: "grant-1" })
       },
     )
   })

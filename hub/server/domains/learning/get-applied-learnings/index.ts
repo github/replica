@@ -5,10 +5,14 @@ import { z } from "zod"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
 import { learningStoreArguments } from "../learning-store-arguments/index.ts"
-import type { AppliedLearning } from "../types.ts"
+import type { ReportedAppliedLearning } from "../types.ts"
 
 const screenshotSchema = z
-  .object({ sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/), route: z.string() })
+  .object({
+    sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    route: z.string(),
+    consentGrantId: z.string().optional(),
+  })
   .loose()
 const usageSchema = z
   .object({
@@ -50,7 +54,7 @@ export async function getAppliedLearnings(input: {
   repositoryScope: string
   root: string
   staticDirectories: string[]
-}): Promise<AppliedLearning[]> {
+}): Promise<ReportedAppliedLearning[]> {
   const applicationRoot = input.applicationRoot ?? process.cwd()
   const directory = await validatePrivateStorageRoot(
     resolve(input.root, "repositories", input.repositoryId),
@@ -89,7 +93,7 @@ export async function getAppliedLearnings(input: {
     ),
   )
   // A learning reported twice for the same commit is listed once, as last reported.
-  const applied = new Map<string, AppliedLearning>()
+  const applied = new Map<string, ReportedAppliedLearning>()
   for (const report of reports) {
     if (report.prototypeId !== undefined && report.prototypeId !== input.prototypeId) continue
     for (const used of report.used) {
@@ -107,5 +111,9 @@ export async function getAppliedLearnings(input: {
 }
 
 function screenshot(value: z.infer<typeof screenshotSchema>) {
-  return { sha256: value.sha256.slice("sha256:".length), route: value.route }
+  return {
+    sha256: value.sha256.slice("sha256:".length),
+    route: value.route,
+    ...(value.consentGrantId ? { consentGrantId: value.consentGrantId } : {}),
+  }
 }

@@ -9,7 +9,7 @@ import { createReviewCommentLearningSource } from "../../../../domains/learning/
 import { getLearningHistory } from "../../../../domains/learning/get-learning-history/index.ts"
 import { getAppliedLearnings } from "../../../../domains/learning/get-applied-learnings/index.ts"
 import type { ArtifactStorage } from "../../../../domains/artifacts/create-artifact-storage/types.ts"
-import { findConsentedAgentScreenshot } from "../../../../repositories/agent-screenshots/find-consented-agent-screenshot/index.ts"
+import { findConsentedAgentScreenshots } from "../../../../repositories/agent-screenshots/find-consented-agent-screenshots/index.ts"
 import { recordFinishedLearningRun } from "../../../../domains/learning/record-finished-learning-run/index.ts"
 import { getLearningOverview } from "../../../../domains/learning/get-learning-overview/index.ts"
 import { getLearningRepositoryScope } from "../../../../domains/learning/get-learning-repository-scope/index.ts"
@@ -322,36 +322,46 @@ export async function createLearningsRouteDependencies(
           "The repository learning scope changed. Try again.",
         )
       }
-      // Offer a screenshot only while the consent that allowed it is still on.
-      async function consented(screenshot?: { sha256: string; route: string }) {
-        if (!screenshot || !options.artifactStorage) return undefined
-        const stored = await findConsentedAgentScreenshot(prisma, {
-          repositoryId,
-          sha256: screenshot.sha256,
-        })
-        return stored ? screenshot : undefined
-      }
-      return Promise.all(
-        applied.map(async ({ before, after, ...learning }) => {
-          const shownBefore = await consented(before)
-          const shownAfter = await consented(after)
-          return {
-            ...learning,
-            ...(shownBefore ? { before: shownBefore } : {}),
-            ...(shownAfter ? { after: shownAfter } : {}),
-          }
-        }),
+      // Offer a screenshot only when it was taken under the consent that is on now, so
+      // the same image saved under a later grant can't revive one that was withdrawn.
+      const digests = applied.flatMap(({ before, after }) =>
+        [before, after].flatMap((screenshot) => (screenshot ? [screenshot.sha256] : [])),
       )
+      const consented =
+        digests.length && options.artifactStorage
+          ? await findConsentedAgentScreenshots(prisma, { repositoryId, sha256s: digests })
+          : null
+      function shown(screenshot?: { sha256: string; route: string; consentGrantId?: string }) {
+        if (!screenshot || !consented) return undefined
+        if (screenshot.consentGrantId !== consented.grantId) return undefined
+        if (!consented.storageKeys.has(screenshot.sha256)) return undefined
+        return { sha256: screenshot.sha256, route: screenshot.route }
+      }
+      return applied.map(({ before, after, ...learning }) => {
+        const shownBefore = shown(before)
+        const shownAfter = shown(after)
+        return {
+          ...learning,
+          ...(shownBefore ? { before: shownBefore } : {}),
+          ...(shownAfter ? { after: shownAfter } : {}),
+        }
+      })
     },
     readScreenshot: async ({ repositoryId, sha256 }) => {
       if (!options.artifactStorage) return null
-      const stored = await findConsentedAgentScreenshot(prisma, { repositoryId, sha256 })
-      if (!stored) return null
-      const result = await options.artifactStorage.read(stored.storageKey)
-      if (result.status === "ok") return result.bytes
+      const consented = await findConsentedAgentScreenshots(prisma, {
+        repositoryId,
+        sha256s: [sha256],
+      })
+      const storageKey = consented?.storageKeys.get(sha256)
+      if (!consented || !storageKey) return null
+      const result = await options.artifactStorage.read(storageKey)
+      if (result.status === "ok") return { bytes: result.bytes, grantId: consented.grantId }
       if (result.status === "not-found") return null
       throw new Error(`Hub could not read an agent screenshot (${result.status}).`)
     },
+    isScreenshotGrantActive: async ({ repositoryId, grantId }) =>
+      (await getRepositoryEvaluationSetting(prisma, repositoryId))?.screenshotGrantId === grantId,
     getCopilot,
     listRuns: (repositoryId) => listLearningRuns(prisma, repositoryId, new Date()),
     listActivity: (repositoryId, from) => listLearningActivityDays(prisma, repositoryId, from),

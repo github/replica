@@ -102,7 +102,12 @@ export interface LearningsRouteDependencies {
     prototypeId: string
     commitSha: string
   }): Promise<AppliedLearning[]>
-  readScreenshot(input: { repositoryId: string; sha256: string }): Promise<Uint8Array | null>
+  /** Reads a consented screenshot, with the grant that allowed it. */
+  readScreenshot(input: {
+    repositoryId: string
+    sha256: string
+  }): Promise<{ bytes: Uint8Array; grantId: string } | null>
+  isScreenshotGrantActive(input: { repositoryId: string; grantId: string }): Promise<boolean>
   getCopilot(): Promise<
     | { state: "connected"; connectedBy: string | null }
     | { state: "not-connected" }

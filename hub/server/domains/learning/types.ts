@@ -88,3 +88,11 @@ export type AppliedLearning = {
   before?: { sha256: string; route: string }
   after?: { sha256: string; route: string }
 }
+
+/** An applied learning as reported, with the consent each screenshot was taken under. */
+export type ReportedAppliedLearning = Omit<AppliedLearning, "before" | "after"> & {
+  before?: ReportedScreenshot
+  after?: ReportedScreenshot
+}
+
+type ReportedScreenshot = { sha256: string; route: string; consentGrantId?: string }

@@ -26,7 +26,7 @@ describe("getAppliedLearnings()", () => {
               memoryId: "mem_1",
               version: 2,
               title: "Label every field",
-              after: { sha256: `sha256:${digest}`, route: "/checkout" },
+              after: { sha256: `sha256:${digest}`, route: "/checkout", consentGrantId: "grant-1" },
             },
           ],
         },
@@ -54,7 +54,7 @@ describe("getAppliedLearnings()", () => {
         id: "mem_1",
         title: "Label every field",
         version: 2,
-        after: { sha256: digest, route: "/checkout" },
+        after: { sha256: digest, route: "/checkout", consentGrantId: "grant-1" },
       },
     ])
     expect(vi.mocked(runLearningCommand).mock.calls[0]?.[0].slice(0, 3)).toEqual([
