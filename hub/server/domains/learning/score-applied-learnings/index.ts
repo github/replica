@@ -12,6 +12,7 @@ const usageSchema = z
     reports: z.array(
       z
         .object({
+          prototypeId: z.string().optional(),
           used: z.array(
             z
               .object({
@@ -52,7 +53,10 @@ const scoredSchema = spentSchema.extend({
  * time, while the shared monthly budget lasts. Each attempt is recorded with what it cost,
  * even when it fails, so spending is never undercounted. Returns "paused" when Copilot or
  * the budget is unavailable, so the request is kept and tried again later, and "deferred"
- * when a person is waiting on a learning run, which goes first.
+ * when a person is waiting on a learning run, which goes first. When a reviewer verified
+ * the commit, each learning is scored once more with that verification, and the first
+ * score is kept. A report that names a prototype gets only that prototype's verification,
+ * since two prototypes can share a commit.
  */
 export async function scoreAppliedLearnings(dependencies: {
   commitSha: string
@@ -75,7 +79,11 @@ export async function scoreAppliedLearnings(dependencies: {
     arguments_: string[],
     options: { githubToken?: string; signal: AbortSignal; timeoutMs?: number },
   ): Promise<unknown>
-  start(usedLearningId: string): Promise<{ id: string; operationId: string; state: string }>
+  start(
+    usedLearningId: string,
+    trigger: "USAGE" | "REVIEWER_VERIFICATION",
+  ): Promise<{ id: string; operationId: string; state: string }>
+  verifications(): Promise<{ prototypeId: string; verifiedAt: Date }[]>
   withinBudget(): Promise<boolean>
   withLock<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
 }): Promise<"done" | "deferred" | "paused"> {
@@ -86,6 +94,7 @@ export async function scoreAppliedLearnings(dependencies: {
   }
   if (!(await dependencies.withinBudget())) return "paused"
   const store = await dependencies.prepare()
+  const verifications = await dependencies.verifications()
   const { reports } = usageSchema.parse(
     await dependencies.withLock((signal) =>
       dependencies.runCommand(["usage", "--commit", dependencies.commitSha, ...store], {
@@ -96,8 +105,18 @@ export async function scoreAppliedLearnings(dependencies: {
   const temporary = await mkdtemp(resolve(tmpdir(), "replica-learning-score-"))
   try {
     let diffFile: string | null | undefined
-    for (const [index, used] of reports.flatMap((report) => report.used).entries()) {
-      const run = await dependencies.start(used.id)
+    const attempts = reports.flatMap((report) => {
+      const verifiedAt = verifications.findLast(
+        (verification) =>
+          report.prototypeId === undefined || verification.prototypeId === report.prototypeId,
+      )?.verifiedAt
+      return report.used.flatMap((used) => [
+        { used, trigger: "USAGE" as const, verifiedAt: undefined },
+        ...(verifiedAt ? [{ used, trigger: "REVIEWER_VERIFICATION" as const, verifiedAt }] : []),
+      ])
+    })
+    for (const [index, { used, trigger, verifiedAt }] of attempts.entries()) {
+      const run = await dependencies.start(used.id, trigger)
       if (run.state !== "RUNNING") continue
       if (diffFile === undefined) {
         const diff = await dependencies.readDiff()
@@ -138,6 +157,8 @@ export async function scoreAppliedLearnings(dependencies: {
                 run.operationId,
                 ...(diffFile ? ["--diff-file", diffFile] : []),
                 ...(hasScreenshots ? ["--screenshots", screenshots] : []),
+                // The package wants microsecond timestamps.
+                ...(verifiedAt ? ["--reviewer-verified-at", verifiedAt.toISOString()] : []),
                 ...store,
               ],
               { ...credential, signal, timeoutMs: 10 * 60 * 1000 },

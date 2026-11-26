@@ -44,6 +44,7 @@ describe("scoreAppliedLearnings()", () => {
       runCommand,
       start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
       withinBudget: () => Promise.resolve(true),
+      verifications: () => Promise.resolve([]),
       withLock,
     })
 
@@ -90,6 +91,7 @@ describe("scoreAppliedLearnings()", () => {
       runCommand,
       start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
       withinBudget: () => Promise.resolve(true),
+      verifications: () => Promise.resolve([]),
       withLock,
     })
 
@@ -129,6 +131,7 @@ describe("scoreAppliedLearnings()", () => {
       runCommand,
       start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
       withinBudget: () => Promise.resolve(true),
+      verifications: () => Promise.resolve([]),
       withLock,
     })
 
@@ -166,6 +169,7 @@ describe("scoreAppliedLearnings()", () => {
       runCommand,
       start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
       withinBudget: () => Promise.resolve(false),
+      verifications: () => Promise.resolve([]),
       withLock,
     })
 
@@ -200,10 +204,68 @@ describe("scoreAppliedLearnings()", () => {
         runCommand,
         start: () => Promise.resolve({ id: "run-1", operationId: "op-1", state: "RUNNING" }),
         withinBudget: () => Promise.resolve(true),
+        verifications: () => Promise.resolve([]),
         withLock,
       }),
     ).rejects.toMatchObject({ code: "cancelled" })
     expect(finish).not.toHaveBeenCalled()
     expect(deleteRequest).not.toHaveBeenCalled()
+  })
+
+  it("scores a learning once more only with its own prototype's verification", async () => {
+    const deleteRequest = vi.fn(() => Promise.resolve())
+    const start = vi.fn((usedLearningId: string, trigger: string) =>
+      Promise.resolve({ id: `run-${trigger}`, operationId: `op-${trigger}`, state: "RUNNING" }),
+    )
+    const runCommand = vi.fn((arguments_: string[]) => {
+      if (arguments_[0] === "usage") {
+        return Promise.resolve({
+          reports: [
+            { prototypeId: "prototype-2", used: [{ id: "learning-1" }] },
+            { prototypeId: "prototype-1", used: [{ id: "learning-2" }] },
+          ],
+        })
+      }
+      return Promise.resolve({ score: { id: "score-1" }, usage: { requests: 1, nanoAiu: 0 } })
+    })
+
+    await scoreAppliedLearnings({
+      commitSha: "a".repeat(40),
+      credential: () => Promise.resolve({ githubToken: "token" }),
+      deleteRequest,
+      finish: () => Promise.resolve(),
+      hasPendingUserRun: () => Promise.resolve(false),
+      isEnabled: () => Promise.resolve(true),
+      now: () => new Date(),
+      prepare: () => Promise.resolve([]),
+      readDiff: () => Promise.resolve(null),
+      readScreenshot: () => Promise.resolve(null),
+      refuseCredential: () => Promise.resolve(),
+      runCommand,
+      start,
+      withinBudget: () => Promise.resolve(true),
+      verifications: () =>
+        Promise.resolve([
+          { prototypeId: "prototype-1", verifiedAt: new Date("2026-12-03T10:00:00.250Z") },
+        ]),
+      withLock,
+    })
+
+    expect(start.mock.calls).toEqual([
+      ["learning-1", "USAGE"],
+      ["learning-2", "USAGE"],
+      ["learning-2", "REVIEWER_VERIFICATION"],
+    ])
+    expect(runCommand).toHaveBeenLastCalledWith(
+      [
+        "score",
+        "learning-2",
+        "--operation-id",
+        "op-REVIEWER_VERIFICATION",
+        "--reviewer-verified-at",
+        "2026-12-03T10:00:00.250Z",
+      ],
+      expect.anything(),
+    )
   })
 })

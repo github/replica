@@ -49,6 +49,7 @@ import { finishLearningEvaluationRun } from "../../../repositories/learning-eval
 import { startLearningEvaluationRun } from "../../../repositories/learning-evaluation-runs/start-learning-evaluation-run/index.ts"
 import { sumLearningEvaluationCredits } from "../../../repositories/learning-evaluation-runs/sum-learning-evaluation-credits/index.ts"
 import { deleteExpiredLearningScoreRequests } from "../../../repositories/learning-score-requests/delete-expired-learning-score-requests/index.ts"
+import { listLearningReviewerVerifications } from "../../../repositories/learning-reviewer-verifications/list-learning-reviewer-verifications/index.ts"
 import { deleteLearningScoreRequest } from "../../../repositories/learning-score-requests/delete-learning-score-request/index.ts"
 import { findLearningScoreRequest } from "../../../repositories/learning-score-requests/find-learning-score-request/index.ts"
 import { listReadyLearningScoreRequests } from "../../../repositories/learning-score-requests/list-ready-learning-score-requests/index.ts"
@@ -635,11 +636,13 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
             nodePath: configuration.nodePath,
             ...options,
           }),
-        start: (usedLearningId) =>
+        start: (usedLearningId, trigger) =>
           startLearningEvaluationRun(prisma, {
             repositoryId: request.repositoryId,
             usedLearningId,
+            trigger,
           }),
+        verifications: () => listLearningReviewerVerifications(prisma, repository),
         withinBudget: async () => {
           const budget = (await initializeEvaluationSetting(prisma)).monthlyBudgetCredits
           const used = await sumLearningEvaluationCredits(prisma, startOfUtcMonth(new Date()))
