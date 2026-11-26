@@ -132,7 +132,13 @@ function learningsResponse() {
 
 function emptyHistory() {
   return http.get("/api/repositories/2001/learnings/:learningId/history", () =>
-    Response.json({ decisions: [], evidence: [], otherEvidenceCount: 0 }),
+    Response.json({
+      decisions: [],
+      evidence: [],
+      otherEvidenceCount: 0,
+      contradictions: [],
+      otherContradictionsCount: 0,
+    }),
   )
 }
 
@@ -329,6 +335,8 @@ describe("Learnings frontend integration", () => {
           ],
           evidence: [],
           otherEvidenceCount: 3,
+          contradictions: [],
+          otherContradictionsCount: 0,
         }),
       ),
       emptyHistory(),
@@ -914,7 +922,7 @@ describe("Learnings frontend integration", () => {
     )
     await renderHubFlow(server, "/repositories/2001/learnings")
 
-    expect(await screen.findByRole("heading", { name: "Accepted learnings" })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "Browse learnings" })).toBeVisible()
     expect(screen.queryByRole("heading", { name: "Recent runs" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
   })

@@ -19,6 +19,7 @@ describe("learningsLibrary()", () => {
         acceptedBy: "mona",
         acceptedAt: "2026-10-06T15:00:00Z",
         edited: false,
+        lastDecision: "accepted" as const,
         status: "recalled",
       },
     ]
@@ -44,6 +45,7 @@ describe("learningsLibrary()", () => {
       acceptedBy: "mona",
       acceptedAt: "2026-10-06T15:00:00Z",
       edited: false,
+      lastDecision: "accepted" as const,
       status: "recalled" as const,
     }))
 
@@ -99,6 +101,8 @@ describe("learningsLibrary()", () => {
         ],
         evidence: [],
         otherEvidenceCount: 2,
+        contradictions: [],
+        otherContradictionsCount: 0,
       },
     )
 
@@ -116,5 +120,51 @@ describe("learningsLibrary()", () => {
         title: "Open links in a new tab",
       },
     })
+  })
+
+  it("credits the latest edit and shows comments that disagreed", () => {
+    const state = emptyLearnings()
+    state.learnings = [
+      {
+        id: "mem_active",
+        title: "Keep labels visible",
+        content: "Show a label above every field.",
+        digest,
+        acceptedBy: "hubot",
+        acceptedAt: "2026-10-09T15:00:00Z",
+        edited: true,
+        lastDecision: "edited",
+        status: "recalled",
+      },
+    ]
+
+    const result = learningsLibrary(
+      state,
+      { pathname, search: "?status=active&learning=mem_active" },
+      {
+        decisions: [],
+        evidence: [],
+        otherEvidenceCount: 0,
+        contradictions: [
+          {
+            eventId: "evt_against",
+            commentId: 9,
+            body: "Placeholders are fine on search fields.",
+            authorLogin: "mona",
+            authorAvatarUrl: null,
+            prototypeId: "13",
+            prototypeName: "Search",
+            createdAt: "2026-10-05T10:00:00Z",
+          },
+        ],
+        otherContradictionsCount: 1,
+      },
+    )
+
+    expect(result.selected?.facts[0]).toBe("Edited by @hubot on October 9, 2026")
+    expect(result.selected?.contradictions.map((item) => item.eventId)).toEqual(["evt_against"])
+    expect(result.selected?.otherContradictions).toBe(
+      "1 more opposing comment that Hub cannot show here",
+    )
   })
 })

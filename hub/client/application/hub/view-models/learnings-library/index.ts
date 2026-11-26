@@ -163,6 +163,9 @@ export function learningsLibrary(
   }
 }
 
+// Edits and reinstatements replace the acceptance receipt, so name the latest decision.
+const receiptLabels = { accepted: "Accepted", edited: "Edited", reinstated: "Reinstated" }
+
 function detail(
   state: Overview,
   record: LearningRecord,
@@ -183,8 +186,11 @@ function detail(
       history && history.otherEvidenceCount > 0
         ? `${count(history.otherEvidenceCount, "more comment")} that Hub cannot show here`
         : null,
-    contradictions: [],
-    otherContradictions: null,
+    contradictions: evidence(history?.contradictions ?? [], repositoryId),
+    otherContradictions:
+      history && history.otherContradictionsCount > 0
+        ? `${count(history.otherContradictionsCount, "more opposing comment")} that Hub cannot show here`
+        : null,
     history: (history?.decisions ?? []).map((entry) => ({
       label: changeLabels[entry.change],
       at: entry.at,
@@ -231,9 +237,9 @@ function detail(
       facts: [
         ...(accepted.acceptedBy && accepted.acceptedAt
           ? [
-              `Accepted by @${accepted.acceptedBy} on ${longDate(accepted.acceptedAt)}${
-                accepted.edited ? ", with edits" : ""
-              }`,
+              `${receiptLabels[accepted.lastDecision]} by @${accepted.acceptedBy} on ${longDate(
+                accepted.acceptedAt,
+              )}${accepted.lastDecision === "accepted" && accepted.edited ? ", with edits" : ""}`,
             ]
           : []),
         recallFact(accepted.status),

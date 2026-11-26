@@ -146,7 +146,13 @@ describe("Hub primary route names", () => {
         }),
       ),
       http.get(`/api${path}/:learningId/history`, () =>
-        Response.json({ decisions: [], evidence: [], otherEvidenceCount: 0 }),
+        Response.json({
+          decisions: [],
+          evidence: [],
+          otherEvidenceCount: 0,
+          contradictions: [],
+          otherContradictionsCount: 0,
+        }),
       ),
       http.post(`/api${path}/runs`, () => {
         ran = true

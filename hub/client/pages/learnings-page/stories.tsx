@@ -199,7 +199,7 @@ const activeDetail: LearningDetail = {
   status: "active",
   title: "Use one primary button per form",
   guidance: "Use one primary button per form, labeled with the action it takes.",
-  facts: ["Accepted by @mona on October 6, 2026, with edits", "Agents get this learning."],
+  facts: ["Edited by @mona on October 6, 2026", "Agents get this learning."],
   reason: null,
   replaces: [],
   evidence: [checkoutEvidence],
@@ -931,7 +931,6 @@ export const ReadableMember: Story = {
   args: {
     data: {
       ...data,
-      canDecide: false,
       status: { ...data.status, usage: null },
       run: { ...data.run, available: false },
       runs: null,
