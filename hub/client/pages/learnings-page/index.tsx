@@ -82,9 +82,11 @@ function LearningsContent({
         description={copy.description}
         trailing={
           <div className="learnings-page__header-actions">
-            <Button as="a" href={data.agentsPath} variant="secondary">
-              Connect an agent
-            </Button>
+            {data.agentsPath ? (
+              <Button as="a" href={data.agentsPath} variant="secondary">
+                Connect an agent
+              </Button>
+            ) : null}
             {data.run.available ? (
               <form action={data.run.path} method="post">
                 <input type="hidden" name="authenticity_token" value={data.authenticityToken} />

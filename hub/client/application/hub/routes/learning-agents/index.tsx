@@ -92,7 +92,7 @@ export default function LearningAgents({ loaderData, params }: Route.ComponentPr
         data={{
           view: "connections",
           repositoryName: repository?.nameWithOwner ?? "this repository",
-          mcpUrl: loaderData.mcpUrl,
+          mcpUrl: repository?.capabilities?.local ? null : loaderData.mcpUrl,
           signedInAs: workspace?.viewer.login ?? "",
           connections: loaderData.connections,
           notice: busy ? null : (fetcher.data?.notice ?? null),

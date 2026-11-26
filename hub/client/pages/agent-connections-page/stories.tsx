@@ -91,6 +91,9 @@ export const ConnectedAgents: Story = {}
 export const NoConnectedAgents: Story = {
   args: { data: { ...connections, connections: [] } },
 }
+export const LocalRepository: Story = {
+  args: { data: { ...connections, mcpUrl: null } },
+}
 export const RevokeConfirmation: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Revoke Visual Studio Code access" }))

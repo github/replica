@@ -334,7 +334,10 @@ export function settingsLearnings(
           ? null
           : `Copilot used ${formatCredits(state.usageCredits)} for this repository in the last 30 days.`,
     },
-    agentsPath: `/repositories/${repositoryId}/learnings/agents`,
+    // Hub serves agents only for GitHub repositories, so local ones offer no setup.
+    agentsPath: workspace.repositories.find(({ id }) => id === repositoryId)?.capabilities?.local
+      ? null
+      : `/repositories/${repositoryId}/learnings/agents`,
     run: {
       path: `/repositories/${repositoryId}/learnings/runs`,
       available: state.permissions.requestRun && state.runAvailable,

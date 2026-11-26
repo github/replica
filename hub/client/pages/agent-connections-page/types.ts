@@ -10,7 +10,8 @@ export type AgentConnectionsPageData =
   | {
       view: "connections"
       repositoryName: string
-      mcpUrl: string
+      /** Null for a repository Hub cannot serve to agents, such as a local one. */
+      mcpUrl: string | null
       signedInAs: string
       connections: AgentConnection[]
       notice: string | null

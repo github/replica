@@ -64,7 +64,6 @@ export function AgentConnectionsPage({
     )
   }
 
-  const configuration = JSON.stringify({ mcpServers: { replica: { url: data.mcpUrl } } }, null, 2)
   const selectedConnection = data.connections.find(({ id }) => id === connectionToRevoke)
 
   return (
@@ -82,12 +81,21 @@ export function AgentConnectionsPage({
         <Heading as="h2" id="agent-setup-title" size="4">
           Add Hub to your agent
         </Heading>
-        <Text as="p">
-          Copy this configuration into your agent. It contains the Hub address for this repository,
-          not a password or access token. Your agent will open a browser when it needs you to sign
-          in.
-        </Text>
-        <CopyableCodeBlock code={configuration} label="Hub MCP configuration" />
+        {data.mcpUrl ? (
+          <>
+            <Text as="p">
+              Copy this configuration into your agent. It contains the Hub address for this
+              repository, not a password or access token. Your agent will open a browser when it
+              needs you to sign in.
+            </Text>
+            <CopyableCodeBlock
+              code={JSON.stringify({ mcpServers: { replica: { url: data.mcpUrl } } }, null, 2)}
+              label="Hub MCP configuration"
+            />
+          </>
+        ) : (
+          <Text as="p">Hub can connect agents only to GitHub repositories.</Text>
+        )}
       </section>
 
       <section aria-labelledby="agent-list-title" className="agent-connections__section">
