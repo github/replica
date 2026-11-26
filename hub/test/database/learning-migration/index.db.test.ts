@@ -172,8 +172,8 @@ describe("learning migration", () => {
       try {
         const hubRoot = fileURLToPath(new URL("../../../", import.meta.url))
         const migrationsRoot = join(hubRoot, "schema/migrations")
-        const lastBaseMigration = "20261219120000_decision_agent_evaluations"
-        const migration = "20261220120000_learning_decision_actions"
+        const lastBaseMigration = "20261220160000_add_decision_review_snapshot"
+        const migration = "20261220170000_learning_decision_actions"
         const base = (await readdir(migrationsRoot, { withFileTypes: true }))
           .filter((entry) => entry.isDirectory() && entry.name <= lastBaseMigration)
           .map((entry) => entry.name)
@@ -221,9 +221,40 @@ describe("learning migration", () => {
           ),
         ).rejects.toMatchObject({ code: "23514" })
 
-        await database.query(
-          await readFile(join(migrationsRoot, migration, "migration.sql"), "utf8"),
+        const options = {
+          cwd: hubRoot,
+          env: { ...process.env, DATABASE_URL: databaseUrl.toString() },
+          timeout: timeoutMs,
+        }
+        const run = promisify(execFile)
+        const prisma = join(hubRoot, "node_modules/prisma/build/index.js")
+        for (const migrationName of base)
+          await run(
+            process.execPath,
+            [
+              prisma,
+              "migrate",
+              "resolve",
+              "--applied",
+              migrationName,
+              "--config",
+              "prisma7.config.ts",
+            ],
+            options,
+          )
+        await run(
+          process.execPath,
+          [prisma, "migrate", "deploy", "--config", "prisma7.config.ts"],
+          options,
         )
+        expect(
+          (
+            await database.query(
+              "SELECT migration_name FROM _prisma_migrations WHERE migration_name = $1 AND finished_at IS NOT NULL",
+              [migration],
+            )
+          ).rows,
+        ).toEqual([{ migration_name: migration }])
 
         const pending = await database.query(
           `SELECT operation.id, operation.learning_id, operation.decision,
