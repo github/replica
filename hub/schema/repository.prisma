@@ -8,6 +8,8 @@ model Repository {
   learningRuns               LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]
   learningShares             LearningShare[]
+  evaluationSetting          RepositoryEvaluationSetting?
+  agentScreenshots           AgentScreenshot[]
   decisionModelConfiguration DecisionModelConfiguration?
   decisionReviewSnapshot     DecisionReviewSnapshot?
   decisionTrainingJobs       DecisionTrainingJob[]
