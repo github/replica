@@ -18,6 +18,7 @@ import { loadLearningMcp } from "../../integrations/learning/load-learning-mcp/i
 import { createAgentAuthRouter } from "../../integrations/mcp/create-agent-auth-router/index.ts"
 import { handleMcpRequest } from "../../integrations/mcp/handle-mcp-request/index.ts"
 import { requireAgentToken } from "../../integrations/mcp/require-agent-token/index.ts"
+import { withLearningExecutionLock } from "../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { findAgentRepository } from "../../repositories/agent-connections/find-agent-repository/index.ts"
 import type { AgentConnectionRouteDependencies } from "./types.ts"
 
@@ -37,7 +38,7 @@ export function agentConnectionRoutes(
   getRepositoryPermission?: GetCanvasRepositoryPermission,
   logger?: Logger,
 ) {
-  const { applicationOrigin, learning } = dependencies
+  const { applicationOrigin, databaseUrl, learning } = dependencies
   const router = express.Router()
   const browserMutation = requireOrigin(applicationOrigin)
 
@@ -179,11 +180,38 @@ export function agentConnectionRoutes(
       if ((await authority.permission(result.viewer, repository)) === "none")
         return status(response, 403, "Repository access was denied.")
       const mcp = await loadLearningMcp(learning.cliPath)
+      const token = request.auth!.token
       const backend = createLearningMcpBackend({
+        async confirmAccess() {
+          const current = await (await load()).connections.verify(token)
+          const stillListed = current && (await findAgentRepository(prisma, repository.id))
+          return Boolean(
+            stillListed && (await authority.permission(current.viewer, stillListed)) !== "none",
+          )
+        },
         connectionId: result.connection.id,
         learning,
         learningsUrl: new URL(`/repositories/${repository.id}/learnings`, applicationOrigin).href,
         repository: { id: repository.id, githubRepositoryId: repository.githubRepositoryId },
+        async serialize(operation) {
+          try {
+            return await withLearningExecutionLock({
+              databaseUrl,
+              protectSessionAuthority: true,
+              run: operation,
+            })
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message === "Another learning operation is still running."
+            )
+              throw new mcp.LearningError(
+                "busy",
+                "Hub is busy with other learning work. Try again in a minute.",
+              )
+            throw error
+          }
+        },
         toAgentError: (code, message) => new mcp.LearningError(code, message),
       })
       const server = mcp.createLearningMcpServer(backend, {

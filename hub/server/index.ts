@@ -190,6 +190,7 @@ try {
             if (learningConfiguration && agentApplicationOrigin) {
               agentConnections = {
                 applicationOrigin: agentApplicationOrigin,
+                databaseUrl,
                 learning: learningConfiguration,
               }
             }

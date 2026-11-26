@@ -30,16 +30,30 @@ interface StoredLearning {
   withheld: boolean
 }
 
+/** Writes private text to a file only this process can read, and removes it afterwards. */
+async function withPrivateFile<T>(content: string, operation: (file: string) => Promise<T>) {
+  const folder = await mkdtemp(join(tmpdir(), "replica-agent-"))
+  try {
+    const file = join(folder, "input")
+    await writeFile(file, content, { mode: 0o600 })
+    return await operation(file)
+  } finally {
+    await rm(folder, { recursive: true, force: true })
+  }
+}
+
 /**
  * Answers one agent's learning tools for one repository by running the replica-learning
  * command, the same way the Learnings page does. Each call names the connection as the
  * agent, so records show which connection received or used guidance.
  */
 export function createLearningMcpBackend(input: {
+  confirmAccess(): Promise<boolean>
   connectionId: string
   learning: LearningSettings
   learningsUrl: string
   repository: { id: string; githubRepositoryId: bigint }
+  serialize<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   toAgentError: (code: string, message: string) => Error
 }) {
   const { learning, repository, toAgentError } = input
@@ -66,27 +80,37 @@ export function createLearningMcpBackend(input: {
     }
   }
 
+  /**
+   * Runs one command while no other learning work can change the store, then checks the
+   * connection still has access, so a revoked agent never receives what it asked for.
+   */
   async function run(directory: string, arguments_: string[]) {
     try {
-      return await runLearningCommand(
-        [
-          ...arguments_,
-          "--actor",
-          actor,
-          ...learningStoreArguments({
-            directory,
-            repositoryId: repository.id,
-            repositoryScope: `github.com/repositories/${repository.githubRepositoryId}`,
-          }),
-        ],
-        {
-          cliPath: learning.cliPath,
-          nodePath: learning.nodePath,
-          ...(learning.learningDatabaseUrl
-            ? { learningDatabaseUrl: learning.learningDatabaseUrl }
-            : {}),
-        },
-      )
+      return await input.serialize(async (signal) => {
+        const result = await runLearningCommand(
+          [
+            ...arguments_,
+            "--actor",
+            actor,
+            ...learningStoreArguments({
+              directory,
+              repositoryId: repository.id,
+              repositoryScope: `github.com/repositories/${repository.githubRepositoryId}`,
+            }),
+          ],
+          {
+            cliPath: learning.cliPath,
+            nodePath: learning.nodePath,
+            signal,
+            ...(learning.learningDatabaseUrl
+              ? { learningDatabaseUrl: learning.learningDatabaseUrl }
+              : {}),
+          },
+        )
+        if (!(await input.confirmAccess()))
+          throw toAgentError("access_denied", "This agent connection no longer has access.")
+        return result
+      })
     } catch (error) {
       // These codes describe the agent's own request. Other failures can name server
       // paths or storage, so they reach the agent only as a plain message.
@@ -98,10 +122,10 @@ export function createLearningMcpBackend(input: {
 
   function sessionArguments(session?: { id: string; label?: string }) {
     if (!session) return []
+    // Joined to the flag so a value starting with "-" is read as data.
     return [
-      "--session-id",
-      session.id,
-      ...(session.label === undefined ? [] : ["--session-label", session.label]),
+      `--session-id=${session.id}`,
+      ...(session.label === undefined ? [] : [`--session-label=${session.label}`]),
     ]
   }
 
@@ -117,13 +141,20 @@ export function createLearningMcpBackend(input: {
     }) {
       const directory = await storeDirectory()
       if (!directory) return { guidanceId: null, text: "", learnings: [] }
-      const result = (await run(directory, [
-        "recall",
-        ...(task === undefined ? [] : ["--task", task]),
-        "--limit",
-        String(limit ?? 20),
-        ...sessionArguments(session),
-      ])) as {
+      const store = directory
+      function recall(taskArguments: string[]) {
+        return run(store, [
+          "recall",
+          ...taskArguments,
+          "--limit",
+          String(limit ?? 20),
+          ...sessionArguments(session),
+        ])
+      }
+      // The task goes through a private file so it never shows in the process list.
+      const result = (await (task === undefined
+        ? recall([])
+        : withPrivateFile(task, (file) => recall(["--task-file", file])))) as {
         guidanceId: string
         text: string
         memories: { id: string; deliveryId: string }[]
@@ -145,14 +176,9 @@ export function createLearningMcpBackend(input: {
       const directory = await storeDirectory()
       if (!directory)
         throw toAgentError("not_found", "This repository has no learnings to report on.")
-      const folder = await mkdtemp(join(tmpdir(), "replica-agent-report-"))
-      try {
-        const file = join(folder, "report.json")
-        await writeFile(file, JSON.stringify(report), { mode: 0o600 })
-        return await run(directory, ["report-usage", file])
-      } finally {
-        await rm(folder, { recursive: true, force: true })
-      }
+      return withPrivateFile(JSON.stringify(report), (file) =>
+        run(directory, ["report-usage", file]),
+      )
     },
 
     submitSession() {

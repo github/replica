@@ -1,5 +1,6 @@
 export interface AgentConnectionRouteDependencies {
   applicationOrigin: string
+  databaseUrl: string
   learning: {
     cliPath: string
     learningDatabaseUrl?: string

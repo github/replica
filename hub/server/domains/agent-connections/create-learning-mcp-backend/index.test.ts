@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises"
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, it, onTestFinished, vi } from "vitest"
@@ -18,6 +18,7 @@ it("keeps server details out of what agents see when the store fails", async () 
     new LearningCommandError("storage_corrupt", `The store at ${root} is damaged.`),
   )
   const backend = createLearningMcpBackend({
+    confirmAccess: () => Promise.resolve(true),
     connectionId: "connection",
     learning: {
       applicationRoot: join(root, "app"),
@@ -29,10 +30,127 @@ it("keeps server details out of what agents see when the store fails", async () 
     },
     learningsUrl: "https://hub.example/learnings",
     repository: { id: "9f8f1d8e-4c1a-4a4b-8d43-6a9f6a6e7f10", githubRepositoryId: 1n },
+    serialize: (operation) => operation(new AbortController().signal),
     toAgentError: (code, message) => new Error(`${code}: ${message}`),
   })
 
   const failure = backend.listLearnings({})
 
   await expect(failure).rejects.toBeInstanceOf(LearningCommandError)
+})
+
+it("passes the task through a private file and session values as data", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "replica-agent-backend-")))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  let task = ""
+  runLearningCommand.mockImplementationOnce(async (arguments_: string[]) => {
+    task = await readFile(arguments_[arguments_.indexOf("--task-file") + 1]!, "utf8")
+    return { guidanceId: "guidance", text: "Use tokens.", memories: [] }
+  })
+  const backend = createLearningMcpBackend({
+    confirmAccess: () => Promise.resolve(true),
+    connectionId: "connection",
+    learning: {
+      applicationRoot: join(root, "app"),
+      cliPath: "replica-learning",
+      learningDatabaseUrl: "postgresql://learning",
+      nodePath: process.execPath,
+      root: join(root, "learning"),
+      staticDirectories: [],
+    },
+    learningsUrl: "https://hub.example/learnings",
+    repository: { id: "9f8f1d8e-4c1a-4a4b-8d43-6a9f6a6e7f10", githubRepositoryId: 1n },
+    serialize: (operation) => operation(new AbortController().signal),
+    toAgentError: (code, message) => new Error(`${code}: ${message}`),
+  })
+
+  await backend.getGuidance({ task: "-private task", session: { id: "-s", label: "-l" } })
+
+  const arguments_ = runLearningCommand.mock.calls.at(-1)![0] as string[]
+  expect(task).toBe("-private task")
+  expect(arguments_).not.toContain("-private task")
+  expect(arguments_).toEqual(expect.arrayContaining(["--session-id=-s", "--session-label=-l"]))
+})
+
+it("withholds guidance when the connection loses access while the command runs", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "replica-agent-backend-")))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  runLearningCommand.mockResolvedValueOnce({ guidanceId: "g", text: "Secret.", memories: [] })
+  const backend = createLearningMcpBackend({
+    confirmAccess: () => Promise.resolve(false),
+    connectionId: "connection",
+    learning: {
+      applicationRoot: join(root, "app"),
+      cliPath: "replica-learning",
+      learningDatabaseUrl: "postgresql://learning",
+      nodePath: process.execPath,
+      root: join(root, "learning"),
+      staticDirectories: [],
+    },
+    learningsUrl: "https://hub.example/learnings",
+    repository: { id: "9f8f1d8e-4c1a-4a4b-8d43-6a9f6a6e7f10", githubRepositoryId: 1n },
+    serialize: (operation) => operation(new AbortController().signal),
+    toAgentError: (code, message) => new Error(`${code}: ${message}`),
+  })
+
+  const guidance = backend.getGuidance({})
+
+  await expect(guidance).rejects.toThrow("access_denied")
+})
+
+it("withholds the text of a learning no one has accepted", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "replica-agent-backend-")))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  runLearningCommand.mockResolvedValueOnce({
+    record: { id: "memory-1", state: "proposed", text: "Unreviewed idea." },
+    status: { recallEligible: false },
+    withheld: false,
+  })
+  const backend = createLearningMcpBackend({
+    confirmAccess: () => Promise.resolve(true),
+    connectionId: "connection",
+    learning: {
+      applicationRoot: join(root, "app"),
+      cliPath: "replica-learning",
+      learningDatabaseUrl: "postgresql://learning",
+      nodePath: process.execPath,
+      root: join(root, "learning"),
+      staticDirectories: [],
+    },
+    learningsUrl: "https://hub.example/learnings",
+    repository: { id: "9f8f1d8e-4c1a-4a4b-8d43-6a9f6a6e7f10", githubRepositoryId: 1n },
+    serialize: (operation) => operation(new AbortController().signal),
+    toAgentError: (code, message) => new Error(`${code}: ${message}`),
+  })
+
+  const learning = await backend.getLearning({ id: "memory-1" })
+
+  expect(JSON.stringify(learning)).not.toContain("Unreviewed idea.")
+  expect(learning).toMatchObject({ id: "memory-1", state: "proposed", withheld: true })
+})
+
+it("gives no guidance for a repository without a learning store", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "replica-agent-backend-")))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  runLearningCommand.mockClear()
+  const backend = createLearningMcpBackend({
+    confirmAccess: () => Promise.resolve(true),
+    connectionId: "connection",
+    learning: {
+      applicationRoot: join(root, "app"),
+      cliPath: "replica-learning",
+      nodePath: process.execPath,
+      root: join(root, "learning"),
+      staticDirectories: [],
+    },
+    learningsUrl: "https://hub.example/learnings",
+    repository: { id: "9f8f1d8e-4c1a-4a4b-8d43-6a9f6a6e7f10", githubRepositoryId: 1n },
+    serialize: (operation) => operation(new AbortController().signal),
+    toAgentError: (code, message) => new Error(`${code}: ${message}`),
+  })
+
+  const guidance = await backend.getGuidance({ task: "Build a form" })
+
+  expect(guidance).toEqual({ guidanceId: null, text: "", learnings: [] })
+  expect(runLearningCommand).not.toHaveBeenCalled()
 })
