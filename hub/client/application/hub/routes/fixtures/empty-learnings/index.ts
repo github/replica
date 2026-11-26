@@ -7,7 +7,7 @@ export function emptyLearnings(
     accessDenied: false,
     repository: { id: "2001", nameWithOwner: "github/prototype", defaultBranch: "main" },
     capabilities: { administerHub, administerRepository: true },
-    permissions: { viewEvidence: true, decide: true, requestRun: true },
+    permissions: { viewEvidence: true, decide: true, requestRun: true, share: false },
     copilot: { state: "connected", connectedBy: "octocat" },
     automaticRunsEnabled: false,
     usageCredits: "0",
@@ -17,6 +17,7 @@ export function emptyLearnings(
     suggestions: [],
     learnings: [],
     rejected: [],
+    shared: [],
     recall: { text: "", count: 0 },
     runs: [],
   }

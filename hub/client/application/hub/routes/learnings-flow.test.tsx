@@ -27,7 +27,7 @@ function learningsResponse() {
       defaultBranch: "main",
     },
     capabilities: { administerHub: false, administerRepository: true as const },
-    permissions: { viewEvidence: true, decide: true, requestRun: true },
+    permissions: { viewEvidence: true, decide: true, requestRun: true, share: false },
     copilot: { state: "connected" as const, connectedBy: "hub-admin" },
     automaticRunsEnabled: false,
     usageCredits: "0.0945",
@@ -84,6 +84,7 @@ function learningsResponse() {
         edited: true,
         lastDecision: "accepted",
         status: "recalled" as const,
+        shared: false,
       },
       {
         id: "mem_damaged",
@@ -95,9 +96,11 @@ function learningsResponse() {
         edited: false,
         lastDecision: "accepted",
         status: "damaged" as const,
+        shared: false,
       },
     ],
     rejected: [],
+    shared: [],
     recall: {
       text: "Approved team learnings\n1. Use one primary button per form.",
       count: 1,
@@ -757,6 +760,7 @@ describe("Learnings frontend integration", () => {
                     edited: false,
                     lastDecision: "accepted",
                     status: "recalled",
+                    shared: false,
                   },
                 ],
               }
@@ -921,6 +925,7 @@ describe("Learnings frontend integration", () => {
               decidedBy: "hubot",
               decidedAt: "2026-11-08T20:00:00.000Z",
               reason: "It breaks the back button.",
+              shared: false,
             },
           ],
         }),
@@ -946,6 +951,64 @@ describe("Learnings frontend integration", () => {
     expect(bodies).toEqual([{ decision: "reinstate", digest, reason: "External links only." }])
   })
 
+  it("asks to share a learning and shows why Hub could not save it", async () => {
+    const server = stubHubFetch(...learningsWorkspace())
+    const bodies: unknown[] = []
+    server.use(
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({
+          ...learningsResponse(),
+          permissions: { viewEvidence: true, decide: true, requestRun: true, share: true },
+        }),
+      ),
+      emptyHistory(),
+      http.post(`/api/repositories/2001/learnings/mem_accepted/share`, async ({ request }) => {
+        bodies.push(await request.json())
+        return Response.json({ error: "Sharing is temporarily unavailable." }, { status: 503 })
+      }),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings?learning=mem_accepted")
+    const toggle = await screen.findByRole("switch", { name: "Share across Hub" })
+    await router.settle(() => fireEvent.click(toggle))
+
+    expect(await screen.findByText("Sharing is temporarily unavailable.")).toBeVisible()
+    expect(bodies).toEqual([{ shared: true }])
+  })
+
+  it("shows a learning another repository shared as read-only", async () => {
+    const historyRequests = vi.fn()
+    const server = stubHubFetch(
+      ...learningsWorkspace(),
+      http.get("/api/repositories/2001/learnings", () =>
+        Response.json({
+          ...learningsResponse(),
+          shared: [
+            {
+              id: "mem_shared",
+              title: "Keep labels visible",
+              content: "Show a label above every field.",
+              source: "github/design-guidelines",
+              sharedBy: "mona",
+              sharedAt: "2026-11-07T20:00:00.000Z",
+              status: "recalled",
+            },
+          ],
+        }),
+      ),
+      http.get("/api/repositories/2001/learnings/:learningId/history", historyRequests),
+    )
+    await renderHubFlow(server, "/repositories/2001/learnings?learning=mem_shared")
+
+    expect(
+      await screen.findByText(
+        "Shared from github/design-guidelines · Read-only in this repository.",
+      ),
+    ).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Edit learning" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("switch", { name: "Share across Hub" })).not.toBeInTheDocument()
+    expect(historyRequests).not.toHaveBeenCalled()
+  })
+
   it("shows a Hub administrator without repository authority a read-only library", async () => {
     const server = stubHubFetch(
       ...learningsWorkspace(),
@@ -953,7 +1016,7 @@ describe("Learnings frontend integration", () => {
         Response.json({
           ...learningsResponse(),
           capabilities: { administerHub: true, administerRepository: false },
-          permissions: { viewEvidence: true, decide: false, requestRun: false },
+          permissions: { viewEvidence: true, decide: false, requestRun: false, share: false },
           usageCredits: null,
           runAvailable: false,
           runs: [],

@@ -212,7 +212,7 @@ describe("settingsLearnings()", () => {
       accessDenied: false,
       repository,
       capabilities: { administerHub: false, administerRepository: true },
-      permissions: { viewEvidence: true, decide: true, requestRun: true },
+      permissions: { viewEvidence: true, decide: true, requestRun: true, share: false },
       copilot: { state: "connected", connectedBy: null },
       automaticRunsEnabled: false,
       usageCredits: "0",
@@ -222,6 +222,7 @@ describe("settingsLearnings()", () => {
       suggestions: [],
       learnings: [],
       rejected: [],
+      shared: [],
       recall: { text: "", count: 0 },
       runs: [],
     }

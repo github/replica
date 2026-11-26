@@ -139,6 +139,7 @@ describe("Hub primary route names", () => {
                   acceptedAt: "2026-11-20T12:00:00Z",
                   edited: false,
                   lastDecision: "accepted",
+                  shared: false,
                   status: "recalled",
                 },
               ]

@@ -20,6 +20,8 @@ export interface LibraryLearning {
   guidance: string
   /** When someone last decided on it. Suggestions have no decision yet. */
   updatedAt: string | null
+  /** The repository that shared it, when it comes from another repository. */
+  source: string | null
   detailPath: string
 }
 
@@ -51,6 +53,10 @@ export interface LearningDetail {
    * title and content are the stored wording, which the edit form starts from.
    */
   decision: { path: string; digest: string; title: string; content: string } | null
+  /** The repository that shared it, when it comes from another repository. */
+  source: string | null
+  /** Present only when the viewer can share this learning or stop sharing it. */
+  share: { path: string; shared: boolean } | null
 }
 
 export interface LearningsLibraryData {

@@ -170,6 +170,7 @@ const suggestion: LibraryLearning = {
   guidance:
     "Show a visible label above every form field; never use placeholder text as the only label.",
   updatedAt: null,
+  source: null,
   detailPath: `${learningsPath}?status=suggested&learning=${suggestionId}`,
 }
 
@@ -192,6 +193,8 @@ const suggestionDetail: LearningDetail = {
     title: "",
     content: "",
   },
+  source: null,
+  share: null,
 }
 
 const activeDetail: LearningDetail = {
@@ -222,6 +225,8 @@ const activeDetail: LearningDetail = {
     title: "Use one primary button per form",
     content: "Use one primary button per form, labeled with the action it takes.",
   },
+  source: null,
+  share: { path: `${learningsPath}/${activeId}/share`, shared: false },
 }
 
 const rejectedDetail: LearningDetail = {
@@ -254,6 +259,8 @@ const rejectedDetail: LearningDetail = {
     title: "Always open links in a new tab",
     content: "Always open links in a new tab so people keep their place.",
   },
+  source: null,
+  share: null,
 }
 
 const library: LearningsLibraryData = {
@@ -772,6 +779,7 @@ export const ManyLearnings: Story = {
           title: `Learning ${index + 26}: keep related settings on one page`,
           guidance: "Keep related settings on one page so people can compare them.",
           updatedAt: "2026-10-06T15:00:00Z",
+          source: index === 0 ? "github/design-guidelines" : null,
           detailPath: `${library.statusPaths.active}&page=2&learning=mem_active_${index + 26}`,
         })),
       },
@@ -877,8 +885,53 @@ export const RejectedDetail: Story = {
   args: { data: { ...data, library: showing(rejectedDetail) } },
 }
 
+export const SharedByThisRepository: Story = {
+  args: {
+    data: {
+      ...data,
+      library: showing({
+        ...activeDetail,
+        facts: [...activeDetail.facts, "Shared across Hub"],
+        share: { path: `${learningsPath}/${activeId}/share`, shared: true },
+      }),
+    },
+  },
+}
+
+export const RejectedStillShared: Story = {
+  args: {
+    data: {
+      ...data,
+      library: showing({
+        ...rejectedDetail,
+        facts: [...rejectedDetail.facts, "Still shared across Hub once accepted again"],
+        share: { path: `${learningsPath}/${rejectedId}/share`, shared: true },
+      }),
+    },
+  },
+}
+
+export const SharedFromAnotherRepository: Story = {
+  args: {
+    data: {
+      ...data,
+      library: showing({
+        ...activeDetail,
+        id: "mem_shared",
+        source: "github/design-guidelines",
+        facts: ["Shared by @mona on October 7, 2026", "Agents get this learning."],
+        evidence: [],
+        otherEvidence: null,
+        history: [],
+        decision: null,
+        share: null,
+      }),
+    },
+  },
+}
+
 export const MemberDetail: Story = {
-  args: { data: { ...data, library: showing({ ...activeDetail, decision: null }) } },
+  args: { data: { ...data, library: showing({ ...activeDetail, decision: null, share: null }) } },
 }
 
 export const UnavailableWording: Story = {
@@ -892,6 +945,7 @@ export const UnavailableWording: Story = {
           "This learning's wording is unavailable because its stored record failed integrity checks.",
         facts: ["Agents do not get this learning because it failed integrity checks."],
         decision: null,
+        share: null,
       }),
       recall: { text: "", count: 0 },
     },
@@ -918,6 +972,7 @@ export const IdentityRevalidation: Story = {
             guidance:
               "This version's wording is withheld until its reviewer identities are revalidated.",
             updatedAt: "2026-10-06T15:00:00Z",
+            source: null,
             detailPath: `${library.statusPaths.active}&learning=${activeId}`,
           },
         ],

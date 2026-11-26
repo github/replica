@@ -25,7 +25,7 @@ describe("Learnings contracts", () => {
         defaultBranch: "main",
       },
       capabilities: { administerHub: false, administerRepository: true },
-      permissions: { viewEvidence: true, decide: true, requestRun: true },
+      permissions: { viewEvidence: true, decide: true, requestRun: true, share: false },
       copilot: { state: "connected" as const, connectedBy: "hub-admin" },
       automaticRunsEnabled: false,
       usageCredits: "0.0735",
@@ -60,6 +60,7 @@ describe("Learnings contracts", () => {
           edited: true,
           lastDecision: "accepted",
           status: "recalled" as const,
+          shared: false,
         },
         {
           id: "mem_damaged",
@@ -71,6 +72,7 @@ describe("Learnings contracts", () => {
           edited: false,
           lastDecision: "accepted",
           status: "damaged" as const,
+          shared: false,
         },
       ],
       rejected: [
@@ -83,8 +85,10 @@ describe("Learnings contracts", () => {
           decidedBy: "octocat",
           decidedAt: "2026-11-08T20:00:00.000Z",
           reason: "Labels help everyone.",
+          shared: false,
         },
       ],
+      shared: [],
       recall: {
         text: "Approved team learnings\n1. Use one primary button per form.",
         count: 1,
@@ -182,7 +186,7 @@ describe("Learnings contracts", () => {
       }),
       accessDenied: false as const,
       capabilities: { administerHub: false, administerRepository: true },
-      permissions: { viewEvidence: true, decide: true, requestRun: true },
+      permissions: { viewEvidence: true, decide: true, requestRun: true, share: false },
       copilot: { state: "not-connected" as const },
       automaticRunsEnabled: false,
       usageCredits: "0",
@@ -205,6 +209,7 @@ describe("Learnings contracts", () => {
       ],
       learnings: [],
       rejected: [],
+      shared: [],
       recall: { text: "", count: 0 },
       runs: [],
     }

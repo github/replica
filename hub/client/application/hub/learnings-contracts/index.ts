@@ -9,9 +9,11 @@ import type {
   LearningHistoryResponse,
   LearningMutationResponse,
   LearningRunResponse,
+  LearningShareInput,
   LearningSuggestionResponse,
   LearningsResponse,
   RejectedLearningResponse,
+  SharedLearningResponse,
 } from "./types"
 
 const identifier = z.number().int().positive()
@@ -70,8 +72,21 @@ export const acceptedLearningResponseSchema = z
     edited: z.boolean(),
     lastDecision: z.enum(["accepted", "edited", "reinstated"]),
     status: z.enum(["recalled", "not-recalled", "budget-excluded", "damaged", "identity-review"]),
+    shared: z.boolean(),
   })
   .strict() satisfies z.ZodType<AcceptedLearningResponse>
+
+export const sharedLearningResponseSchema = z
+  .object({
+    id: learningIdentifier,
+    title: storedTitle,
+    content: z.string().nullable(),
+    source: z.string().min(1),
+    sharedBy: z.string().nullable(),
+    sharedAt: timestamp,
+    status: z.enum(["recalled", "budget-excluded"]),
+  })
+  .strict() satisfies z.ZodType<SharedLearningResponse>
 
 export const rejectedLearningResponseSchema = z
   .object({
@@ -83,6 +98,7 @@ export const rejectedLearningResponseSchema = z
     decidedBy: z.string().nullable(),
     decidedAt: timestamp.nullable(),
     reason: z.string().nullable(),
+    shared: z.boolean(),
   })
   .strict() satisfies z.ZodType<RejectedLearningResponse>
 
@@ -164,6 +180,7 @@ export const learningsResponseSchema = z.discriminatedUnion("accessDenied", [
           viewEvidence: z.boolean(),
           decide: z.boolean(),
           requestRun: z.boolean(),
+          share: z.boolean(),
         })
         .strict(),
       copilot: z.discriminatedUnion("state", [
@@ -189,6 +206,7 @@ export const learningsResponseSchema = z.discriminatedUnion("accessDenied", [
       suggestions: z.array(learningSuggestionResponseSchema),
       learnings: z.array(acceptedLearningResponseSchema),
       rejected: z.array(rejectedLearningResponseSchema),
+      shared: z.array(sharedLearningResponseSchema),
       recall: z.object({ text: z.string(), count }).strict(),
       runs: z.array(learningRunResponseSchema).max(10),
     })
@@ -233,6 +251,10 @@ export const learningDecisionInputSchema = z.discriminatedUnion("decision", [
     })
     .strict(),
 ]) satisfies z.ZodType<LearningDecisionInput>
+
+export const learningShareInputSchema = z
+  .object({ shared: z.boolean() })
+  .strict() satisfies z.ZodType<LearningShareInput>
 
 export const learningMutationResponseSchema = z
   .object({ notice: z.string().min(1) })

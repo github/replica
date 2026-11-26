@@ -24,6 +24,7 @@ import {
   learningDecisionInputSchema,
   learningHistoryResponseSchema,
   learningMutationResponseSchema,
+  learningShareInputSchema,
   learningsResponseSchema,
 } from "@application/hub/learnings-contracts"
 import type { ProductActionResult } from "@application/hub/product-contracts/types"
@@ -303,7 +304,7 @@ function submitDecision(
   form: FormData,
 ) {
   const prefix = `${route}/`
-  const suffix = "/decision"
+  const suffix = source.pathname.endsWith("/share") ? "/share" : "/decision"
   if (!source.pathname.startsWith(prefix) || !source.pathname.endsWith(suffix)) {
     throw new Response("This learning action is not connected.", { status: 400 })
   }
@@ -315,6 +316,20 @@ function submitDecision(
   }
   if (!learningId || learningId.includes("/")) {
     throw new Response("Invalid learning identifier.", { status: 400 })
+  }
+  const path = `/api/repositories/${repositoryId}/learnings/${encodeURIComponent(learningId)}`
+  if (suffix === "/share") {
+    const shared = form.get("shared")
+    const parsed = learningShareInputSchema.safeParse({
+      shared: shared === "true" ? true : shared === "false" ? false : shared,
+    })
+    if (!parsed.success) {
+      throw new Response("Choose whether to share this learning.", { status: 422 })
+    }
+    return requestProductJson(request, `${path}/share`, learningMutationResponseSchema, {
+      method: "POST",
+      body: parsed.data,
+    })
   }
   const decision = form.get("decision")
   const title = form.get("title")
@@ -345,12 +360,10 @@ function submitDecision(
   if (!parsed.success) {
     throw new Response(parsed.error.issues.map(({ message }) => message).join(" "), { status: 422 })
   }
-  return requestProductJson(
-    request,
-    `/api/repositories/${repositoryId}/learnings/${encodeURIComponent(learningId)}/decision`,
-    learningMutationResponseSchema,
-    { method: "POST", body: parsed.data },
-  )
+  return requestProductJson(request, `${path}/decision`, learningMutationResponseSchema, {
+    method: "POST",
+    body: parsed.data,
+  })
 }
 
 export function meta({ loaderData }: { loaderData?: { repository: { nameWithOwner: string } } }) {

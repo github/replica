@@ -34,6 +34,17 @@ export interface AcceptedLearningResponse {
   edited: boolean
   lastDecision: "accepted" | "edited" | "reinstated"
   status: "recalled" | "not-recalled" | "budget-excluded" | "damaged" | "identity-review"
+  shared: boolean
+}
+
+export interface SharedLearningResponse {
+  id: string
+  title: string | null
+  content: string | null
+  source: string
+  sharedBy: string | null
+  sharedAt: string
+  status: "recalled" | "budget-excluded"
 }
 
 export interface RejectedLearningResponse {
@@ -45,6 +56,7 @@ export interface RejectedLearningResponse {
   decidedBy: string | null
   decidedAt: string | null
   reason: string | null
+  shared: boolean
 }
 
 export interface LearningHistoryResponse {
@@ -91,7 +103,12 @@ export type LearningsResponse =
       accessDenied: false
       repository: RepositoryRecord
       capabilities: { administerHub: boolean; administerRepository: boolean }
-      permissions: { viewEvidence: boolean; decide: boolean; requestRun: boolean }
+      permissions: {
+        viewEvidence: boolean
+        decide: boolean
+        requestRun: boolean
+        share: boolean
+      }
       copilot:
         | { state: "connected"; connectedBy: string | null }
         | { state: "not-connected" }
@@ -104,6 +121,7 @@ export type LearningsResponse =
       suggestions: LearningSuggestionResponse[]
       learnings: AcceptedLearningResponse[]
       rejected: RejectedLearningResponse[]
+      shared: SharedLearningResponse[]
       recall: { text: string; count: number }
       runs: LearningRunResponse[]
     }
@@ -114,6 +132,10 @@ export type LearningDecisionInput =
   | { decision: "retire"; reason: string }
   | { decision: "edit"; digest: string; title?: string; content?: string; reason: string }
   | { decision: "reinstate"; digest: string; reason: string }
+
+export interface LearningShareInput {
+  shared: boolean
+}
 
 export interface LearningMutationResponse {
   notice: string

@@ -21,6 +21,7 @@ describe("learningsLibrary()", () => {
         edited: false,
         lastDecision: "accepted" as const,
         status: "recalled",
+        shared: false,
       },
     ]
 
@@ -47,6 +48,7 @@ describe("learningsLibrary()", () => {
       edited: false,
       lastDecision: "accepted" as const,
       status: "recalled" as const,
+      shared: false,
     }))
 
     const firstPage = learningsLibrary(state, { pathname, search: "?status=active" }, null)
@@ -74,6 +76,7 @@ describe("learningsLibrary()", () => {
         decidedBy: "hubot",
         decidedAt: "2026-10-08T11:00:00Z",
         reason: "It breaks the back button.",
+        shared: false,
       },
     ]
 
@@ -122,6 +125,65 @@ describe("learningsLibrary()", () => {
     })
   })
 
+  it("offers sharing only for learnings this repository's agents get", () => {
+    const state = emptyLearnings()
+    state.permissions.share = true
+    state.learnings = [
+      {
+        id: "mem_expired",
+        title: "Use the old header",
+        content: "Use the old header.",
+        digest,
+        acceptedBy: "mona",
+        acceptedAt: "2026-10-06T15:00:00Z",
+        edited: false,
+        lastDecision: "accepted" as const,
+        status: "not-recalled",
+        shared: false,
+      },
+    ]
+
+    const result = learningsLibrary(
+      state,
+      { pathname, search: "?status=active&learning=mem_expired" },
+      null,
+    )
+
+    expect(result.selected?.share).toBeNull()
+  })
+
+  it("lets an administrator stop sharing a retired learning", () => {
+    const state = emptyLearnings()
+    state.permissions.share = true
+    state.rejected = [
+      {
+        id: "mem_retired",
+        title: "Open links in a new tab",
+        content: "Open every link in a new tab.",
+        digest,
+        state: "retired",
+        decidedBy: "hubot",
+        decidedAt: "2026-10-08T11:00:00Z",
+        reason: "It breaks the back button.",
+        shared: true,
+      },
+    ]
+
+    const result = learningsLibrary(
+      state,
+      { pathname, search: "?status=rejected&learning=mem_retired" },
+      null,
+    )
+
+    expect(result.selected).toMatchObject({
+      facts: [
+        "Retired by @hubot on October 8, 2026",
+        "Still shared across Hub once accepted again",
+      ],
+      share: { path: `${pathname}/mem_retired/share`, shared: true },
+    })
+  })
+
   it("credits the latest edit and shows comments that disagreed", () => {
     const state = emptyLearnings()
     state.learnings = [
@@ -135,6 +197,7 @@ describe("learningsLibrary()", () => {
         edited: true,
         lastDecision: "edited",
         status: "recalled",
+        shared: false,
       },
     ]
 

@@ -16,12 +16,15 @@ import {
   Text,
   TextInput,
   Textarea,
+  Tooltip,
 } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubCounter } from "@components/hub-counter"
 import { HubEmptyState } from "@components/hub-empty-state"
+import { HubSwitch } from "@components/hub-switch"
 import { HubUserAvatar } from "@components/hub-user-avatar"
+import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { ReviewRelativeTime } from "@features/review-relative-time"
 
@@ -34,6 +37,7 @@ import type {
 import "./styles.css"
 
 const statuses = ["suggested", "active", "rejected"] as const
+const shareHint = "Read-only in every repository"
 
 const statusLabels: Record<LearningStatus, string> = {
   suggested: "Suggested",
@@ -183,6 +187,11 @@ function LearningList({ data }: { data: LearningsLibraryData }) {
                         >
                           {learning.title}
                         </a>
+                        {learning.source ? (
+                          <span className="learning-library__source">
+                            Shared from {learning.source}
+                          </span>
+                        ) : null}
                         <p>{learning.guidance}</p>
                       </div>
                     </div>
@@ -229,6 +238,8 @@ function LearningDetailView({
   // An error from an earlier attempt does not belong to a dialog opened afterwards.
   const [staleError, setStaleError] = useState(error)
   const decision = learning.decision
+  const share = learning.share
+  const shareForm = useRef<HTMLFormElement>(null)
 
   function open(next: NonNullable<typeof dialog>) {
     setStaleError(error)
@@ -258,6 +269,11 @@ function LearningDetailView({
           >
             {learning.title}
           </Heading>
+          {learning.source ? (
+            <Text as="p" className="learning-library__shared-source" size="200" variant="muted">
+              Shared from {learning.source} · Read-only in this repository.
+            </Text>
+          ) : null}
           <Text as="p" className="learning-library__guidance">
             {learning.guidance}
           </Text>
@@ -269,6 +285,32 @@ function LearningDetailView({
             </ul>
           ) : null}
         </div>
+        {share ? (
+          // Flipping the switch saves right away, so there is no separate save step.
+          <form
+            action={share.path}
+            className="learning-library__share"
+            method="post"
+            ref={shareForm}
+          >
+            <input type="hidden" name="authenticity_token" value={authenticityToken} />
+            <input type="hidden" name="shared" value={String(!share.shared)} />
+            <Tooltip direction="sw" text={shareHint} type="description">
+              <div className="learning-library__share-toggle">
+                <span id="learning-share-label">Share across Hub</span>
+                <HubSwitch
+                  aria-describedby="learning-share-hint"
+                  aria-labelledby="learning-share-label"
+                  checked={share.shared}
+                  onChange={() => shareForm.current?.requestSubmit()}
+                  size="small"
+                />
+                {/* The tooltip is visual, so screen readers get the hint here. */}
+                <HubVisuallyHidden id="learning-share-hint">{shareHint}</HubVisuallyHidden>
+              </div>
+            </Tooltip>
+          </form>
+        ) : null}
         {decision ? (
           <div className="learning-library__actions">
             {learning.status === "suggested" ? (

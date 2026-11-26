@@ -50,6 +50,11 @@ function unavailableGuidance(status: Overview["learnings"][number]["status"] | n
       : "This learning's wording is not available for review."
 }
 
+// Hub shares only what this repository's own agents get, so it refuses the rest.
+function shareable(status: Overview["learnings"][number]["status"]) {
+  return status === "recalled" || status === "budget-excluded"
+}
+
 function recallFact(status: Overview["learnings"][number]["status"]) {
   return status === "recalled"
     ? "Agents get this learning."
@@ -91,6 +96,7 @@ export function learningsLibrary(
       title: titleFrom(entry.title, entry.content),
       guidance: entry.content,
       updatedAt: null,
+      source: null,
     })),
     ...state.learnings.map((entry) => {
       const guidance = entry.content ?? unavailableGuidance(entry.status)
@@ -100,6 +106,18 @@ export function learningsLibrary(
         title: titleFrom(entry.title, guidance),
         guidance,
         updatedAt: entry.acceptedAt,
+        source: null,
+      }
+    }),
+    ...state.shared.map((entry) => {
+      const guidance = entry.content ?? unavailableGuidance(null)
+      return {
+        id: entry.id,
+        status: "active" as const,
+        title: titleFrom(entry.title, guidance),
+        guidance,
+        updatedAt: entry.sharedAt,
+        source: entry.source,
       }
     }),
     ...state.rejected.map((entry) => {
@@ -110,12 +128,13 @@ export function learningsLibrary(
         title: titleFrom(entry.title, guidance),
         guidance,
         updatedAt: entry.decidedAt,
+        source: null,
       }
     }),
   ]
   const counts = {
     suggested: state.suggestions.length,
-    active: state.learnings.length,
+    active: state.learnings.length + state.shared.length,
     rejected: state.rejected.length,
   }
   // Suggestions need a decision, so they lead until there are none.
@@ -174,7 +193,7 @@ function detail(
   const repositoryId = state.repository.id
   const path = `/repositories/${repositoryId}/learnings/${encodeURIComponent(record.id)}/decision`
   const canDecide = state.permissions.decide
-  const shared = {
+  const common = {
     id: record.id,
     status: record.status,
     title: record.title,
@@ -198,11 +217,28 @@ function detail(
       by: entry.by?.includes(":") ? null : entry.by,
       reason: entry.reason,
     })),
+    source: record.source,
+    share: null,
+  }
+  const sharedLearning = record.source
+    ? state.shared.find((item) => item.id === record.id)
+    : undefined
+  if (sharedLearning) {
+    return {
+      ...common,
+      facts: [
+        `Shared${sharedLearning.sharedBy ? ` by @${sharedLearning.sharedBy}` : ""} on ${longDate(
+          sharedLearning.sharedAt,
+        )}`,
+        recallFact(sharedLearning.status),
+      ],
+      decision: null,
+    }
   }
   const suggestion = state.suggestions.find((item) => item.id === record.id)
   if (record.status === "suggested" && suggestion) {
     return {
-      ...shared,
+      ...common,
       facts: suggestion.support
         ? [
             `Raised by ${count(suggestion.support.reviewers, "reviewer")} on ${count(
@@ -233,7 +269,7 @@ function detail(
   const accepted = state.learnings.find((item) => item.id === record.id)
   if (record.status === "active" && accepted) {
     return {
-      ...shared,
+      ...common,
       facts: [
         ...(accepted.acceptedBy && accepted.acceptedAt
           ? [
@@ -243,6 +279,7 @@ function detail(
             ]
           : []),
         recallFact(accepted.status),
+        ...(accepted.shared ? ["Shared across Hub"] : []),
       ],
       decision:
         canDecide && accepted.digest && accepted.content !== null
@@ -253,16 +290,25 @@ function detail(
               content: accepted.content,
             }
           : null,
+      share:
+        state.permissions.share && (accepted.shared || shareable(accepted.status))
+          ? {
+              path: path.replace(/\/decision$/, "/share"),
+              shared: accepted.shared,
+            }
+          : null,
     }
   }
   const rejected = state.rejected.find((item) => item.id === record.id)
   const verb = rejected?.state === "retired" ? "Retired" : "Rejected"
   return {
-    ...shared,
-    facts:
-      rejected?.decidedBy && rejected.decidedAt
+    ...common,
+    facts: [
+      ...(rejected?.decidedBy && rejected.decidedAt
         ? [`${verb} by @${rejected.decidedBy} on ${longDate(rejected.decidedAt)}`]
-        : [],
+        : []),
+      ...(rejected?.shared ? ["Still shared across Hub once accepted again"] : []),
+    ],
     reason: rejected?.reason
       ? { heading: `Why it was ${verb.toLowerCase()}`, text: rejected.reason }
       : null,
@@ -274,6 +320,11 @@ function detail(
             title: rejected.title ?? "",
             content: rejected.content ?? "",
           }
+        : null,
+    // A saved share would come back on reinstatement, so administrators can stop it here.
+    share:
+      state.permissions.share && rejected?.shared
+        ? { path: path.replace(/\/decision$/, "/share"), shared: true }
         : null,
   }
 }
