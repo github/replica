@@ -19,10 +19,13 @@ export function LearningsPage({
   data,
   decisionModelActionRevision = 0,
   decisionModelTrainingSubmitting = false,
+  actionError = null,
 }: {
   data: LearningsPageData
   decisionModelActionRevision?: number
   decisionModelTrainingSubmitting?: boolean
+  /** A failed learning decision, which an open dialog must show itself. */
+  actionError?: { error: string } | null
 }) {
   return (
     <RepositoryWorkspace data={data}>
@@ -36,6 +39,7 @@ export function LearningsPage({
           data={data}
           decisionModelActionRevision={decisionModelActionRevision}
           decisionModelTrainingSubmitting={decisionModelTrainingSubmitting}
+          actionError={actionError}
         />
       )}
     </RepositoryWorkspace>
@@ -46,10 +50,12 @@ function LearningsContent({
   data,
   decisionModelActionRevision,
   decisionModelTrainingSubmitting,
+  actionError,
 }: {
   data: Extract<LearningsPageData, { accessDenied: false }>
   decisionModelActionRevision: number
   decisionModelTrainingSubmitting: boolean
+  actionError: { error: string } | null
 }) {
   const copy = data.copy
 
@@ -59,7 +65,11 @@ function LearningsContent({
       <div className="learnings-page">
         {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
         {data.notice ? <HubToast title={data.notice} /> : null}
-        <LearningsLibrary data={data.library} authenticityToken={data.authenticityToken} />
+        <LearningsLibrary
+          data={data.library}
+          authenticityToken={data.authenticityToken}
+          error={actionError}
+        />
       </div>
     )
   }
@@ -104,7 +114,11 @@ function LearningsContent({
         ) : null}
       </div>
 
-      <LearningsLibrary data={data.library} authenticityToken={data.authenticityToken} />
+      <LearningsLibrary
+        data={data.library}
+        authenticityToken={data.authenticityToken}
+        error={actionError}
+      />
 
       <section className="learnings-page__section" aria-labelledby="learnings-recall">
         <Heading as="h2" size="5" id="learnings-recall">

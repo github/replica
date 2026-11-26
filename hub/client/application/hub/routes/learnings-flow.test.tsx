@@ -359,10 +359,43 @@ describe("Learnings frontend integration", () => {
     await router.settle(() => router.navigate("/repositories/2001/learnings?learning=mem_accepted"))
 
     expect(await screen.findByText(/Accepted by @octocat .* with edits/)).toBeVisible()
+    expect(screen.getByRole("heading", { level: 1 })).toHaveFocus()
     expect(screen.getByRole("region", { name: "Decision history" })).toHaveTextContent(
       "Accepted by @octocat",
     )
     expect(screen.getByText("3 more comments that Hub cannot show here")).toBeVisible()
+  })
+
+  it("restores the search field when going back to an earlier search", async () => {
+    const server = stubHubFetch(...learningsWorkspace())
+    server.use(
+      http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings?q=label")
+    const search = await screen.findByRole("searchbox", { name: "Search learnings" })
+    fireEvent.change(search, { target: { value: "button" } })
+    await router.settle(() => router.navigate("/repositories/2001/learnings?q=button"))
+
+    await router.settle(() => router.navigate(-1))
+
+    expect(screen.getByRole("searchbox", { name: "Search learnings" })).toHaveValue("label")
+  })
+
+  it("hides a learning when access to its repository is lost while it opens", async () => {
+    const server = stubHubFetch(...learningsWorkspace())
+    server.use(
+      http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
+      http.get("/api/repositories/2001/learnings/mem_accepted/history", () =>
+        Response.json(
+          { code: "repository_not_found", error: "Repository not found." },
+          { status: 404 },
+        ),
+      ),
+    )
+    await renderHubFlow(server, "/repositories/2001/learnings?learning=mem_accepted")
+
+    expect(await screen.findByRole("heading", { name: "Page or record not found" })).toBeVisible()
+    expect(screen.queryByText(/Accepted by @octocat/)).not.toBeInTheDocument()
   })
 
   it("reports daily checks only when automatic runs are enabled", async () => {
@@ -828,7 +861,10 @@ describe("Learnings frontend integration", () => {
     )
     await router.settle(() => fireEvent.submit(form))
 
-    expect(await screen.findByText("Decisions are temporarily unavailable.")).toBeVisible()
+    const dialog = screen.getByRole("dialog", { name: "Edit learning" })
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Decisions are temporarily unavailable.",
+    )
     expect(screen.getByRole("textbox", { name: "Why change it?" })).toHaveValue(
       "Say what to name it.",
     )
@@ -862,7 +898,9 @@ describe("Learnings frontend integration", () => {
     )
     await router.settle(() => fireEvent.submit(form))
 
-    expect(await screen.findByText("Decisions are temporarily unavailable.")).toBeVisible()
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
+      "Decisions are temporarily unavailable.",
+    )
     expect(bodies).toEqual([{ decision: "retire", reason: "This guidance no longer applies." }])
   })
 
@@ -902,7 +940,9 @@ describe("Learnings frontend integration", () => {
     )
     await router.settle(() => fireEvent.submit(form))
 
-    expect(await screen.findByText("Decisions are temporarily unavailable.")).toBeVisible()
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
+      "Decisions are temporarily unavailable.",
+    )
     expect(bodies).toEqual([{ decision: "reinstate", digest, reason: "External links only." }])
   })
 

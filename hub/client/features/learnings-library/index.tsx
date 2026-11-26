@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
@@ -18,6 +18,7 @@ import {
   Textarea,
 } from "@primer/react-brand"
 
+import { HubAlert } from "@components/hub-alert"
 import { HubCounter } from "@components/hub-counter"
 import { HubEmptyState } from "@components/hub-empty-state"
 import { HubUserAvatar } from "@components/hub-user-avatar"
@@ -72,10 +73,28 @@ function StatusIcon({ status, className }: { status: LearningStatus; className?:
 export function LearningsLibrary({
   data,
   authenticityToken,
+  error = null,
 }: {
   data: LearningsLibraryData
   authenticityToken: string
+  /** A failed decision, shown inside the dialog that is still open. */
+  error?: { error: string } | null
 }) {
+  const selectedId = data.selected?.id ?? null
+  const previousId = useRef<string | null | undefined>(undefined)
+  // Opening or closing a learning only changes the query string, so the page does not
+  // move focus. Move it here so keyboard and screen-reader users land in the new view.
+  useEffect(() => {
+    const before = previousId.current
+    previousId.current = selectedId
+    if (before === undefined || before === selectedId) return
+    const target = selectedId
+      ? document.getElementById("learning-detail-heading")
+      : (document.querySelector<HTMLElement>(`[data-learning-id="${CSS.escape(before ?? "")}"]`) ??
+        document.getElementById("learning-list-heading"))
+    target?.focus()
+  }, [selectedId])
+
   return data.selected ? (
     <LearningDetailView
       // A decision changes the status or digest, which closes any open dialog. A failed
@@ -84,6 +103,7 @@ export function LearningsLibrary({
       learning={data.selected}
       backPath={data.returnPath}
       authenticityToken={authenticityToken}
+      error={error}
     />
   ) : (
     <LearningList data={data} />
@@ -100,7 +120,7 @@ function LearningList({ data }: { data: LearningsLibraryData }) {
 
   return (
     <section className="learning-library" aria-labelledby="learning-list-heading">
-      <Heading as="h2" size="5" id="learning-list-heading">
+      <Heading as="h2" size="5" id="learning-list-heading" tabIndex={-1}>
         Browse learnings
       </Heading>
       <div className="learning-library__toolbar">
@@ -123,6 +143,9 @@ function LearningList({ data }: { data: LearningsLibraryData }) {
           <FormControl fullWidth id="learning-search">
             <FormControl.Label visuallyHidden>Search learnings</FormControl.Label>
             <TextInput
+              // Back and forward change the applied search without remounting the
+              // list, so a new search resets what was typed.
+              key={data.query}
               defaultValue={data.query}
               fullWidth
               leadingVisual={<SearchIcon />}
@@ -153,7 +176,11 @@ function LearningList({ data }: { data: LearningsLibraryData }) {
                         status={learning.status}
                       />
                       <div>
-                        <a className="learning-library__learning-link" href={learning.detailPath}>
+                        <a
+                          className="learning-library__learning-link"
+                          data-learning-id={learning.id}
+                          href={learning.detailPath}
+                        >
                           {learning.title}
                         </a>
                         <p>{learning.guidance}</p>
@@ -191,13 +218,22 @@ function LearningDetailView({
   learning,
   backPath,
   authenticityToken,
+  error,
 }: {
   learning: LearningDetail
   backPath: string
   authenticityToken: string
+  error: { error: string } | null
 }) {
   const [dialog, setDialog] = useState<"reject" | "edit" | "retire" | "reinstate" | null>(null)
+  // An error from an earlier attempt does not belong to a dialog opened afterwards.
+  const [staleError, setStaleError] = useState(error)
   const decision = learning.decision
+
+  function open(next: NonNullable<typeof dialog>) {
+    setStaleError(error)
+    setDialog(next)
+  }
 
   return (
     <div className="learning-library__detail">
@@ -213,7 +249,13 @@ function LearningDetailView({
           >
             {statusLabels[learning.status]}
           </Label>
-          <Heading as="h1" className="learning-library__title" size="6">
+          <Heading
+            as="h1"
+            className="learning-library__title"
+            id="learning-detail-heading"
+            size="6"
+            tabIndex={-1}
+          >
             {learning.title}
           </Heading>
           <Text as="p" className="learning-library__guidance">
@@ -241,21 +283,21 @@ function LearningDetailView({
                     Accept learning
                   </Button>
                 </DecisionForm>
-                <Button type="button" variant="secondary" onClick={() => setDialog("reject")}>
+                <Button type="button" variant="secondary" onClick={() => open("reject")}>
                   Reject suggestion
                 </Button>
               </>
             ) : learning.status === "active" ? (
               <>
-                <Button type="button" variant="secondary" onClick={() => setDialog("edit")}>
+                <Button type="button" variant="secondary" onClick={() => open("edit")}>
                   Edit learning
                 </Button>
-                <Button type="button" variant="secondary" onClick={() => setDialog("retire")}>
+                <Button type="button" variant="secondary" onClick={() => open("retire")}>
                   Reject learning
                 </Button>
               </>
             ) : (
-              <Button type="button" variant="primary" onClick={() => setDialog("reinstate")}>
+              <Button type="button" variant="primary" onClick={() => open("reinstate")}>
                 Accept learning
               </Button>
             )}
@@ -349,6 +391,9 @@ function LearningDetailView({
                 ? "Agents get this learning again."
                 : "Agents do not get rejected learnings. You can accept it later."}
           </p>
+          {error && error !== staleError ? (
+            <HubAlert title={error.error} variant="critical" layout="compact" />
+          ) : null}
           <DecisionForm
             authenticityToken={authenticityToken}
             decision={dialog}

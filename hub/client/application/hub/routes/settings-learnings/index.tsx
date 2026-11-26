@@ -111,9 +111,16 @@ async function learningHistory(
     )
   } catch (error) {
     // A learning can disappear between the two requests; show the list instead.
-    if (error instanceof ApiRequestError && error.status === 404) return null
+    // A lost repository is a denial, so it still reaches the error boundary.
+    if (learningNotFound(error)) return null
     throw error
   }
+}
+
+function learningNotFound(error: unknown) {
+  if (!(error instanceof ApiRequestError) || error.status !== 404) return false
+  const body = error.body as { code?: unknown } | undefined
+  return body?.code !== "repository_not_found"
 }
 
 export async function clientAction({ request, params }: ActionFunctionArgs) {
@@ -507,6 +514,7 @@ function SettingsLearningsContent({
         data={settingsLearnings(workspace, loaderData, decisionModel, location, loaderData.history)}
         decisionModelActionRevision={decisionModelActionRevision}
         decisionModelTrainingSubmitting={trainingSubmitting}
+        actionError={result?.saved === false ? result : null}
       />
     </ProductFormBoundary>
   )
