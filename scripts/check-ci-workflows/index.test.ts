@@ -39,6 +39,19 @@ describe("checkWorkflows()", () => {
     expect(() => checkWorkflows(root)).not.toThrow()
   })
 
+  it("rejects Hub checks without the learning runtime", () => {
+    const directory = fixture()
+    const path = join(directory, ".github/workflows/hub-ci.yml")
+    const workflow = parse(readFileSync(path, "utf8")) as Workflow
+    assert(workflow.jobs.check.steps)
+    workflow.jobs.check.steps = workflow.jobs.check.steps.filter(
+      (step) =>
+        step.run !== "npm ci --prefix ../packages/learning --ignore-scripts --engine-strict",
+    )
+    writeFileSync(path, stringify(workflow))
+    expect(() => checkWorkflows(directory)).toThrow(/learning runtime/)
+  })
+
   it("rejects an aggregate result gate", () => {
     const directory = fixture()
     const path = join(directory, ".github/workflows/hub-ci.yml")

@@ -2,7 +2,7 @@
 
 These checks cover the Hub API, database setup, and frontend. See [Architecture](architecture.md) for the features that are implemented.
 
-Run commands directly from `hub/` after `npm ci`. The database command also needs PostgreSQL and `TEST_DATABASE_URL`, as described in [parallel database tests](#parallel-database-tests):
+Run commands directly from `hub/` after `npm ci`. For database tests, also install the learning runtime as described in [Development](development.md), start PostgreSQL, and set `TEST_DATABASE_URL` as described in [parallel database tests](#parallel-database-tests):
 
 ```sh
 npm run lint

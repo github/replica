@@ -78,6 +78,13 @@ export function checkWorkflows(root: string): void {
     "test:database",
   ])
   assert(hub.check.steps?.some((step) => step.run === "npm run ${{ matrix.command }}"))
+  assert(
+    hub.check.steps?.some(
+      (step) =>
+        step.run === "npm ci --prefix ../packages/learning --ignore-scripts --engine-strict",
+    ),
+    "Hub checks must install the learning runtime",
+  )
   for (const command of [
     "controls:test",
     "extension:test",
