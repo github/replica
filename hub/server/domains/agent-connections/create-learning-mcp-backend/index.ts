@@ -7,6 +7,14 @@ import { LearningCommandError } from "../../../integrations/learning/run-learnin
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
 import { learningStoreArguments } from "../../learning/learning-store-arguments/index.ts"
 
+const agentErrorCodes = new Set([
+  "conflict",
+  "invalid_input",
+  "invalid_transition",
+  "not_found",
+  "unsupported",
+])
+
 interface LearningSettings {
   applicationRoot?: string
   cliPath: string
@@ -80,8 +88,10 @@ export function createLearningMcpBackend(input: {
         },
       )
     } catch (error) {
-      // The command writes its messages for people, so agents may see them.
-      if (error instanceof LearningCommandError) throw toAgentError(error.code, error.message)
+      // These codes describe the agent's own request. Other failures can name server
+      // paths or storage, so they reach the agent only as a plain message.
+      if (error instanceof LearningCommandError && agentErrorCodes.has(error.code))
+        throw toAgentError(error.code, error.message)
       throw error
     }
   }
