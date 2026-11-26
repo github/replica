@@ -188,6 +188,9 @@ const suggestionDetail: LearningDetail = {
   contradictions: [],
   otherContradictions: null,
   history: [{ label: "Suggested", at: "2026-10-09T04:07:00Z", by: null, reason: null }],
+  updates: [],
+  updateNeedsMoreEvidence: false,
+  earlierGuidance: [],
   outcomes: null,
   decision: {
     path: decisionPath(suggestionId),
@@ -221,6 +224,9 @@ const activeDetail: LearningDetail = {
       reason: "Name the action so the rule is easier to apply.",
     },
   ],
+  updates: [],
+  updateNeedsMoreEvidence: false,
+  earlierGuidance: [],
   outcomes: [
     {
       id: "score-3",
@@ -290,6 +296,9 @@ const rejectedDetail: LearningDetail = {
       reason: "Only external links should open a new tab. This rule would break the back button.",
     },
   ],
+  updates: [],
+  updateNeedsMoreEvidence: false,
+  earlierGuidance: [],
   outcomes: null,
   decision: {
     path: decisionPath(rejectedId),
@@ -962,6 +971,72 @@ export const ActiveDetail: Story = {
 
 export const NotEvaluatedYet: Story = {
   args: { data: { ...data, library: showing({ ...activeDetail, outcomes: [] }) } },
+}
+
+const suggestedUpdate: LearningDetail = {
+  ...activeDetail,
+  updates: [
+    {
+      id: "upd_two_equal_actions",
+      issue: "The rule did not say which button wins when a form has two equal actions.",
+      title: null,
+      content:
+        "Use one primary button per form, labeled with the action it takes.\nWhen two actions are equal, make the one that moves the user forward primary.",
+      reasoning: "Builds with two equal actions kept making both buttons primary.",
+      support: [
+        { label: "Signup, Build 4", path: "/repositories/2001/prototypes/18?build=4" },
+        { label: "Signup, Build 6", path: "/repositories/2001/prototypes/18?build=6" },
+      ],
+    },
+  ],
+}
+
+export const SuggestedUpdate: Story = {
+  args: { data: { ...data, library: showing(suggestedUpdate) } },
+}
+
+export const ApplyingSuggestedUpdate: Story = {
+  args: { data: { ...data, library: showing(suggestedUpdate) } },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Apply update" }))
+  },
+}
+
+export const UpdateNeedsMoreEvidence: Story = {
+  args: {
+    data: { ...data, library: showing({ ...activeDetail, updateNeedsMoreEvidence: true }) },
+  },
+}
+
+export const EarlierGuidance: Story = {
+  args: {
+    data: {
+      ...data,
+      library: showing({
+        ...activeDetail,
+        earlierGuidance: [
+          {
+            version: 2,
+            title: "Use one primary button per form",
+            guidance: "Use one primary button per form.",
+            outcomes: [
+              {
+                id: "score-old",
+                result: "concern",
+                reviewerConfirmed: false,
+                summary: "The button said Submit, so the rule did not help name it.",
+                buildLabel: "Checkout, Build 9",
+                buildPath: "/repositories/2001/prototypes/17?build=9",
+                evaluatedAt: "2026-10-04T10:00:00Z",
+                beforeScreenshotUrl: null,
+                afterScreenshotUrl: null,
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  },
 }
 
 export const EditingLearning: Story = {

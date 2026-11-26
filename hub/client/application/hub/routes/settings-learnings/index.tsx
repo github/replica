@@ -355,7 +355,17 @@ function submitDecision(
               }
             : decision === "reinstate"
               ? { decision, digest: form.get("digest"), reason: form.get("reason") }
-              : { decision }
+              : decision === "apply_update"
+                ? {
+                    decision,
+                    proposalId: form.get("proposalId"),
+                    ...(typeof title === "string" && title.trim() ? { title } : {}),
+                    content: form.get("content"),
+                    reason: form.get("reason"),
+                  }
+                : decision === "dismiss_update"
+                  ? { decision, proposalId: form.get("proposalId"), reason: form.get("reason") }
+                  : { decision }
   const parsed = learningDecisionInputSchema.safeParse(input)
   if (!parsed.success) {
     throw new Response(parsed.error.issues.map(({ message }) => message).join(" "), { status: 422 })

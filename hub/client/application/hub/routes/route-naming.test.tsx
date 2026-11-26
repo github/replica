@@ -154,6 +154,9 @@ describe("Hub primary route names", () => {
           contradictions: [],
           otherContradictionsCount: 0,
           outcomes: [],
+          earlierGuidance: [],
+          updates: [],
+          updateNeedsMoreEvidence: false,
         }),
       ),
       http.post(`/api${path}/runs`, () => {

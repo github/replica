@@ -80,6 +80,13 @@ function evidence(items: LearningEvidenceResponse[], repositoryId: string): Lear
  * Reads a score as a plain result. A score only says something about the guidance when
  * the agent followed it, and 3 or 4 means the work went well.
  */
+function buildLink(build: LearningOutcomeResponse["build"], repositoryId: string) {
+  return {
+    label: `${build.prototypeName}, Build ${build.number}`,
+    path: `/repositories/${repositoryId}/prototypes/${build.prototypeId}?build=${build.number}`,
+  }
+}
+
 function outcomes(items: LearningOutcomeResponse[], repositoryId: string): LearningOutcome[] {
   function screenshot(value?: { sha256: string }) {
     return value ? `/api/repositories/${repositoryId}/learnings/screenshots/${value.sha256}` : null
@@ -90,8 +97,8 @@ function outcomes(items: LearningOutcomeResponse[], repositoryId: string): Learn
       item.followed !== "followed" ? "inconclusive" : item.efficiency >= 3 ? "supports" : "concern",
     reviewerConfirmed: item.source === "reviewer_confirmed",
     summary: item.issue ?? item.reasoning,
-    buildLabel: `${item.build.prototypeName}, Build ${item.build.number}`,
-    buildPath: `/repositories/${repositoryId}/prototypes/${item.build.prototypeId}?build=${item.build.number}`,
+    buildLabel: buildLink(item.build, repositoryId).label,
+    buildPath: buildLink(item.build, repositoryId).path,
     evaluatedAt: item.scoredAt,
     beforeScreenshotUrl: screenshot(item.before),
     afterScreenshotUrl: screenshot(item.after),
@@ -227,6 +234,7 @@ function detail(
   const repositoryId = state.repository.id
   const path = `/repositories/${repositoryId}/learnings/${encodeURIComponent(record.id)}/decision`
   const canDecide = state.permissions.decide
+  const current = outcomes(history?.outcomes ?? [], repositoryId)
   const common = {
     id: record.id,
     status: record.status,
@@ -252,7 +260,15 @@ function detail(
       reason: entry.reason,
     })),
     // Only guidance agents get now can have later Builds to judge.
-    outcomes: record.status === "active" ? outcomes(history?.outcomes ?? [], repositoryId) : null,
+    outcomes: record.status === "active" ? current : null,
+    updates: [],
+    updateNeedsMoreEvidence: false,
+    earlierGuidance: (history?.earlierGuidance ?? []).map((guidance) => ({
+      version: guidance.version,
+      title: guidance.title,
+      guidance: guidance.content,
+      outcomes: outcomes(guidance.outcomes, repositoryId),
+    })),
     source: record.source,
     share: null,
   }
@@ -317,6 +333,23 @@ function detail(
         recallFact(accepted.status),
         ...(accepted.shared ? ["Shared across Hub"] : []),
       ],
+      updates: (history?.updates ?? []).map((update) => ({
+        id: update.id,
+        issue: update.issue,
+        title: update.title,
+        content: update.content,
+        reasoning: update.reasoning,
+        // Both scores of one Build can support a suggestion, so each Build is linked once.
+        support: [
+          ...new Map(
+            update.support.map((build) => {
+              const link = buildLink(build, repositoryId)
+              return [link.path, link]
+            }),
+          ).values(),
+        ],
+      })),
+      updateNeedsMoreEvidence: history?.updateNeedsMoreEvidence ?? false,
       decision:
         canDecide && accepted.digest && accepted.content !== null
           ? {

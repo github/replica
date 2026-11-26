@@ -49,6 +49,26 @@ export interface LearningOutcome {
   afterScreenshotUrl: string | null
 }
 
+/** New wording Copilot suggested because later Builds kept showing the same issue. */
+export interface LearningUpdate {
+  id: string
+  issue: string
+  /** A new title, or null when the suggestion keeps the current one. */
+  title: string | null
+  content: string
+  reasoning: string
+  /** The scored Builds that showed the issue and that Hub can still show. */
+  support: Array<{ label: string; path: string }>
+}
+
+/** Wording agents were given before the current version, with how it was scored. */
+export interface EarlierGuidance {
+  version: number
+  title: string | null
+  guidance: string
+  outcomes: LearningOutcome[]
+}
+
 /** Everything the detail view shows for the selected learning. */
 export interface LearningDetail {
   id: string
@@ -66,6 +86,12 @@ export interface LearningDetail {
   history: LearningHistoryEntry[]
   /** How later Builds did with the current wording. Null when agents don't get it. */
   outcomes: LearningOutcome[] | null
+  /** Suggested new wording for an active learning. */
+  updates: LearningUpdate[]
+  /** True when the last check found too few scored Builds to suggest new wording. */
+  updateNeedsMoreEvidence: boolean
+  /** Wording agents were given before, newest first. */
+  earlierGuidance: EarlierGuidance[]
   /**
    * Present only when the viewer can decide and the stored version is intact. The
    * title and content are the stored wording, which the edit form starts from.

@@ -107,6 +107,9 @@ describe("learningsLibrary()", () => {
         contradictions: [],
         otherContradictionsCount: 0,
         outcomes: [],
+        earlierGuidance: [],
+        updates: [],
+        updateNeedsMoreEvidence: false,
       },
     )
 
@@ -223,6 +226,9 @@ describe("learningsLibrary()", () => {
         ],
         otherContradictionsCount: 1,
         outcomes: [],
+        earlierGuidance: [],
+        updates: [],
+        updateNeedsMoreEvidence: false,
       },
     )
 
@@ -265,6 +271,9 @@ describe("learningsLibrary()", () => {
         otherEvidenceCount: 0,
         contradictions: [],
         otherContradictionsCount: 0,
+        earlierGuidance: [],
+        updates: [],
+        updateNeedsMoreEvidence: false,
         outcomes: [
           {
             ...score,
@@ -305,5 +314,65 @@ describe("learningsLibrary()", () => {
       beforeScreenshotUrl: null,
       afterScreenshotUrl: `/api/repositories/2001/learnings/screenshots/${"b".repeat(64)}`,
     })
+  })
+
+  it("links each Build that showed a suggested update's issue once", () => {
+    const state = emptyLearnings()
+    state.learnings = [
+      {
+        id: "mem_active",
+        title: "Keep labels visible",
+        content: "Show a label above every field.",
+        digest,
+        acceptedBy: "hubot",
+        acceptedAt: "2026-10-09T15:00:00Z",
+        edited: false,
+        lastDecision: "accepted",
+        status: "recalled",
+        shared: false,
+      },
+    ]
+
+    const result = learningsLibrary(
+      state,
+      { pathname, search: "?status=active&learning=mem_active" },
+      {
+        decisions: [],
+        evidence: [],
+        otherEvidenceCount: 0,
+        contradictions: [],
+        otherContradictionsCount: 0,
+        earlierGuidance: [],
+        updateNeedsMoreEvidence: false,
+        // A reviewer's later score replaced these in the current list, but the
+        // suggestion still links the Builds it was drafted from.
+        outcomes: [],
+        updates: [
+          {
+            id: "upd_1",
+            issue: "The rule did not say where the label goes.",
+            title: null,
+            content: "Show a label above every field, outside the input.",
+            reasoning: "Builds kept placing labels inside inputs.",
+            // Both scores of one Build supported it.
+            support: [
+              { prototypeId: "17", prototypeName: "Checkout", number: 3 },
+              { prototypeId: "17", prototypeName: "Checkout", number: 3 },
+            ],
+          },
+        ],
+      },
+    )
+
+    expect(result.selected?.updates).toEqual([
+      {
+        id: "upd_1",
+        issue: "The rule did not say where the label goes.",
+        title: null,
+        content: "Show a label above every field, outside the input.",
+        reasoning: "Builds kept placing labels inside inputs.",
+        support: [{ label: "Checkout, Build 3", path: "/repositories/2001/prototypes/17?build=3" }],
+      },
+    ])
   })
 })

@@ -85,6 +85,28 @@ export interface LearningHistoryResponse {
   contradictions: LearningEvidenceResponse[]
   otherContradictionsCount: number
   outcomes: LearningOutcomeResponse[]
+  /** Wording agents were given before the current version, newest first. */
+  earlierGuidance: Array<{
+    version: number
+    title: string | null
+    content: string
+    outcomes: LearningOutcomeResponse[]
+  }>
+  /** Suggested new wording waiting for an administrator. */
+  updates: LearningUpdateResponse[]
+  /** Whether the last check found too few scored uses to suggest new wording. */
+  updateNeedsMoreEvidence: boolean
+}
+
+/** Suggested new wording, drafted because scored uses kept showing the same issue. */
+export interface LearningUpdateResponse {
+  id: string
+  issue: string
+  title: string | null
+  content: string
+  reasoning: string
+  /** The Builds whose scores showed the issue. */
+  support: LearningOutcomeResponse["build"][]
 }
 
 /** How one use of a learning was scored, with the Build it judged. */
@@ -174,6 +196,14 @@ export type LearningDecisionInput =
   | { decision: "retire"; reason: string }
   | { decision: "edit"; digest: string; title?: string; content?: string; reason: string }
   | { decision: "reinstate"; digest: string; reason: string }
+  | {
+      decision: "apply_update"
+      proposalId: string
+      title?: string
+      content?: string
+      reason: string
+    }
+  | { decision: "dismiss_update"; proposalId: string; reason: string }
 
 export interface LearningShareInput {
   shared: boolean

@@ -210,6 +210,17 @@
   white-space: pre-wrap;
 }
 
+.learning-library__update-content {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.learning-library__update-why,
+.learning-library__earlier {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .learning-library__facts {
   display: flex;
   flex-wrap: wrap;

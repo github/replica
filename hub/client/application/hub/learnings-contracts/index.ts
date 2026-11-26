@@ -125,6 +125,31 @@ export const appliedLearningsResponseSchema = z
   })
   .strict() satisfies z.ZodType<AppliedLearningsResponse>
 
+const buildSchema = z
+  .object({
+    prototypeId: recordIdentifierSchema,
+    prototypeName: z.string().min(1),
+    number: identifier,
+  })
+  .strict()
+
+const learningOutcomeResponseSchema = z
+  .object({
+    id: z.string().min(1),
+    source: z.enum(["automated", "reviewer_confirmed"]),
+    efficiency: z.number().int().min(1).max(4),
+    followed: z.enum(["followed", "not_followed", "unclear"]),
+    reasoning: z.string(),
+    issue: z.string().nullable(),
+    scoredAt: timestamp,
+    build: buildSchema,
+    before: appliedScreenshotSchema.optional(),
+    after: appliedScreenshotSchema.optional(),
+  })
+  .strict()
+
+const proposalId = z.string().regex(/^[a-z][a-z0-9]{1,15}_[A-Za-z0-9_-]{8,128}$/)
+
 export const learningHistoryResponseSchema = z
   .object({
     decisions: z.array(
@@ -143,28 +168,30 @@ export const learningHistoryResponseSchema = z
     otherEvidenceCount: count,
     contradictions: z.array(learningEvidenceResponseSchema),
     otherContradictionsCount: count,
-    outcomes: z.array(
+    outcomes: z.array(learningOutcomeResponseSchema),
+    earlierGuidance: z.array(
       z
         .object({
-          id: z.string().min(1),
-          source: z.enum(["automated", "reviewer_confirmed"]),
-          efficiency: z.number().int().min(1).max(4),
-          followed: z.enum(["followed", "not_followed", "unclear"]),
-          reasoning: z.string(),
-          issue: z.string().nullable(),
-          scoredAt: timestamp,
-          build: z
-            .object({
-              prototypeId: recordIdentifierSchema,
-              prototypeName: z.string().min(1),
-              number: identifier,
-            })
-            .strict(),
-          before: appliedScreenshotSchema.optional(),
-          after: appliedScreenshotSchema.optional(),
+          version: identifier,
+          title: z.string().nullable(),
+          content: z.string(),
+          outcomes: z.array(learningOutcomeResponseSchema),
         })
         .strict(),
     ),
+    updates: z.array(
+      z
+        .object({
+          id: proposalId,
+          issue: z.string(),
+          title: z.string().nullable(),
+          content: z.string(),
+          reasoning: z.string(),
+          support: z.array(buildSchema),
+        })
+        .strict(),
+    ),
+    updateNeedsMoreEvidence: z.boolean(),
   })
   .strict() satisfies z.ZodType<LearningHistoryResponse>
 
@@ -306,6 +333,22 @@ export const learningDecisionInputSchema = z.discriminatedUnion("decision", [
     .object({
       decision: z.literal("reinstate"),
       digest,
+      reason: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      decision: z.literal("apply_update"),
+      proposalId,
+      title: titleInput.optional(),
+      content: z.string().trim().min(1).max(2000).optional(),
+      reason: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      decision: z.literal("dismiss_update"),
+      proposalId,
       reason: z.string().trim().min(1).max(500),
     })
     .strict(),

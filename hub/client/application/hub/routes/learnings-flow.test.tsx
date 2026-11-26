@@ -154,6 +154,9 @@ function emptyHistory() {
       contradictions: [],
       otherContradictionsCount: 0,
       outcomes: [],
+      earlierGuidance: [],
+      updates: [],
+      updateNeedsMoreEvidence: false,
     }),
   )
 }
@@ -354,6 +357,9 @@ describe("Learnings frontend integration", () => {
           contradictions: [],
           otherContradictionsCount: 0,
           outcomes: [],
+          earlierGuidance: [],
+          updates: [],
+          updateNeedsMoreEvidence: false,
         }),
       ),
       emptyHistory(),

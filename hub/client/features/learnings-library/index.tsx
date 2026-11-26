@@ -36,6 +36,7 @@ import type {
   LearningEvidence,
   LearningOutcome,
   LearningStatus,
+  LearningUpdate,
   LearningsLibraryData,
 } from "./types"
 import "./styles.css"
@@ -255,6 +256,16 @@ function LearningDetailView({
   error: { error: string } | null
 }) {
   const [dialog, setDialog] = useState<"reject" | "edit" | "retire" | "reinstate" | null>(null)
+  const [openedUpdate, setUpdateDialog] = useState<{
+    action: "apply" | "dismiss"
+    update: LearningUpdate
+  } | null>(null)
+  // A decided suggestion leaves the refreshed list, so its dialog has nothing to submit.
+  // A failed attempt keeps the suggestion, and with it the person's draft.
+  const updateDialog =
+    openedUpdate && learning.updates.some(({ id }) => id === openedUpdate.update.id)
+      ? openedUpdate
+      : null
   // An error from an earlier attempt does not belong to a dialog opened afterwards.
   const [staleError, setStaleError] = useState(error)
   const decision = learning.decision
@@ -264,6 +275,11 @@ function LearningDetailView({
   function open(next: NonNullable<typeof dialog>) {
     setStaleError(error)
     setDialog(next)
+  }
+
+  function openUpdate(next: NonNullable<typeof updateDialog>) {
+    setStaleError(error)
+    setUpdateDialog(next)
   }
 
   return (
@@ -431,12 +447,94 @@ function LearningDetailView({
         </DetailSection>
       ) : null}
 
+      {learning.updates.map((update) => (
+        <DetailSection
+          key={update.id}
+          heading="Suggested update"
+          description="Later Builds kept showing the same issue, so Copilot suggested new wording."
+        >
+          <div className="learning-library__evidence-item">
+            <Text as="p" size="200">
+              <strong>Issue:</strong> {update.issue}
+            </Text>
+            {update.title ? (
+              <Text as="p" size="200">
+                <strong>New title:</strong> {update.title}
+              </Text>
+            ) : null}
+            <Text as="p" className="learning-library__update-content" size="200">
+              {update.content}
+            </Text>
+          </div>
+          <div className="learning-library__update-why">
+            <Text as="p" size="200">
+              <strong>Why:</strong> {update.reasoning}
+            </Text>
+            {update.support.length ? (
+              <div className="learning-library__evidence-meta">
+                <span>Seen in</span>
+                {update.support.map((build) => (
+                  <a href={build.path} key={build.path}>
+                    {build.label}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          {decision ? (
+            <div className="learning-library__actions">
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => openUpdate({ action: "apply", update })}
+              >
+                Apply update
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => openUpdate({ action: "dismiss", update })}
+              >
+                Dismiss
+              </Button>
+            </div>
+          ) : null}
+        </DetailSection>
+      ))}
+
       {learning.outcomes ? (
         <DetailSection
           heading="Observed outcomes"
           description="How later Builds did with this guidance."
         >
           <OutcomeList outcomes={learning.outcomes} />
+          {learning.updateNeedsMoreEvidence ? (
+            <Text as="p" size="200" variant="muted">
+              Not enough Builds show the same issue to suggest new wording yet.
+            </Text>
+          ) : null}
+        </DetailSection>
+      ) : null}
+
+      {learning.earlierGuidance.length ? (
+        <DetailSection
+          heading="Earlier guidance"
+          description="What agents were told before, and how those Builds did."
+        >
+          {learning.earlierGuidance.map((guidance) => (
+            <div className="learning-library__earlier" key={guidance.version}>
+              <div className="learning-library__evidence-item">
+                <Text as="p" size="200" variant="muted">
+                  Version {guidance.version}
+                  {guidance.title ? ` · ${guidance.title}` : null}
+                </Text>
+                <Text as="p" className="learning-library__update-content" size="200">
+                  {guidance.guidance}
+                </Text>
+              </div>
+              <OutcomeList outcomes={guidance.outcomes} />
+            </div>
+          ))}
         </DetailSection>
       ) : null}
 
@@ -522,6 +620,87 @@ function LearningDetailView({
                       : "Reject learning"}
               </Button>
               <Button type="button" variant="subtle" onClick={() => setDialog(null)}>
+                Cancel
+              </Button>
+            </div>
+          </DecisionForm>
+        </CanvasDialog>
+      ) : null}
+
+      {decision && updateDialog ? (
+        <CanvasDialog
+          title={updateDialog.action === "apply" ? "Apply update" : "Dismiss suggested update"}
+          closeLabel="Cancel"
+          descriptionId="learning-update-description"
+          onClose={() => setUpdateDialog(null)}
+        >
+          <p id="learning-update-description">
+            {updateDialog.action === "apply"
+              ? "Agents get this wording. You can change it before applying."
+              : "Copilot suggests it again only when new Builds show the issue."}
+          </p>
+          {error && error !== staleError ? (
+            <HubAlert title={error.error} variant="critical" layout="compact" />
+          ) : null}
+          <DecisionForm
+            authenticityToken={authenticityToken}
+            decision={updateDialog.action === "apply" ? "apply_update" : "dismiss_update"}
+            path={decision.path}
+            proposalId={updateDialog.update.id}
+          >
+            {updateDialog.action === "apply" ? (
+              <>
+                {/* A blank title would fall back to the suggested one, so a suggested
+                    title must be kept or reworded rather than cleared. */}
+                <FormControl
+                  id="learning-update-title"
+                  fullWidth
+                  required={updateDialog.update.title !== null}
+                >
+                  <FormControl.Label>Title</FormControl.Label>
+                  <TextInput
+                    name="title"
+                    defaultValue={updateDialog.update.title ?? decision.title}
+                    maxLength={120}
+                    fullWidth
+                    required={updateDialog.update.title !== null}
+                  />
+                </FormControl>
+                <FormControl id="learning-update-content" fullWidth required>
+                  <FormControl.Label>Guidance</FormControl.Label>
+                  <Textarea
+                    name="content"
+                    defaultValue={updateDialog.update.content}
+                    maxLength={2000}
+                    rows={6}
+                    fullWidth
+                    resize="vertical"
+                    required
+                  />
+                </FormControl>
+              </>
+            ) : null}
+            <FormControl id="learning-update-reason" fullWidth required>
+              <FormControl.Label>
+                {updateDialog.action === "apply" ? "Why apply it?" : "Why dismiss it?"}
+              </FormControl.Label>
+              <Textarea
+                name="reason"
+                maxLength={500}
+                rows={3}
+                fullWidth
+                resize="vertical"
+                required
+              />
+            </FormControl>
+            <div className="learning-library__actions">
+              <Button
+                type="submit"
+                variant={updateDialog.action === "apply" ? "primary" : "secondary"}
+              >
+                {updateDialog.action === "apply" ? "Apply update" : "Dismiss"}
+              </Button>
+              <Button type="button" variant="subtle" onClick={() => setUpdateDialog(null)}>
                 Cancel
               </Button>
             </div>
@@ -645,12 +824,15 @@ function DecisionForm({
   path,
   decision,
   digest,
+  proposalId,
   authenticityToken,
   children,
 }: {
   path: string
-  decision: "accept" | "reject" | "retire" | "edit" | "reinstate"
+  decision:
+    "accept" | "reject" | "retire" | "edit" | "reinstate" | "apply_update" | "dismiss_update"
   digest?: string
+  proposalId?: string
   authenticityToken: string
   children: ReactNode
 }) {
@@ -659,6 +841,7 @@ function DecisionForm({
       <input type="hidden" name="authenticity_token" value={authenticityToken} />
       <input type="hidden" name="decision" value={decision} />
       {digest ? <input type="hidden" name="digest" value={digest} /> : null}
+      {proposalId ? <input type="hidden" name="proposalId" value={proposalId} /> : null}
       {children}
     </form>
   )
