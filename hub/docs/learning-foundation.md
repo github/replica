@@ -69,7 +69,7 @@ The address holds the whole library state, for example `/repositories/2001/learn
 
 Someone who administers both Hub and a repository can share one of that repository's active learnings with every repository in Hub by turning on "Share across Hub" on the learning. The switch saves right away. For example, sharing "Use one primary button per form" from `github/design-guidelines` adds the same guidance to the recall preview for `github/checkout`, and the `github/checkout` library lists it under Active as "Shared from github/design-guidelines". Members of a receiving repository can read a shared learning but cannot change it or see its review comments and history. Only the source repository can stop sharing it.
 
-Agents in a receiving repository do not get shared learnings yet. The package accepts them only in a person's preview, because a delivered copy would be stored in the receiving repository and outlive the source's own deletion and audit. Delivering them to agents comes with Hub's hosted learning MCP server.
+Agents in a receiving repository do not get shared learnings yet. The package accepts them only in a person's preview, because a delivered copy would be stored in the receiving repository and outlive the source's own deletion and audit. Hub's learning MCP server does not deliver them either.
 
 Hub checks that this repository's own agents get the learning before it records the share. Hub reads the source repository's store again each time it builds a receiving repository's recall, so edits, rejections, and stopped shares take effect on the next read. Hub reads up to four source stores at a time and gives each 10 seconds. A source store that cannot be read in time, or for any other reason, is skipped and logged so the receiving repository's own learnings still load. A shared learning whose ID matches one of the receiving repository's own learnings is hidden. A repository that has no learning store of its own yet shows no shared learnings. Rejecting or retiring a learning keeps its share saved, so it is shared again if the learning is accepted again. An administrator can stop the share from the rejected learning first. Stopping a share keeps its record, including who shared and who stopped sharing it, and both actions write security audits.
 
@@ -106,6 +106,35 @@ The one-minute recovery sweep re-enqueues queued and interrupted running records
 The worker claims a queued run only once under the learning execution lock. It recaptures the snapshot and refuses drift, prepares the private store, and imports with `--redact-deleted`. An explicit administrator run records the initial review and instruction grant when no earlier human grant exists. An automatic run requires an existing active human grant and cannot create initial consent. The worker labels at most 400 comments and ten Copilot requests and consolidates at most ten suggestions over the previous 90 days. It records partial label counts and AI-credit usage even when a later request fails. An incomplete collection, changed snapshot, ended or missing consent, refused credential, or unreadable package result becomes a visible failed run.
 
 Soft deletion queues an idempotent package redaction job after the review transaction commits. The recovery sweep also finds deleted review comments, and every later import uses `--redact-deleted`, so a transient queue failure cannot make a deleted body permanently eligible.
+
+## Agent connections
+
+A coding agent can read a repository's learnings from Hub and report which ones it used. For example, someone working on `github/checkout` opens its Learnings page, chooses **Connect an agent**, and copies this into their agent's MCP settings:
+
+```json
+{ "mcpServers": { "replica": { "url": "https://hub.example.com/mcp/repositories/<repository-id>" } } }
+```
+
+The configuration holds no credential. The first time the agent calls Hub, it gets a `401` that points to Hub's OAuth discovery document. An agent that supports [MCP authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) registers itself, opens `/agents/approve/:authorizationId` in the browser, and waits. The person signs in if needed and approves or cancels. Hub then sends the browser back to the agent with a one-time code, and the agent trades the code for tokens.
+
+The agent gets the same tools and instructions as `replica-learning mcp` in the [learning package](../../packages/learning/README.md#connect-an-agent), because Hub loads them from the installed package. Hub supplies the backend:
+
+- `get_guidance`, `list_learnings`, and `get_learning` read only the repository's own accepted instruction learnings. A proposed learning links to its Learnings page, where a person decides.
+- `report_usage` records which learnings the agent applied. It refuses screenshots for now.
+- `submit_session` is refused, because Hub does not collect agent sessions yet.
+
+Every request acts for the person who approved the connection. Hub rechecks their sign-in, membership, provider, and repository access each time, so ending the person's sessions or removing their access stops the agent too. A connection works for any repository the person can read, which is why the list is kept per person. People review and revoke their agents on the same page. Approving and revoking write security audits.
+
+Tokens use the same lifetimes as Canvas connections. An approval request expires after 10 minutes. Access tokens last seven days, refresh tokens rotate on use, and a connection unused for 30 days ends. Hub stores only digests of codes and tokens. Every agent is a public OAuth client that relies on PKCE, because agents run on people's machines and cannot keep a secret.
+
+The OAuth endpoints are `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource/mcp`, `/register`, `/authorize`, `/token`, and `/revoke`. The browser endpoints are:
+
+- `GET /api/agent-connections/authorizations/:authorizationId`
+- `POST /api/agent-connections/authorizations/:authorizationId/approve` and `/cancel`
+- `GET /api/agent-connections`
+- `DELETE /api/agent-connections/:connectionId`
+
+The MCP endpoint accepts `POST` only and needs `HUB_APPLICATION_ORIGIN` and the learning package. Local repositories are not supported, because learnings belong to GitHub repositories.
 
 ## Configuration
 
