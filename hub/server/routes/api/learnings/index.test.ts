@@ -11,6 +11,7 @@ import { LearningsError } from "./errors.ts"
 import { post as postDecision } from "./decision/post/index.ts"
 import { get as getLearnings } from "./get/index.ts"
 import { get as getEvaluations } from "./evaluations/get/index.ts"
+import { patch as patchEvaluations } from "./evaluations/patch/index.ts"
 import { get as getLearningHistory } from "./history/get/index.ts"
 import { post as postRun } from "./runs/post/index.ts"
 import { post as postShare } from "./share/post/index.ts"
@@ -74,7 +75,7 @@ function dependencies(
 }
 
 async function withRoute(
-  method: "get" | "post",
+  method: "get" | "post" | "patch",
   path: string,
   handler: RequestHandler,
   operation: (baseUrl: string) => Promise<void>,
@@ -82,6 +83,7 @@ async function withRoute(
   const app = express()
   app.use(express.json())
   if (method === "get") app.get(path, handler)
+  else if (method === "patch") app.patch(path, handler)
   else app.post(path, handler)
   const server = createServer(app)
   server.listen(0, "127.0.0.1")
@@ -890,6 +892,69 @@ describe("learning routes", () => {
         )
 
         expect(response.status).toBe(403)
+      },
+    )
+  })
+  it("refuses and records an evaluation change from a member who is not a repository administrator", async () => {
+    const changeEvaluationSettings = vi.fn()
+    const auditRepositoryAdministrationDenial = vi.fn().mockResolvedValue(undefined)
+    const deps = dependencies({
+      authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
+      auditRepositoryAdministrationDenial,
+      changeEvaluationSettings,
+    })
+
+    await withRoute(
+      "patch",
+      "/api/repositories/:repositoryId/learnings/evaluations",
+      patchEvaluations(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/evaluations`,
+          {
+            method: "PATCH",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ enabled: true }),
+          },
+        )
+
+        expect(response.status).toBe(403)
+        expect(auditRepositoryAdministrationDenial).toHaveBeenCalledWith({
+          actorMembershipId: session.membershipId,
+          operation: "learning_evaluation",
+          repositoryId,
+        })
+        expect(changeEvaluationSettings).not.toHaveBeenCalled()
+      },
+    )
+  })
+  it("saves a repository administrator's evaluation change under their current session", async () => {
+    const changeEvaluationSettings = vi.fn().mockResolvedValue({ notice: "Saved." })
+    const deps = dependencies({ changeEvaluationSettings })
+
+    await withRoute(
+      "patch",
+      "/api/repositories/:repositoryId/learnings/evaluations",
+      patchEvaluations(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/evaluations`,
+          {
+            method: "PATCH",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ enabled: true, screenshots: true }),
+          },
+        )
+
+        expect(response.status).toBe(200)
+        expect(changeEvaluationSettings).toHaveBeenCalledWith({
+          repositoryId,
+          actor: "human:mona",
+          actorMembershipId: session.membershipId,
+          sessionDigest: hashAuthenticationValue("current-session"),
+          enabled: true,
+          screenshots: true,
+        })
       },
     )
   })

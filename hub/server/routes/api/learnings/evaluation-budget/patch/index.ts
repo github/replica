@@ -2,6 +2,7 @@ import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import { readLearningSession } from "../../read-learning-session/index.ts"
+import { readLearningSessionDigest } from "../../read-learning-session-digest/index.ts"
 import { respondLearningError } from "../../respond-learning-error/index.ts"
 import type { LearningsRouteDependencies } from "../../types.ts"
 
@@ -35,13 +36,15 @@ export function patch(dependencies: LearningsRouteDependencies): RequestHandler 
         return
       }
       const session = await readLearningSession(request, dependencies)
-      if (!session || session.role !== "ADMINISTRATOR") {
+      const sessionDigest = readLearningSessionDigest(request)
+      if (!session || session.role !== "ADMINISTRATOR" || !sessionDigest) {
         response.status(403).json(denied)
         return
       }
       response.json(
         await dependencies.changeEvaluationBudget({
           actorMembershipId: session.membershipId,
+          sessionDigest,
           monthlyBudgetCredits: budget.data.monthlyBudgetCredits,
         }),
       )

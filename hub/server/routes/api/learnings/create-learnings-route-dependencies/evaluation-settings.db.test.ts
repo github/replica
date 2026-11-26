@@ -103,11 +103,35 @@ describe("evaluation settings", () => {
     })
   })
 
-  it("lets only a Hub administrator change the shared budget", async () => {
+  it("lets only a signed-in Hub administrator change the shared budget", async () => {
+    const provider = await prisma.authenticationProvider.create({
+      data: { key: "github", enabled: false },
+    })
+    const revision = await prisma.authenticationProviderRevision.create({
+      data: { configurationDigest: "a".repeat(64), providerId: provider.id, revision: 1 },
+    })
+    await prisma.authenticationProvider.update({
+      data: { enabled: true, selectedRevisionId: revision.id },
+      where: { id: provider.id },
+    })
     const user = await prisma.user.create({ data: {} })
     const membership = await prisma.membership.create({ data: { userId: user.id } })
     const identity = await prisma.externalIdentity.create({
       data: { issuer: "https://github.com", provider: "github", subject: "17", userId: user.id },
+    })
+    const revocation = await prisma.sessionRevocationState.findUniqueOrThrow({
+      where: { key: "global" },
+    })
+    const sessionDigest = "b".repeat(64)
+    await prisma.hubSession.create({
+      data: {
+        digest: sessionDigest,
+        expiresAt: new Date(Date.now() + 60_000),
+        externalIdentityId: identity.id,
+        membershipId: membership.id,
+        providerRevisionId: revision.id,
+        revocationRevision: revocation.revision,
+      },
     })
     const repository = await prisma.repository.create({
       data: { defaultBranch: "main", githubRepositoryId: 17n, nameWithOwner: "octo/source" },
@@ -117,7 +141,7 @@ describe("evaluation settings", () => {
       { restore: vi.fn() },
       pino({ level: "silent" }),
     )
-    const budget = { actorMembershipId: membership.id, monthlyBudgetCredits: "12.5" }
+    const budget = { actorMembershipId: membership.id, sessionDigest, monthlyBudgetCredits: "12.5" }
 
     await expect(learnings.changeEvaluationBudget(budget)).rejects.toMatchObject({
       code: "hub_administrator_required",

@@ -138,6 +138,7 @@ export interface LearningsRouteDependencies {
   }): Promise<{ notice: string }>
   changeEvaluationBudget(input: {
     actorMembershipId: string
+    sessionDigest: string
     monthlyBudgetCredits: string
   }): Promise<{ notice: string }>
   redactComment(input: {

@@ -38,6 +38,7 @@ import { deleteLearningDecisionOperation } from "../../../../repositories/learni
 import { listLearningShares } from "../../../../repositories/learning-shares/list-learning-shares/index.ts"
 import { saveLearningShare } from "../../../../repositories/learning-shares/save-learning-share/index.ts"
 import { withdrawLearningShare } from "../../../../repositories/learning-shares/withdraw-learning-share/index.ts"
+import { lockAdministratorHubSession } from "../../../../repositories/hub-sessions/lock-administrator-hub-session/index.ts"
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
 import { findActiveRepository } from "../../../../repositories/prototype-index/find-active-repository/index.ts"
 import { lockRepositoryAdministratorAuthority } from "../../../../repositories/repository-access/lock-repository-administrator-authority/index.ts"
@@ -540,7 +541,8 @@ export async function createLearningsRouteDependencies(
       const budget = await initializeEvaluationSetting(prisma)
       const setting = await getRepositoryEvaluationSetting(prisma, repositoryId)
       return {
-        monthlyBudgetCredits: budget.monthlyBudgetCredits.toString(),
+        // toFixed keeps tiny budgets in plain digits instead of forms like 1e-9.
+        monthlyBudgetCredits: budget.monthlyBudgetCredits.toFixed(),
         enabled: setting?.enabled ?? false,
         screenshots: {
           allowed: Boolean(setting?.screenshotGrantId),
@@ -656,9 +658,11 @@ export async function createLearningsRouteDependencies(
       }
       return { notice: "Evaluation settings saved." }
     },
-    changeEvaluationBudget: async ({ actorMembershipId, monthlyBudgetCredits }) => {
+    changeEvaluationBudget: async ({ actorMembershipId, sessionDigest, monthlyBudgetCredits }) => {
       const saved = await runRepositoryAuthorityTransaction(async (transaction) => {
-        if (!(await isEffectiveAdministrator(transaction, actorMembershipId))) return false
+        // Locking the session keeps a sign-out or demotion from landing mid-save.
+        const session = await lockAdministratorHubSession(transaction, sessionDigest)
+        if (session?.membershipId !== actorMembershipId) return false
         await updateEvaluationBudget(transaction, monthlyBudgetCredits)
         return true
       })
