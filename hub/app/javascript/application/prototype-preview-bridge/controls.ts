@@ -315,6 +315,8 @@ export function installControlsBridge(parentOrigin: string) {
         )
           throw new Error("Controls changed. The stale reset was not applied.")
         restoredScopes.clear()
+        // Clear saved settings first so app navigation during reset cannot carry them forward.
+        controlsUrl.set("")
         await bindings?.reset(undefined, guard)
       } else {
         const controller = runtime
