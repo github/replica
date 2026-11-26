@@ -54,6 +54,7 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `recall --task <text>` | Prints the accepted learnings for the next run. `--task-file -` reads the task from standard input instead, which keeps a person's prompt out of the process list. `--session-id` and `--session-label` name the agent session asking. Each recall stores a guidance record and the exact text of each learning it gave, so a later report can name them. `--preview --by github:<login>` shows a person the same text without recording a use. Only a person can preview, so an agent never reads learnings without an audit entry. A host such as Hub adds learnings other repositories shared to a preview with `--shared-file`, a JSON list of their accepted records read from their own stores. Recall refuses a damaged, unaccepted, or same-repository record. It leaves out a shared learning whose ID matches one of the repository's own, and keeps one copy of an ID that two sources share. A recall that stores deliveries refuses shared learnings, because a stored copy would outlive the source's deletion |
 | `report-usage <report.json>` | Records which recalled learnings an agent says it used for a commit. The report names its own `reportId`, so sending it again stores nothing new. Each used learning names the `deliveryId` recall gave it, and may add a before and an after screenshot as a PNG file beside the report. Only each screenshot's digest is recorded; in a local store the bytes are kept under `evidence/` in the learning data directory. A hosted store keeps no bytes and accepts screenshots only with `--grant <id>`, an active grant for `evaluation` that lists the `agent_screenshots` source. A report is the agent's claim, never a verified result |
 | `usage --commit <sha>` | Lists the usage reports for one full commit SHA. Each used learning names its ID, the version the agent received, its title and text, and the digest, capture details, and consent grant of any before and after screenshot. Title and text are empty once the learning's evidence no longer allows review. A host uses it to show what was applied in the Build made from that commit |
+| `score <used-learning-id> --operation-id <uuid>` | Asks Copilot how efficiently one used learning helped, from 1 to 4, and whether the agent followed it, then keeps the score. See [Score applied learnings](#score-applied-learnings) |
 | `delete <memory-id> --reason <text>` | Removes a learning for good: every version, the records of its deliveries and use, and their screenshots. A learning that is part of a replacement, or that a stored proposal would replace, cannot be deleted; retire it instead |
 | `expire-guidance [--days <n>]` | Removes guidance records older than `--days`, 365 by default, that no usage report names |
 | `delete-repository --confirm <owner/name>` | Removes every record this repository's store holds, including its audit trail. Naming the repository again guards against deleting the wrong store. Copies outside the store, such as exports, are not touched |
@@ -271,6 +272,21 @@ The command closes the labeler before emitting a result. If closing fails, it re
 A labeler failure remains the primary error even if the usage attached to it is malformed. The partial report includes `usageError` when that usage cannot be verified, and its totals retain only verified usage rather than estimating the missing cost. Hub can therefore record a token refusal and stop scheduled runs even when the request's cost is unknown, with the notice shown beside the failure.
 
 To use another labeler, set `labeling.labeler` to `{ "module": "./path.mjs" }` exporting `createLabeler(options)`. A labeler returns labels for the comments it was asked about; the types are `MemoryLabeler` in [`index.d.mts`](index.d.mts).
+
+## Score applied learnings
+
+`replica-learning score <used-learning-id> --operation-id <uuid>` asks Copilot to judge one learning an agent said it used. For example, after an agent reports that "Keep form labels visible" shaped commit `a1b2c3`, the score says whether the agent followed it and how efficiently it led to good work:
+
+1. Not efficient at all.
+2. Slightly efficient.
+3. Mostly efficient.
+4. Highly efficient.
+
+A score of 1 or 2 also names the main issue. Copilot sees the learning text the agent received, the usage report, and the screenshots whose consent still allows evaluation. `--diff-file <file>` adds the Build's diff, cut at 200,000 characters. A hosted store keeps no screenshot bytes, so the host writes them to a directory as `<sha256 hex>.png` and names it with `--screenshots <dir>`.
+
+Every score uses the strongest route Copilot offers, so scores stay comparable. It asks for Copilot Fusion at its max tier first. When Fusion is unavailable or does not take effect, it asks Copilot Auto which model it would choose and uses that model at its highest reasoning effort. Each score records the route it used. Inputs are treated as untrusted data, and the session has no tools, as in labeling.
+
+The host names each attempt with `--operation-id`, so a retry keeps the first score. The output includes the usage in AI credits; with `--json`, a failed attempt still prints the usage it spent, so a host can keep to its budget. Deleting a learning deletes its scores.
 
 ## Bring your own consolidator
 
