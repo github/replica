@@ -45,7 +45,7 @@ describe("createReviewRealtimeAccess()", () => {
       }
       const digest = createHash("sha256").update(expectedValue).digest("hex")
 
-      expect(await access.authenticate(request, new AbortController().signal)).toBe(digest)
+      expect(await access.authenticate?.(request, new AbortController().signal)).toBe(digest)
       expect(restore).toHaveBeenCalledExactlyOnceWith(digest)
     },
   )
