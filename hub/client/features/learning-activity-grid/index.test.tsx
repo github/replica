@@ -53,4 +53,34 @@ describe("LearningActivityGrid()", () => {
     expect(today).toHaveAccessibleName(/no run$/)
     expect(screen.getByText("No learning run")).toBeVisible()
   })
+  it("selects the latest day of the new year when the page stays open over New Year", () => {
+    const day = {
+      runState: "succeeded" as const,
+      startedAt: "2026-12-30T16:30:00Z",
+      startedBy: "the daily schedule",
+      commentsAnalyzed: 5,
+      commentsTagged: 1,
+      suggestions: 0,
+    }
+    const { rerender } = render(
+      <ThemeProvider>
+        <LearningActivityGrid today="2026-12-31" activity={[{ ...day, date: "2026-12-30" }]} />
+      </ThemeProvider>,
+    )
+    expect(screen.getByRole("button", { name: /^December 30, 2026,/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+
+    rerender(
+      <ThemeProvider>
+        <LearningActivityGrid today="2027-01-01" activity={[]} />
+      </ThemeProvider>,
+    )
+    expect(screen.getByRole("button", { name: /^January 1, 2027,/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    expect(screen.getByText("No learning run")).toBeVisible()
+  })
 })

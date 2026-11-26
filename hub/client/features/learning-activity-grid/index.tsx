@@ -113,6 +113,12 @@ export function LearningActivityGrid({
   /** UTC date treated as today. It picks the year and which days are still ahead. */
   today: string
 }) {
+  // A page left open over New Year shows a new calendar, so start its selection fresh
+  // instead of keeping a day from the previous year.
+  return <CalendarYear key={today.slice(0, 4)} activity={activity} today={today} />
+}
+
+function CalendarYear({ activity, today }: { activity: LearningActivityDay[]; today: string }) {
   const [metric, setMetric] = useState<ActivityMetric>("commentsAnalyzed")
   const weeks = useMemo(() => buildCalendarYear(activity, today), [activity, today])
   const monthLabels = useMemo(() => monthLabelsByWeek(weeks), [weeks])
