@@ -9,7 +9,40 @@ export type MemoryKind =
   "fact" | "preference" | "rule" | "procedure" | "example" | "anti_pattern" | "design_principle"
 export type MemoryState = "proposed" | "accepted" | "rejected" | "retired"
 export type Stream =
-  "episodes" | "events" | "grants" | "withdrawals" | "collections" | "audit" | "exports"
+  | "episodes"
+  | "events"
+  | "grants"
+  | "withdrawals"
+  | "collections"
+  | "audit"
+  | "exports"
+  | "guidance"
+  | "deliveries"
+  | "usageReports"
+  | "usedLearnings"
+  | "screenshots"
+
+/** The coding agent session asking for guidance or reporting its use. */
+export interface AgentSessionRef {
+  id: string
+  label?: string
+}
+
+/** A screenshot an agent took, as the store receives it; only its digest is recorded. */
+export interface UsageScreenshot {
+  route: string
+  viewport: { width: number; height: number }
+  theme: string
+  capturedAt: Timestamp
+  /** PNG bytes, at most 10 MB */
+  bytes: Uint8Array
+}
+
+/** What a deletion removed: records per stream, and learning versions. */
+export interface DeletionResult {
+  records: Partial<Record<Stream, number>>
+  memories: number
+}
 
 export interface Scope {
   /** lowercase Git or Hub host, such as github.com; the same owner/name on two hosts never shares records */
@@ -473,6 +506,15 @@ export interface MemoryProvider {
    * the same ID and digest, no payload, and a redaction note; see redactionProblem.
    */
   redactRecord?(stream: "events", record: StoredRecord): Promise<{ redacted: boolean }>
+  /**
+   * Only with the records.delete capability. Removes the named records and every version of
+   * the named learnings in one atomic write with the audit entries.
+   */
+  deleteRecords?(
+    scope: Scope,
+    targets: { records: Partial<Record<Stream, string[]>>; memories: string[] },
+    options: { audit: AuditEntry[] },
+  ): Promise<DeletionResult>
   close?(): Promise<void>
 }
 
@@ -913,8 +955,42 @@ export interface LearningStore {
        * human principal.
        */
       preview?: boolean
+      /** Where the agent asked from, "local" by default. */
+      via?: "local" | "hub"
+      session?: AgentSessionRef
     },
-  ): Promise<{ memories: RecalledMemory[]; text: string; considered: number }>
+  ): Promise<{
+    /** Absent for a preview, which stores nothing. */
+    guidanceId?: string
+    memories: Array<RecalledMemory & { deliveryId?: string }>
+    text: string
+    considered: number
+  }>
+  /**
+   * Record which delivered learnings an agent says it used for a commit. Sending the same
+   * reportId with the same content again stores nothing new.
+   */
+  reportUsage(
+    context: LearningContext,
+    report: {
+      reportId: string
+      guidanceIds: string[]
+      commitSha: string
+      session?: AgentSessionRef
+      prototypeId?: string
+      used: Array<{ deliveryId: string; before?: UsageScreenshot; after?: UsageScreenshot }>
+    },
+  ): Promise<{ id: string; reportId: string; stored: boolean }>
+  /** Remove a learning for good, with its deliveries, use, and screenshots. Needs a person. */
+  deleteMemory(
+    context: LearningContext,
+    id: string,
+    options: { reason: string },
+  ): Promise<DeletionResult>
+  /** Remove guidance older than days (365 by default) that no usage report names. */
+  expireGuidance(context: LearningContext, options?: { days?: number }): Promise<DeletionResult>
+  /** Remove every record in this scope, including its audit trail. Needs a person. */
+  deleteRepository(context: LearningContext): Promise<DeletionResult>
   exportRecords(
     context: LearningContext,
     options: {
@@ -945,6 +1021,7 @@ export interface LearningStore {
 export declare const PURPOSES: readonly Purpose[]
 export declare const REQUIRED_CAPABILITIES: readonly string[]
 export declare const REDACT_CAPABILITY: "observation.redact"
+export declare const DELETE_CAPABILITY: "records.delete"
 /** Why a provider must refuse to replace a stored event with this redacted copy, or null. */
 export declare function redactionProblem(stored: unknown, record: unknown): LearningError | null
 export declare const PROVIDER_CONTRACT: {

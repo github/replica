@@ -29,6 +29,7 @@ import { createFileLock } from "./providers/lock.mjs"
 import { createPostgresMemoryProvider } from "./providers/postgres.mjs"
 import { backupSqliteMemoryStore, createSqliteMemoryProvider } from "./providers/sqlite.mjs"
 import { migrateRepositoryScope } from "./scope-migration.mjs"
+import { createScreenshotStore } from "./screenshots.mjs"
 import { createLearningStore, scopeProblem } from "./store.mjs"
 
 /**
@@ -572,6 +573,12 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
         clock,
         legacyScopes: migrations.map((migration) => migration.oldScope),
         digestMappings,
+        // A hosted store may span machines, so only a local store keeps screenshot bytes.
+        ...(environment.hosted
+          ? {}
+          : {
+              screenshots: createScreenshotStore(path.join(environment.dataDirectory, "evidence")),
+            }),
       }),
       providerSource: source,
       migrationRedactionFollowUps: migrations

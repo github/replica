@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
 import { LearningError } from "../src/errors.mjs"
-import { REQUIRED_CAPABILITIES, STREAMS } from "../src/provider-contract.mjs"
+import { DELETE_CAPABILITY, REQUIRED_CAPABILITIES, STREAMS } from "../src/provider-contract.mjs"
 import { SCHEMA_VERSIONS, sealEpisode, sealEvent, sealMemory, sealRecord } from "../src/records.mjs"
 import { migrateRepositoryScope } from "../src/scope-migration.mjs"
 import { createLearningStore } from "../src/store.mjs"
@@ -1559,6 +1559,64 @@ export function memoryProviderConformance({ name, createProvider }) {
       await store.retireMemory(designer(), replacement.id, { reason: "No longer needed." })
       assert.equal((await store.recall(agent())).memories.length, 0)
       assert.equal((await store.getMemory(designer(), first.id)).status.superseded, true)
+    })
+
+    it("usage: recall records what an agent got, and a report is stored once", async () => {
+      const { store, provider, proposal } = await proposed()
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+
+      const recalled = await store.recall(agent(), { session: { id: "session-one" } })
+      const [delivery] = await provider.readRecords("deliveries", { scope: SCOPE })
+      const report = {
+        reportId: "change-1",
+        guidanceIds: [recalled.guidanceId],
+        commitSha: "a".repeat(40),
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      }
+      const first = await store.reportUsage(agent(), report)
+      const again = await store.reportUsage(agent(), report)
+
+      assert.equal(delivery.memoryId, proposal.id)
+      assert.equal(delivery.text.includes(recalled.memories[0].content), true)
+      assert.deepEqual([first.stored, again.stored], [true, false])
+      await assert.rejects(store.reportUsage(agent(), { ...report, used: [] }), {
+        code: "conflict",
+      })
+      const [used] = await provider.readRecords("usedLearnings", { scope: SCOPE })
+      assert.equal(used.memoryId, proposal.id)
+      assert.equal((await store.verify(designer())).ok, true)
+    })
+
+    it("deletion: a deleted learning takes its usage records, and old guidance expires", async (t) => {
+      let now = NOW
+      const { store, provider, proposal } = await proposed(undefined, undefined)
+      if (!provider.manifest().capabilities.includes(DELETE_CAPABILITY)) {
+        t.skip("Provider does not delete records.")
+        return
+      }
+      const clocked = await createLearningStore({ provider, clock: () => now })
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+      const recalled = await clocked.recall(agent())
+      await clocked.reportUsage(agent(), {
+        reportId: "change-1",
+        guidanceIds: [recalled.guidanceId],
+        commitSha: "a".repeat(40),
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      })
+
+      await clocked.deleteMemory(designer(), proposal.id, { reason: "The rule was wrong." })
+      now += 366 * 24 * 60 * 60 * 1000
+      const expired = await clocked.expireGuidance(designer())
+
+      for (const stream of ["deliveries", "usedLearnings", "usageReports", "guidance"])
+        assert.deepEqual(await provider.readRecords(stream, { scope: SCOPE }), [], stream)
+      assert.equal(expired.records.guidance, 1)
+      assert.equal(
+        (await clocked.getMemory(designer(), proposal.id).catch((e) => e)).code,
+        "not_found",
+      )
+      const checked = await clocked.verify(designer())
+      assert.equal(checked.ok, true, JSON.stringify(checked.problems ?? checked))
     })
 
     it("no automatic learning: consolidation stores proposals only, and nothing is recalled", async () => {

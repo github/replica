@@ -22,6 +22,11 @@ const KINDS = {
   collections: "collection",
   exports: "export",
   audit: "audit",
+  guidance: "guidance",
+  deliveries: "delivery",
+  usageReports: "usage_report",
+  usedLearnings: "used_learning",
+  screenshots: "screenshot",
 }
 
 /**
@@ -147,6 +152,26 @@ export async function migrateRepositoryScope({
         changed.exports.push(updated)
         remember("export", record, updated)
       }
+      // Guidance and usage records keep their IDs, so the links between them still hold. A
+      // delivery names the learning text it gave, which the move gives a new digest.
+      for (const stream of [
+        "guidance",
+        "deliveries",
+        "usageReports",
+        "usedLearnings",
+        "screenshots",
+      ])
+        for (const record of records[stream]) {
+          const draft = { ...record, scope: newScope }
+          if (stream === "deliveries") {
+            draft.contentDigest = mapped("memory", record.memoryId, record.contentDigest)
+            if (canonicalJson(record.sourceScope) === canonicalJson(oldScope))
+              draft.sourceScope = newScope
+          }
+          const updated = sealRecord(draft)
+          changed[stream].push(updated)
+          remember(KINDS[stream], record, updated)
+        }
       for (const record of records.audit) {
         const updated = sealRecord({
           ...record,

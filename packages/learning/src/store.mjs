@@ -3,6 +3,7 @@ import { LearningError } from "./errors.mjs"
 import { derivedId, randomId } from "./ids.mjs"
 import { PURPOSES, createEligibility, sameScope } from "./policy.mjs"
 import {
+  DELETE_CAPABILITY,
   PROVIDER_CONTRACT,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
@@ -36,6 +37,7 @@ import {
   sessionEpisodeId,
   sessionEvents,
 } from "./sources/agent-sessions.mjs"
+import { assertScreenshot, screenshotDigest } from "./screenshots.mjs"
 import { isTimestamp, timestampFromMilliseconds } from "./time.mjs"
 import { assertValid, validateRecord } from "./validate.mjs"
 
@@ -71,6 +73,10 @@ const RECORD_ID = /^[a-z][a-z0-9]{1,15}_[A-Za-z0-9_-]{8,128}$/
 const DIGEST = /^sha256:[0-9a-f]{64}$/
 // The most subjects one audit entry may name, as the audit-entry schema sets.
 const SUBJECTS_PER_ENTRY = 10_000
+const REPORT_ID = /^[A-Za-z0-9._:-]{1,128}$/
+const COMMIT_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/
+const DAY_MS = 24 * 60 * 60 * 1000
+// The streams that hold what agents received and said they used.
 const MEMORY_STATES = ["proposed", "accepted", "rejected", "retired"]
 const MEMORY_KINDS = [
   "fact",
@@ -121,13 +127,17 @@ const TRANSITIONS = {
  * own access: the scope from the checkout or an authenticated session, never from agent
  * input, and the principal from the person or agent acting.
  *
- * @param {{ provider: object, clock?: () => number, legacyScopes?: object[], digestMappings?: Record<string, string> }} options
+ * screenshots is where a local host keeps the images agents attach to usage reports, from
+ * createScreenshotStore. Without it, the store refuses reports that carry screenshots.
+ *
+ * @param {{ provider: object, clock?: () => number, legacyScopes?: object[], digestMappings?: Record<string, string>, screenshots?: object | null }} options
  */
 export async function createLearningStore({
   provider,
   clock = Date.now,
   legacyScopes = [],
   digestMappings = {},
+  screenshots = null,
 } = {}) {
   if (!provider || typeof provider.manifest !== "function")
     throw new LearningError("provider_incompatible", "A learning store needs a memory provider.")
@@ -157,7 +167,7 @@ export async function createLearningStore({
       "provider_incompatible",
       `Provider ${manifest.id} does not implement ${absent.join(", ")}.`,
     )
-  return new LearningStore(provider, manifest, clock, legacyScopes, digestMappings)
+  return new LearningStore(provider, manifest, clock, legacyScopes, digestMappings, screenshots)
 }
 
 /** Why a scope is malformed, or null when it is well formed. */
@@ -262,6 +272,70 @@ function targetOf(event) {
 const JUDGMENTS = new Set(["annotation", "no_annotation"])
 
 const DELETED_AT_SOURCE = "The comment was deleted at its source."
+
+function assertDeletionReason(reason) {
+  if (typeof reason !== "string" || !reason.trim() || reason.length > 1000)
+    throw new LearningError(
+      "invalid_input",
+      "Say why the learning is being deleted, in at most 1000 characters.",
+    )
+}
+
+/** A checked session name, or undefined when none is given. */
+function sessionOf(session) {
+  if (session === undefined) return undefined
+  function valid(text) {
+    return (
+      typeof text === "string" && text.length >= 1 && text.length <= 200 && !INVISIBLE.test(text)
+    )
+  }
+  if (
+    !session ||
+    typeof session !== "object" ||
+    !valid(session.id) ||
+    (session.label !== undefined && !valid(session.label)) ||
+    Object.keys(session).some((key) => key !== "id" && key !== "label")
+  )
+    throw new LearningError(
+      "invalid_input",
+      "A session has an id and an optional label, each 1 to 200 plain characters.",
+    )
+  return session.label === undefined ? { id: session.id } : { id: session.id, label: session.label }
+}
+
+/** A checked screenshot for a usage report, with the SHA-256 of its bytes. */
+function screenshotOf(input, role) {
+  if (!input || typeof input !== "object")
+    throw new LearningError("invalid_input", `The ${role} screenshot must be an object.`)
+  const { route, viewport, theme, capturedAt, bytes } = input
+  assertScreenshot(bytes)
+  if (
+    typeof route !== "string" ||
+    !route ||
+    route.length > 2048 ||
+    typeof theme !== "string" ||
+    !theme ||
+    theme.length > 64 ||
+    !isTimestamp(capturedAt) ||
+    !Number.isSafeInteger(viewport?.width) ||
+    !Number.isSafeInteger(viewport?.height) ||
+    viewport.width < 1 ||
+    viewport.height < 1
+  )
+    throw new LearningError(
+      "invalid_input",
+      `The ${role} screenshot needs a route, a viewport { width, height }, a theme, and capturedAt.`,
+    )
+  return {
+    role,
+    route,
+    viewport: { width: viewport.width, height: viewport.height },
+    theme,
+    capturedAt,
+    sha256: screenshotDigest(bytes),
+    bytes,
+  }
+}
 
 function assertRemovalReason(reason) {
   if (typeof reason !== "string" || !reason.trim() || reason.length > 1000)
@@ -579,9 +653,11 @@ class LearningStore {
   #clock
   #legacyScopes
   #originalDigests
+  #screenshots
 
-  constructor(provider, manifest, clock, legacyScopes, digestMappings) {
+  constructor(provider, manifest, clock, legacyScopes, digestMappings, screenshots) {
     this.#provider = provider
+    this.#screenshots = screenshots
     this.#manifest = manifest
     this.#clock = clock
     this.#legacyScopes = legacyScopes
@@ -3128,27 +3204,422 @@ class LearningStore {
    * instruction; a preview, which shows a person what an agent would get, is not, because
    * nothing reaches an agent. Only a person may preview, so an agent cannot read the learnings
    * without leaving an audit entry.
+   *
+   * A recall also stores a guidance record, and one delivery per learning with the exact text
+   * the agent got, so a later usage report can say which of them the agent used. via says
+   * where the request came from, and session names the agent session when the agent knows it.
    */
-  async recall(context, { task, limit = 20, budgetChars = 6000, preview = false } = {}) {
+  async recall(
+    context,
+    { task, limit = 20, budgetChars = 6000, preview = false, via = "local", session } = {},
+  ) {
     assertContext(context)
     if (!Number.isSafeInteger(limit) || limit < 1)
       throw new LearningError("invalid_input", "The recall limit must be a positive safe integer.")
     if (preview) requireHuman(context, "preview recall")
+    const named = sessionOf(session)
     const { items } = await this.#statuses(context)
     const usable = items.filter((item) => item.status.recallEligible).map((item) => item.record)
-    const { selected, text } = renderRecall(rankForRecall(usable, { task }), {
+    const { selected, text, blocks } = renderRecall(rankForRecall(usable, { task }), {
       limit,
       budgetChars,
       total: usable.length,
     })
-    if (!preview)
-      await this.#audit(
-        context,
-        "memory.recall",
-        selected.map((memory) => ({ kind: "memory", id: memory.id, digest: memory.contentDigest })),
-        { purpose: "instruction" },
+    if (preview) return { memories: selected, text, considered: usable.length }
+    const now = this.#now()
+    const guidance = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.guidance,
+      id: randomId("guidance"),
+      scope: context.scope,
+      requestedAt: now,
+      requestedBy: context.principal,
+      via,
+      ...(named ? { session: named } : {}),
+    })
+    assertValid("guidance", guidance)
+    const deliveries = selected.map((memory, index) =>
+      sealRecord({
+        schemaVersion: SCHEMA_VERSIONS.deliveredLearning,
+        id: derivedId("delivery", { guidanceId: guidance.id, memoryId: memory.id }),
+        scope: context.scope,
+        guidanceId: guidance.id,
+        memoryId: memory.id,
+        contentDigest: memory.contentDigest,
+        sourceScope: context.scope,
+        position: index + 1,
+        text: blocks[index],
+        deliveredAt: now,
+      }),
+    )
+    for (const delivery of deliveries) assertValid("deliveredLearning", delivery)
+    await this.#provider.appendBatch(
+      { guidance: [guidance], deliveries },
+      {
+        audit: this.#auditEntries(
+          context,
+          "memory.recall",
+          [
+            ...selected.map((memory) => ({
+              kind: "memory",
+              id: memory.id,
+              digest: memory.contentDigest,
+            })),
+            { kind: "guidance", id: guidance.id, digest: guidance.digest },
+            ...deliveries.map((delivery) => ({
+              kind: "delivery",
+              id: delivery.id,
+              digest: delivery.digest,
+            })),
+          ],
+          { purpose: "instruction" },
+        ),
+      },
+    )
+    return {
+      guidanceId: guidance.id,
+      memories: selected.map((memory, index) => ({ ...memory, deliveryId: deliveries[index].id })),
+      text,
+      considered: usable.length,
+    }
+  }
+
+  /**
+   * Store an agent's report of which delivered learnings it used for a change. Every
+   * guidance and delivery it names must be stored in this scope, and each delivery must come
+   * from one of the named guidance records. A used learning is always the agent's claim, never
+   * a verified result. A report may say it used none.
+   *
+   * reportId is the agent's own ID for the report. Sending the same report again returns the
+   * stored one and writes nothing; sending other content under the same ID is a conflict.
+   *
+   * Each used learning may carry a before and an after screenshot: { role, route, viewport,
+   * theme, capturedAt, bytes }. The images stay on this machine; records hold only their
+   * SHA-256. A store opened without a screenshot store refuses screenshots.
+   */
+  async reportUsage(
+    context,
+    { reportId, guidanceIds, commitSha, session, prototypeId, used = [] } = {},
+  ) {
+    assertContext(context)
+    if (typeof reportId !== "string" || !REPORT_ID.test(reportId))
+      throw new LearningError(
+        "invalid_input",
+        "A usage report needs a reportId of 1 to 128 letters, digits, dots, colons, underscores, or dashes.",
       )
-    return { memories: selected, text, considered: usable.length }
+    if (
+      !Array.isArray(guidanceIds) ||
+      !guidanceIds.length ||
+      guidanceIds.length > 100 ||
+      guidanceIds.some((id) => typeof id !== "string" || !RECORD_ID.test(id)) ||
+      new Set(guidanceIds).size !== guidanceIds.length
+    )
+      throw new LearningError(
+        "invalid_input",
+        "A usage report names 1 to 100 different guidance IDs that recall returned.",
+      )
+    if (typeof commitSha !== "string" || !COMMIT_SHA.test(commitSha))
+      throw new LearningError("invalid_input", "A usage report needs the full commit SHA.")
+    if (
+      prototypeId !== undefined &&
+      (typeof prototypeId !== "string" || !prototypeId || prototypeId.length > 200)
+    )
+      throw new LearningError("invalid_input", "A prototype ID is 1 to 200 characters.")
+    const named = sessionOf(session)
+    if (!Array.isArray(used) || used.length > 1000)
+      throw new LearningError("invalid_input", "used lists at most 1000 delivered learnings.")
+    const shots = []
+    const claims = used.map((item) => {
+      if (!item || typeof item !== "object" || typeof item.deliveryId !== "string")
+        throw new LearningError("invalid_input", "Each used learning names its deliveryId.")
+      const claim = { deliveryId: item.deliveryId }
+      for (const role of ["before", "after"]) {
+        if (item[role] === undefined) continue
+        const shot = screenshotOf(item[role], role)
+        claim[role] = shot
+        shots.push(shot)
+      }
+      return claim
+    })
+    if (new Set(claims.map((claim) => claim.deliveryId)).size !== claims.length)
+      throw new LearningError("invalid_input", "A usage report names each delivery once.")
+    if (shots.length && !this.#screenshots)
+      throw new LearningError(
+        "unsupported",
+        "This store does not keep screenshots. Send the report without them.",
+      )
+    const contentDigest = digestOf({
+      reportId,
+      guidanceIds,
+      commitSha,
+      session: named ?? null,
+      prototypeId: prototypeId ?? null,
+      used: claims.map(({ deliveryId, before, after }) => ({
+        deliveryId,
+        before: before ? without(before, "bytes") : null,
+        after: after ? without(after, "bytes") : null,
+      })),
+    })
+    const id = derivedId("usage", { scope: context.scope, reportId })
+    const [stored] = await this.#read("usageReports", context, { ids: [id] })
+    if (stored) {
+      if (stored.contentDigest !== contentDigest)
+        throw new LearningError(
+          "conflict",
+          `Usage report ${reportId} is already stored with other content. Use a new reportId.`,
+        )
+      return { id, reportId, stored: false }
+    }
+    const guidance = await this.#read("guidance", context, { ids: guidanceIds })
+    const missing = guidanceIds.filter((guidanceId) => !guidance.some((g) => g.id === guidanceId))
+    if (missing.length)
+      throw new LearningError("not_found", `No guidance ${missing.join(", ")} in this repository.`)
+    const deliveries = claims.length
+      ? await this.#read("deliveries", context, { ids: claims.map((claim) => claim.deliveryId) })
+      : []
+    const byId = new Map(deliveries.map((delivery) => [delivery.id, delivery]))
+    for (const { deliveryId } of claims) {
+      const delivery = byId.get(deliveryId)
+      if (!delivery || !guidanceIds.includes(delivery.guidanceId))
+        throw new LearningError(
+          "not_found",
+          `Delivery ${deliveryId} did not come from the guidance this report names.`,
+        )
+    }
+    const now = this.#now()
+    const report = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.usageReport,
+      id,
+      scope: context.scope,
+      reportId,
+      guidanceIds,
+      ...(named ? { session: named } : {}),
+      commitSha,
+      ...(prototypeId ? { prototypeId } : {}),
+      contentDigest,
+      reportedBy: context.principal,
+      reportedAt: now,
+    })
+    assertValid("usageReport", report)
+    const screenshots = new Map()
+    for (const shot of shots) {
+      const record = sealRecord({
+        schemaVersion: SCHEMA_VERSIONS.screenshot,
+        id: derivedId("shot", { usageReportId: id, sha256: shot.sha256, role: shot.role }),
+        scope: context.scope,
+        usageReportId: id,
+        sha256: shot.sha256,
+        role: shot.role,
+        route: shot.route,
+        viewport: shot.viewport,
+        theme: shot.theme,
+        capturedAt: shot.capturedAt,
+      })
+      assertValid("screenshot", record)
+      screenshots.set(record.id, record)
+      shot.recordId = record.id
+    }
+    const usedLearnings = claims.map((claim) => {
+      const record = sealRecord({
+        schemaVersion: SCHEMA_VERSIONS.usedLearning,
+        id: derivedId("used", { usageReportId: id, deliveryId: claim.deliveryId }),
+        scope: context.scope,
+        usageReportId: id,
+        deliveryId: claim.deliveryId,
+        memoryId: byId.get(claim.deliveryId).memoryId,
+        claimedBy: context.principal,
+        ...(claim.before ? { beforeScreenshotId: claim.before.recordId } : {}),
+        ...(claim.after ? { afterScreenshotId: claim.after.recordId } : {}),
+        reportedAt: now,
+      })
+      assertValid("usedLearning", record)
+      return record
+    })
+    // The images go first, so a stored record never names an image that is missing.
+    for (const shot of shots) await this.#screenshots.put(shot.bytes)
+    const subjects = [
+      { kind: "usage_report", id, digest: report.digest },
+      ...usedLearnings.map((record) => ({
+        kind: "used_learning",
+        id: record.id,
+        digest: record.digest,
+      })),
+      ...[...screenshots.values()].map((record) => ({
+        kind: "screenshot",
+        id: record.id,
+        digest: record.digest,
+      })),
+    ]
+    const result = await this.#provider.appendBatch(
+      {
+        usageReports: [report],
+        usedLearnings,
+        screenshots: [...screenshots.values()],
+      },
+      { audit: this.#auditEntries(context, "usage.report", subjects) },
+    )
+    return { id, reportId, stored: result.usageReports.appended === 1 }
+  }
+
+  /**
+   * Remove one learning for good, at a person's request: every version, the deliveries that
+   * gave it to agents, the claims that agents used it, and their screenshots. A usage report
+   * goes too once none of its used learnings remain; one that said it used none stays, as
+   * does the guidance. A learning that replaced another, or was replaced, stays: removing it
+   * would break the history recall follows, so retire it instead.
+   */
+  async deleteMemory(context, id, { reason } = {}) {
+    assertContext(context)
+    requireHuman(context, "delete a learning")
+    assertDeletionReason(reason)
+    this.#assertDeletable()
+    const entries = await this.#memories(context)
+    const entry = entries.get(id)
+    if (!entry) throw new LearningError("not_found", `No learning ${id} in this repository.`)
+    const linked =
+      entry.versions.some((version) => version.supersedes?.length) ||
+      [...entries.values()].some((other) =>
+        other.versions.some((version) => version.supersedes?.includes(id)),
+      )
+    if (linked)
+      throw new LearningError(
+        "conflict",
+        `Learning ${id} replaced or was replaced by another learning. Retire it instead.`,
+      )
+    const deliveries = (await this.#read("deliveries", context)).filter(
+      (record) => record.memoryId === id,
+    )
+    const allUsed = await this.#read("usedLearnings", context)
+    const used = allUsed.filter((record) => record.memoryId === id)
+    const gone = new Set(used.map((record) => record.id))
+    const remaining = allUsed.filter((record) => !gone.has(record.id))
+    const reportIds = new Set(used.map((record) => record.usageReportId))
+    const reports = (await this.#read("usageReports", context)).filter(
+      (record) =>
+        reportIds.has(record.id) && !remaining.some((other) => other.usageReportId === record.id),
+    )
+    const kept = new Set(
+      remaining.flatMap((record) => [record.beforeScreenshotId, record.afterScreenshotId]),
+    )
+    const shots = (await this.#read("screenshots", context)).filter(
+      (record) => reportIds.has(record.usageReportId) && !kept.has(record.id),
+    )
+    const selection = {
+      deliveries,
+      usedLearnings: used,
+      usageReports: reports,
+      screenshots: shots,
+    }
+    const subjects = [
+      { kind: "memory", id },
+      ...Object.entries(selection).flatMap(([stream, records]) =>
+        records.map((record) => ({ kind: SUBJECT_KINDS[stream], id: record.id })),
+      ),
+    ]
+    const removed = await this.#provider.deleteRecords(
+      context.scope,
+      {
+        records: Object.fromEntries(
+          Object.entries(selection).map(([stream, records]) => [
+            stream,
+            records.map((record) => record.id),
+          ]),
+        ),
+        memories: [id],
+      },
+      { audit: this.#auditEntries(context, "memory.delete", subjects, { reason }) },
+    )
+    await this.#removeUnreferencedScreenshots(context, shots)
+    return removed
+  }
+
+  /**
+   * Remove guidance older than the retention period that no usage report names, with its
+   * deliveries. Guidance a report names stays, so the report keeps its meaning.
+   */
+  async expireGuidance(context, { days = 365 } = {}) {
+    assertContext(context)
+    requireHuman(context, "expire guidance")
+    if (!Number.isSafeInteger(days) || days < 1)
+      throw new LearningError("invalid_input", "Keep guidance for a positive number of days.")
+    this.#assertDeletable()
+    const cutoff = timestampFromMilliseconds(this.#clock() - days * DAY_MS)
+    const named = new Set(
+      (await this.#read("usageReports", context)).flatMap((record) => record.guidanceIds),
+    )
+    const guidance = (await this.#read("guidance", context, { until: cutoff })).filter(
+      (record) => !named.has(record.id),
+    )
+    if (!guidance.length) return { records: { guidance: 0, deliveries: 0 }, memories: 0 }
+    const ids = new Set(guidance.map((record) => record.id))
+    const deliveries = (await this.#read("deliveries", context)).filter((record) =>
+      ids.has(record.guidanceId),
+    )
+    const subjects = [
+      ...guidance.map((record) => ({ kind: "guidance", id: record.id })),
+      ...deliveries.map((record) => ({ kind: "delivery", id: record.id })),
+    ]
+    return this.#provider.deleteRecords(
+      context.scope,
+      {
+        records: {
+          guidance: [...ids],
+          deliveries: deliveries.map((record) => record.id),
+        },
+      },
+      {
+        audit: this.#auditEntries(context, "guidance.expire", subjects, {
+          reason: `Guidance older than ${days} days that no usage report names.`,
+        }),
+      },
+    )
+  }
+
+  /**
+   * Remove everything this repository's scope holds: observations, grants, learnings, guidance,
+   * usage reports, screenshots, and the audit trail itself, so nothing about the repository
+   * remains. Records kept under a scope the repository used before a migration stay.
+   */
+  async deleteRepository(context) {
+    assertContext(context)
+    requireHuman(context, "delete a repository's learning records")
+    this.#assertDeletable()
+    const records = {}
+    // Damaged records go too, so they are read without the checks #read applies.
+    for (const stream of Object.keys(STREAMS))
+      records[stream] = (await this.#provider.readRecords(stream, { scope: context.scope }))
+        .filter((record) => sameScope(record?.scope, context.scope))
+        .map((record) => record.id)
+    const shots = (
+      await this.#provider.readRecords("screenshots", { scope: context.scope })
+    ).filter((record) => sameScope(record?.scope, context.scope))
+    const memories = unique(
+      (await this.#provider.readMemoryVersions({ scope: context.scope }))
+        .filter((record) => sameScope(record?.scope, context.scope))
+        .map((record) => record.id),
+    )
+    const removed = await this.#provider.deleteRecords(context.scope, { records, memories })
+    for (const sha256 of unique(shots.map((record) => record.sha256)))
+      if (DIGEST.test(sha256 ?? "")) await this.#screenshots?.remove(sha256)
+    return removed
+  }
+
+  #assertDeletable() {
+    if (
+      !this.#manifest.capabilities.includes(DELETE_CAPABILITY) ||
+      typeof this.#provider.deleteRecords !== "function"
+    )
+      throw new LearningError(
+        "unsupported",
+        `Provider ${this.#manifest.id} cannot delete records. Move the store to SQLite to delete them.`,
+      )
+  }
+
+  /** Remove the images of removed screenshot records that no remaining record names. */
+  async #removeUnreferencedScreenshots(context, removed) {
+    if (!this.#screenshots || !removed.length) return
+    const left = new Set((await this.#read("screenshots", context)).map((record) => record.sha256))
+    for (const sha256 of unique(removed.map((record) => record.sha256)))
+      if (!left.has(sha256)) await this.#screenshots.remove(sha256)
   }
 
   /**
@@ -3728,6 +4199,15 @@ function unaudited(stored, memories, audit, damaged) {
   return problems
 }
 
+/** The audit subject kind for each usage stream. */
+const SUBJECT_KINDS = {
+  guidance: "guidance",
+  deliveries: "delivery",
+  usageReports: "usage_report",
+  usedLearnings: "used_learning",
+  screenshots: "screenshot",
+}
+
 /** The stream that holds each kind of record an audit entry names, other than a learning. */
 const SUBJECTS = {
   episode: "episodes",
@@ -3750,6 +4230,11 @@ const SUBJECTS = {
  */
 function unresolved(stored, memories, audit) {
   const held = new Set()
+  // A deletion names what it removed, so every version of those records is expected to be gone.
+  const deleted = new Set()
+  for (const entry of audit)
+    if (entry.operation === "memory.delete" || entry.operation === "guidance.expire")
+      for (const subject of entry.subjects) deleted.add(`${subject.kind} ${subject.id}`)
   function hold(kind, id, ...digests) {
     held.add(`${kind} ${id}`)
     for (const digest of digests) held.add(`${kind} ${id} ${digest}`)
@@ -3763,6 +4248,7 @@ function unresolved(stored, memories, audit) {
     entry.subjects
       .filter(
         (subject) =>
+          !deleted.has(`${subject.kind} ${subject.id}`) &&
           !held.has(
             subject.digest
               ? `${subject.kind} ${subject.id} ${subject.digest}`

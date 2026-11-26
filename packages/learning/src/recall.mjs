@@ -102,7 +102,8 @@ export function rankForRecall(records, { task } = {}) {
 
 /**
  * Render ranked memories for an agent's context, within a count and character budget. Each
- * learning's text is rendered on one line; the selected list keeps it exactly as stored.
+ * learning's text is rendered on one line; the selected list keeps it exactly as stored, and
+ * blocks holds the lines each selected learning added, in the same order.
  *
  * @param {Array<{ record: any, relevance: number }>} ranked
  * @param {{ limit?: number, budgetChars?: number, total?: number }} [options]
@@ -160,5 +161,5 @@ export function renderRecall(
       relevance,
     })
   }
-  return { selected, text }
+  return { selected, text, blocks }
 }
