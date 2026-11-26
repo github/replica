@@ -262,9 +262,9 @@ describe("processReviewCommentRedaction()", () => {
         expect(
           events.some((event) => event.payload?.commentId !== 101 && event.payload?.body),
         ).toBe(true)
-        expect(
-          db.prepare("select name from sqlite_master where name = 'scope_migrations'").get(),
-        ).toBeUndefined()
+        expect(db.prepare("select count(*) as count from scope_migrations").get()).toEqual({
+          count: 0,
+        })
       } finally {
         db.close()
       }
