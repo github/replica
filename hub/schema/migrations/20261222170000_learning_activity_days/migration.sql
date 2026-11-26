@@ -28,3 +28,30 @@ ALTER TABLE "learning_activity_days" ADD CONSTRAINT "learning_activity_days_repo
 
 -- AddForeignKey
 ALTER TABLE "learning_activity_days" ADD CONSTRAINT "learning_activity_days_last_requested_by_id_fkey" FOREIGN KEY ("last_requested_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Backfill: runs finished before this table existed. Runs are deleted after 90 days, so
+-- their days would otherwise show no activity. Same UTC day rule as new runs.
+INSERT INTO "learning_activity_days" (
+    "id", "repository_id", "date", "runs", "comments_analyzed", "comments_tagged",
+    "suggestions", "last_run_state", "last_scheduled", "last_started_at",
+    "last_requested_by_id"
+)
+SELECT
+    gen_random_uuid(),
+    "repository_id",
+    "day",
+    COUNT(*)::INTEGER,
+    SUM("comments_considered")::INTEGER,
+    SUM("comments_labeled")::INTEGER,
+    SUM("suggestions")::INTEGER,
+    (ARRAY_AGG("state" ORDER BY "started", "number"))[COUNT(*)],
+    (ARRAY_AGG("scheduled" ORDER BY "started", "number"))[COUNT(*)],
+    MAX("started"),
+    (ARRAY_AGG("requested_by_id" ORDER BY "started", "number"))[COUNT(*)]
+FROM (
+    SELECT *, COALESCE("started_at", "created_at") AS "started",
+        (COALESCE("started_at", "created_at") AT TIME ZONE 'UTC')::DATE AS "day"
+    FROM "learning_runs"
+    WHERE "state" IN ('SUCCEEDED', 'FAILED')
+) AS "finished"
+GROUP BY "repository_id", "day";
