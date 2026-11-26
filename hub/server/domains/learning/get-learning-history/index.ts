@@ -10,7 +10,13 @@ import type {
   LearningEvidenceReference,
   ReviewCommentLearningSource,
 } from "../review-comment-learning-source/types.ts"
-import type { LearningDecisionRecord, LearningEvidence, ReportedLearningOutcome } from "../types.ts"
+import type {
+  EarlierLearningGuidance,
+  LearningDecisionRecord,
+  LearningEvidence,
+  LearningUpdateSuggestion,
+  ReportedLearningOutcome,
+} from "../types.ts"
 
 const decisionSchema = z
   .object({
@@ -47,6 +53,8 @@ const versionSchema = z
     digest: z.string().optional().catch(undefined),
     contentDigest: z.string().optional().catch(undefined),
     withheld: z.literal(true).optional(),
+    title: z.string().optional().catch(undefined),
+    content: z.string().optional().catch(undefined),
     updatedAt: z.string().optional(),
     proposal: z
       .object({
@@ -117,6 +125,25 @@ const observationsSchema = z
               body: z.string().nullable().optional().catch(undefined),
             })
             .loose(),
+        })
+        .loose(),
+    ),
+  })
+  .loose()
+
+const updatesSchema = z
+  .object({
+    updates: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          state: z.string(),
+          // The package leaves out wording whose scores may no longer be read.
+          issue: z.string().optional(),
+          title: z.string().optional(),
+          content: z.string().optional(),
+          reasoning: z.string().optional(),
+          support: z.array(z.string()),
         })
         .loose(),
     ),
@@ -221,6 +248,8 @@ export async function getLearningHistory(input: {
   contradictions: LearningEvidence[]
   otherContradictionsCount: number
   outcomes: ReportedLearningOutcome[]
+  earlierGuidance: EarlierLearningGuidance<ReportedLearningOutcome>[]
+  updates: LearningUpdateSuggestion<ReportedLearningOutcome>[]
 }> {
   // The ID is passed to the package as an argument, so it must never read as an option.
   if (input.learningId.startsWith("-")) {
@@ -261,17 +290,50 @@ export async function getLearningHistory(input: {
     ),
   )
   const history = decisions(shown.versions ?? [])
-  const outcomes = shown.withheld
+  const versions = shown.versions ?? []
+  const scored = shown.withheld
     ? []
-    : currentOutcomes(
-        outcomesSchema.parse(
-          await runLearningCommand(
-            ["outcomes", input.learningId, ...commonArguments],
-            commandOptions,
-          ),
-        ).outcomes,
-        shown.versions ?? [],
-      )
+    : outcomesSchema.parse(
+        await runLearningCommand(
+          ["outcomes", input.learningId, ...commonArguments],
+          commandOptions,
+        ),
+      ).outcomes
+  const wording = versions.at(-1)?.contentDigest
+  const outcomes = wording ? outcomesOf(scored, versions, wording) : []
+  const earlierGuidance = shown.withheld || !wording ? [] : earlier(scored, versions, wording)
+  // Only an accepted learning can take new wording, so other states never show one.
+  const updates =
+    shown.withheld || versions.at(-1)?.state !== "accepted"
+      ? []
+      : updatesSchema
+          .parse(
+            await runLearningCommand(
+              ["updates", input.learningId, ...commonArguments],
+              commandOptions,
+            ),
+          )
+          .updates.flatMap((update) => {
+            // Hub checks each supporting score before showing the wording, so a score
+            // it cannot read leaves the suggestion unchecked and hidden.
+            const support = update.support.map((id) => scored.find((score) => score.id === id))
+            return update.state === "open" &&
+              update.issue !== undefined &&
+              update.content !== undefined &&
+              update.reasoning !== undefined &&
+              support.every((score) => score !== undefined)
+              ? [
+                  {
+                    id: update.id,
+                    issue: update.issue,
+                    title: update.title ?? null,
+                    content: update.content,
+                    reasoning: update.reasoning,
+                    support: support.map(reported),
+                  },
+                ]
+              : []
+          })
   const supporting = shown.withheld ? [] : (shown.record.evidence ?? [])
   const opposing = shown.withheld ? [] : (shown.record.contradictions ?? [])
   const references = [...supporting, ...opposing]
@@ -283,6 +345,8 @@ export async function getLearningHistory(input: {
       contradictions: [],
       otherContradictionsCount: missingEventCount(opposing, []),
       outcomes,
+      earlierGuidance,
+      updates,
     }
   }
   // The package reads at most 100 events at once, so a detail page shows the first 100.
@@ -333,17 +397,52 @@ export async function getLearningHistory(input: {
     contradictions,
     otherContradictionsCount: missingEventCount(opposing, contradictions),
     outcomes,
+    earlierGuidance,
+    updates,
   }
 }
 
-// Scores of older wording say nothing about the guidance agents get now. Retiring and
-// reinstating add versions with the same wording, so match the wording, not the number.
-function currentOutcomes(
+// Each wording agents were given before the current one, newest first, so people can
+// compare how older guidance was scored with the guidance agents get now.
+function earlier(
   outcomes: z.infer<typeof outcomesSchema>["outcomes"],
   versions: z.infer<typeof versionSchema>[],
+  current: string,
+): EarlierLearningGuidance<ReportedLearningOutcome>[] {
+  const latest = new Map<string, z.infer<typeof versionSchema>>()
+  for (const version of versions) {
+    // Proposed wording that was changed before approval never reached agents.
+    if (
+      version.state === "accepted" &&
+      version.contentDigest &&
+      version.contentDigest !== current
+    ) {
+      // Moving a repeated wording to the end keeps the list ordered by its last use.
+      latest.delete(version.contentDigest)
+      latest.set(version.contentDigest, version)
+    }
+  }
+  return [...latest.entries()].reverse().flatMap(([wording, version]) =>
+    version.version === undefined || version.withheld || version.content === undefined
+      ? []
+      : [
+          {
+            version: version.version,
+            title: version.title ?? null,
+            content: version.content,
+            outcomes: outcomesOf(outcomes, versions, wording),
+          },
+        ],
+  )
+}
+
+// Scores of other wording say nothing about this guidance. Retiring and reinstating add
+// versions with the same wording, so match the wording, not the number.
+function outcomesOf(
+  outcomes: z.infer<typeof outcomesSchema>["outcomes"],
+  versions: z.infer<typeof versionSchema>[],
+  wording: string,
 ): ReportedLearningOutcome[] {
-  const wording = versions.at(-1)?.contentDigest
-  if (!wording) return []
   const current = new Set(
     versions.filter((entry) => entry.contentDigest === wording).map((entry) => entry.version),
   )
@@ -353,21 +452,25 @@ function currentOutcomes(
   const last = new Map(matching.map((outcome, index) => [outcome.usedLearningId, index]))
   return matching
     .filter((outcome, index) => last.get(outcome.usedLearningId) === index)
-    .map((outcome) => ({
-      id: outcome.id,
-      source: outcome.inputs.includes("reviewer_verification")
-        ? ("reviewer_confirmed" as const)
-        : ("automated" as const),
-      commitSha: outcome.commitSha,
-      prototypeId: outcome.prototypeId ?? null,
-      efficiency: outcome.efficiency,
-      followed: outcome.followed,
-      reasoning: outcome.reasoning,
-      issue: outcome.issue ?? null,
-      scoredAt: outcome.scoredAt,
-      ...(outcome.before ? { before: screenshot(outcome.before) } : {}),
-      ...(outcome.after ? { after: screenshot(outcome.after) } : {}),
-    }))
+    .map(reported)
+}
+
+function reported(
+  outcome: z.infer<typeof outcomesSchema>["outcomes"][number],
+): ReportedLearningOutcome {
+  return {
+    id: outcome.id,
+    source: outcome.inputs.includes("reviewer_verification") ? "reviewer_confirmed" : "automated",
+    commitSha: outcome.commitSha,
+    prototypeId: outcome.prototypeId ?? null,
+    efficiency: outcome.efficiency,
+    followed: outcome.followed,
+    reasoning: outcome.reasoning,
+    issue: outcome.issue ?? null,
+    scoredAt: outcome.scoredAt,
+    ...(outcome.before ? { before: screenshot(outcome.before) } : {}),
+    ...(outcome.after ? { after: screenshot(outcome.after) } : {}),
+  }
 }
 
 function screenshot(value: z.infer<typeof screenshotSchema>) {

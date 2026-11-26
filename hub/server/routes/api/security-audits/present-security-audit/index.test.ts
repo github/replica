@@ -434,6 +434,31 @@ describe("presentSecurityAudit()", () => {
       }),
     },
     {
+      label: "a failed suggested learning update",
+      event: {
+        actorMembershipId,
+        decision: "apply_update",
+        id: auditId,
+        learningId: "mem_1",
+        operationId: sessionId,
+        outcome: "failed",
+        reason: "stale_review",
+        repositoryId: providerId,
+        type: "learning_decision",
+      },
+      expected: expectedRecord({
+        action: "learning.apply_update",
+        actor: { membershipId: actorMembershipId },
+        context: {
+          repositoryId: providerId,
+          learningId: "mem_1",
+          operationId: sessionId,
+          reason: "stale_review",
+        },
+        outcome: "failure",
+      }),
+    },
+    {
       label: "repository learning acceptance request",
       event: {
         actorMembershipId,

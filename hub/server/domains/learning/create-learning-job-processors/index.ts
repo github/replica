@@ -31,6 +31,7 @@ import { readAutomaticLearningRunsEnabled } from "../read-automatic-learning-run
 import { readLearningConfiguration } from "../read-learning-configuration/index.ts"
 import { scheduleLearningRuns } from "../schedule-learning-runs/index.ts"
 import { scoreAppliedLearnings } from "../score-applied-learnings/index.ts"
+import type { LearningDecision } from "../types.ts"
 import { createConfiguredArtifactStorage } from "../../artifacts/create-configured-artifact-storage/index.ts"
 import { createJobProcessor } from "../../../integrations/bullmq/create-job-processor/index.ts"
 import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/index.ts"
@@ -393,8 +394,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
                   id: input.auditId,
                   type: "learning_decision",
                   actorMembershipId: operation.actorMembershipId,
-                  decision: operation.decision as
-                    "accept" | "reject" | "retire" | "edit" | "reinstate",
+                  decision: operation.decision as LearningDecision["decision"],
                   learningId: operation.learningId,
                   operationId: operation.id,
                   outcome: input.outcome,

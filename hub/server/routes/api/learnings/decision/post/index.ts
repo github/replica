@@ -7,6 +7,7 @@ import { respondLearningError } from "../../respond-learning-error/index.ts"
 import type { LearningsRouteDependencies } from "../../types.ts"
 
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/)
+const proposalId = z.string().regex(/^[a-z][a-z0-9]{1,15}_[A-Za-z0-9_-]{8,128}$/)
 const decisionSchema = z.discriminatedUnion("decision", [
   z
     .object({
@@ -42,6 +43,22 @@ const decisionSchema = z.discriminatedUnion("decision", [
     .object({
       decision: z.literal("reinstate"),
       digest,
+      reason: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      decision: z.literal("apply_update"),
+      proposalId,
+      title: z.string().trim().min(1).max(120).optional(),
+      content: z.string().trim().min(1).max(2000).optional(),
+      reason: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      decision: z.literal("dismiss_update"),
+      proposalId,
       reason: z.string().trim().min(1).max(500),
     })
     .strict(),

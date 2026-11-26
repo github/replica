@@ -228,7 +228,8 @@ export interface CopilotConnectionAudit extends SecurityAuditEvent {
 export interface LearningDecisionAudit extends SecurityAuditEvent {
   type: "learning_decision"
   actorMembershipId: string
-  decision: "accept" | "reject" | "retire" | "edit" | "reinstate"
+  decision:
+    "accept" | "reject" | "retire" | "edit" | "reinstate" | "apply_update" | "dismiss_update"
   learningId: string
   operationId: string
   outcome: "requested" | "succeeded" | "failed"

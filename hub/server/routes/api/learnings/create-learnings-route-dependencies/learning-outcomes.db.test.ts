@@ -82,6 +82,8 @@ describe("learning outcomes", () => {
       otherEvidenceCount: 0,
       contradictions: [],
       otherContradictionsCount: 0,
+      earlierGuidance: [],
+      updates: [],
       outcomes: [
         { ...score, id: "score_checkout", commitSha: shared, prototypeId: checkout.id },
         { ...score, id: "score_signup", commitSha: shared, prototypeId: signup.id },
@@ -104,7 +106,7 @@ describe("learning outcomes", () => {
     ])
   })
 
-  it("hides the scorer's words when a screenshot it saw is no longer shown", async () => {
+  it("hides the scorer's words, and suggestions drawn from them, when a screenshot is no longer shown", async () => {
     const repository = await prisma.repository.create({
       data: { defaultBranch: "main", githubRepositoryId: 18n, nameWithOwner: "octo/consent" },
     })
@@ -127,26 +129,43 @@ describe("learning outcomes", () => {
         finishedAt: new Date("2026-12-01T00:01:00Z"),
       },
     })
+    const withScreenshot = {
+      id: "score_with_screenshot",
+      source: "automated" as const,
+      commitSha,
+      prototypeId: prototype.id,
+      efficiency: 2,
+      followed: "followed" as const,
+      reasoning: "The screenshot shows the card number.",
+      issue: "The card number is visible.",
+      scoredAt: "2026-12-02T00:00:00.000Z",
+      after: { sha256: "d".repeat(64), route: "/checkout", consentGrantId: "grant_old" },
+    }
+    const fromDiff = {
+      ...withScreenshot,
+      id: "score_from_diff",
+      reasoning: "The diff removed the label.",
+      issue: "The label is gone.",
+      after: undefined,
+    }
+    const suggestion = {
+      issue: "Labels go missing.",
+      title: null,
+      content: "Keep a visible label on every field.",
+      reasoning: "Builds kept dropping labels.",
+    }
     vi.mocked(getLearningHistory).mockResolvedValue({
       decisions: [],
       evidence: [],
       otherEvidenceCount: 0,
       contradictions: [],
       otherContradictionsCount: 0,
-      outcomes: [
-        {
-          id: "score_with_screenshot",
-          source: "automated",
-          commitSha,
-          prototypeId: prototype.id,
-          efficiency: 2,
-          followed: "followed",
-          reasoning: "The screenshot shows the card number.",
-          issue: "The card number is visible.",
-          scoredAt: "2026-12-02T00:00:00.000Z",
-          after: { sha256: "d".repeat(64), route: "/checkout", consentGrantId: "grant_old" },
-        },
+      earlierGuidance: [],
+      updates: [
+        { ...suggestion, id: "upd_from_screenshot", support: [withScreenshot, fromDiff] },
+        { ...suggestion, id: "upd_from_diff", support: [fromDiff] },
       ],
+      outcomes: [withScreenshot],
     })
     const learnings = await createLearningsRouteDependencies(
       { HUB_APPLICATION_ORIGIN: "https://hub.example.test", DATABASE_URL: getDatabaseUrl() },
@@ -160,5 +179,11 @@ describe("learning outcomes", () => {
       expect.objectContaining({ id: "score_with_screenshot", reasoning: "", issue: null }),
     ])
     expect(history.outcomes[0]).not.toHaveProperty("after")
+    expect(history.updates).toEqual([
+      expect.objectContaining({
+        id: "upd_from_diff",
+        support: [{ prototypeId: prototype.id, prototypeName: "Checkout", number: 1 }],
+      }),
+    ])
   })
 })

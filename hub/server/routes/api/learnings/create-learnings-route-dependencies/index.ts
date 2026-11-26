@@ -37,6 +37,7 @@ import { createLearningRun } from "../../../../repositories/learning-runs/create
 import { finishLearningRun } from "../../../../repositories/learning-runs/finish-learning-run/index.ts"
 import { listLearningRuns } from "../../../../repositories/learning-runs/list-learning-runs/index.ts"
 import { listLearningActivityDays } from "../../../../repositories/learning-activity-days/list-learning-activity-days/index.ts"
+import { findLatestLearningUpdateResult } from "../../../../repositories/learning-update-runs/find-latest-learning-update-result/index.ts"
 import { createLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/create-learning-decision-operation/index.ts"
 import { deleteLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/delete-learning-decision-operation/index.ts"
 import { listLearningShares } from "../../../../repositories/learning-shares/list-learning-shares/index.ts"
@@ -244,6 +245,105 @@ export async function createLearningsRouteDependencies(
       : { state: "not-connected" as const }
   }
 
+  async function readHistory({
+    repositoryId,
+    learningId,
+  }: {
+    repositoryId: string
+    learningId: string
+  }) {
+    const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
+    const history = await getLearningHistory({
+      ...configuration,
+      evidenceSource: source,
+      learningId,
+      repositoryId,
+      repositoryScope,
+    })
+    if (repositoryScope !== (await getLearningRepositoryScope(prisma, repositoryId))) {
+      throw new LearningCommandError(
+        "repository_scope_unavailable",
+        "The repository learning scope changed. Try again.",
+      )
+    }
+    const repository = await prisma.repository.findUnique({
+      where: { id: repositoryId },
+      select: { id: true, defaultBranch: true },
+    })
+    const scored = [
+      ...history.outcomes,
+      ...history.earlierGuidance.flatMap((guidance) => guidance.outcomes),
+      ...history.updates.flatMap((update) => update.support),
+    ]
+    const builds = repository
+      ? await listSuccessfulCommitBuilds(prisma, {
+          repository,
+          commitShas: [...new Set(scored.map((outcome) => outcome.commitSha))],
+        })
+      : []
+    const consented = await consentedScreenshots(repositoryId, scored)
+    function buildOf({
+      commitSha,
+      prototypeId,
+    }: Pick<(typeof scored)[number], "commitSha" | "prototypeId">) {
+      return builds.find(
+        (candidate) =>
+          candidate.commitSha === commitSha &&
+          (prototypeId === null || candidate.prototypeId === prototypeId),
+      )
+    }
+    // The scorer's words may describe a screenshot that consent no longer covers.
+    function withheld({ before, after }: Pick<(typeof scored)[number], "before" | "after">) {
+      return Boolean(
+        (before && !consentedScreenshot(consented, before)) ||
+        (after && !consentedScreenshot(consented, after)),
+      )
+    }
+    // A score with no Build left to show is hidden rather than shown without context.
+    function shown(outcomes: typeof scored) {
+      return outcomes.flatMap((reported) => {
+        const { commitSha, prototypeId, before, after, ...outcome } = reported
+        const build = buildOf({ commitSha, prototypeId })
+        if (!build) return []
+        const shownBefore = consentedScreenshot(consented, before)
+        const shownAfter = consentedScreenshot(consented, after)
+        return [
+          {
+            ...outcome,
+            ...(withheld(reported) ? { reasoning: "", issue: null } : {}),
+            build: {
+              prototypeId: build.prototypeId,
+              prototypeName: build.prototypeName,
+              number: build.number,
+            },
+            ...(shownBefore ? { before: shownBefore } : {}),
+            ...(shownAfter ? { after: shownAfter } : {}),
+          },
+        ]
+      })
+    }
+    // Suggested wording is written from its supporting scores, so it may repeat what a
+    // hidden Build or a withdrawn screenshot showed.
+    const updates = history.updates.flatMap((update) =>
+      update.support.every((outcome) => buildOf(outcome) && !withheld(outcome))
+        ? [{ ...update, support: shown(update.support).map(({ build }) => build) }]
+        : [],
+    )
+    const lastCheck = updates.length
+      ? null
+      : await findLatestLearningUpdateResult(prisma, { repositoryId, memoryId: learningId })
+    return {
+      ...history,
+      outcomes: shown(history.outcomes),
+      earlierGuidance: history.earlierGuidance.map((guidance) => ({
+        ...guidance,
+        outcomes: shown(guidance.outcomes),
+      })),
+      updates,
+      updateNeedsMoreEvidence: lastCheck === "insufficient_evidence",
+    }
+  }
+
   return {
     applicationOrigin,
     automaticRunsEnabled: configuration.automaticRuns,
@@ -306,64 +406,7 @@ export async function createLearningsRouteDependencies(
         }
       }
     },
-    getHistory: async ({ repositoryId, learningId }) => {
-      const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
-      const history = await getLearningHistory({
-        ...configuration,
-        evidenceSource: source,
-        learningId,
-        repositoryId,
-        repositoryScope,
-      })
-      if (repositoryScope !== (await getLearningRepositoryScope(prisma, repositoryId))) {
-        throw new LearningCommandError(
-          "repository_scope_unavailable",
-          "The repository learning scope changed. Try again.",
-        )
-      }
-      const repository = await prisma.repository.findUnique({
-        where: { id: repositoryId },
-        select: { id: true, defaultBranch: true },
-      })
-      const builds = repository
-        ? await listSuccessfulCommitBuilds(prisma, {
-            repository,
-            commitShas: [...new Set(history.outcomes.map((outcome) => outcome.commitSha))],
-          })
-        : []
-      const consented = await consentedScreenshots(repositoryId, history.outcomes)
-      return {
-        ...history,
-        // A score with no Build left to show is hidden rather than shown without context.
-        outcomes: history.outcomes.flatMap(
-          ({ commitSha, prototypeId, before, after, ...outcome }) => {
-            const build = builds.find(
-              (candidate) =>
-                candidate.commitSha === commitSha &&
-                (prototypeId === null || candidate.prototypeId === prototypeId),
-            )
-            if (!build) return []
-            const shownBefore = consentedScreenshot(consented, before)
-            const shownAfter = consentedScreenshot(consented, after)
-            // The scorer's words may describe a screenshot that consent no longer covers.
-            const withheld = Boolean((before && !shownBefore) || (after && !shownAfter))
-            return [
-              {
-                ...outcome,
-                ...(withheld ? { reasoning: "", issue: null } : {}),
-                build: {
-                  prototypeId: build.prototypeId,
-                  prototypeName: build.prototypeName,
-                  number: build.number,
-                },
-                ...(shownBefore ? { before: shownBefore } : {}),
-                ...(shownAfter ? { after: shownAfter } : {}),
-              },
-            ]
-          },
-        ),
-      }
-    },
+    getHistory: readHistory,
     getAppliedLearnings: async ({ repositoryId, prototypeId, commitSha }) => {
       const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
       const applied = await getAppliedLearnings({
@@ -847,6 +890,19 @@ export async function createLearningsRouteDependencies(
             if (!(await findRepository(viewer, input.repositoryId))) {
               throw new LearningsError(404, "repository_not_found", "Repository not found.")
             }
+            // Consent or a Build can disappear after a suggestion is shown, so its
+            // wording is checked again before agents can get it.
+            const decision = input.decision
+            if (
+              decision.decision === "apply_update" &&
+              !(await readHistory(input)).updates.some(({ id }) => id === decision.proposalId)
+            ) {
+              throw new LearningsError(
+                409,
+                "stale_review",
+                "That suggested update can no longer be applied. Refresh to see the latest.",
+              )
+            }
             const authorized = await runRepositoryAuthorityTransaction(async (transaction) => {
               if (
                 !(await lockRepositoryAdministratorSession(transaction, {
@@ -866,6 +922,9 @@ export async function createLearningsRouteDependencies(
                 actorMembershipId,
                 decision: input.decision.decision,
                 learningId: input.learningId,
+                ...("proposalId" in input.decision
+                  ? { proposalId: input.decision.proposalId }
+                  : {}),
                 repositoryId: input.repositoryId,
               })
               await createSecurityAudit(transaction, {

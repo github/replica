@@ -211,4 +211,103 @@ describe("executeLearningDecision()", () => {
     expect(reasonPath).not.toBe("")
     await expect(stat(reasonPath)).rejects.toMatchObject({ code: "ENOENT" })
   })
+
+  it("applies a suggested update with its operation ID and private wording", async () => {
+    vi.mocked(validatePrivateStorageRoot).mockResolvedValue("/private/learning/repository")
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce({ updates: [{ id: "upd_1", state: "open" }] })
+      .mockImplementationOnce(async (arguments_) => {
+        expect(arguments_).toEqual(
+          expect.arrayContaining([
+            "apply-update",
+            "upd_1",
+            "--operation-id",
+            "33333333-3333-4333-8333-333333333333",
+          ]),
+        )
+        const index = arguments_.indexOf("--content-file")
+        expect(await readFile(arguments_[index + 1]!, "utf8")).toBe("Put labels above inputs.")
+        return {}
+      })
+
+    const result = await executeLearningDecision({
+      actor: "human:mona",
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      decision: {
+        decision: "apply_update",
+        proposalId: "upd_1",
+        content: "Put labels above inputs.",
+        reason: "The suggestion matches what reviewers asked for.",
+      },
+      learningDatabaseUrl: "postgresql://learning.example/replica",
+      learningId: "mem_1",
+      nodePath: "/node",
+      operationId: "33333333-3333-4333-8333-333333333333",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+
+    expect(result.notice).toBe("Suggested update applied.")
+    expect(vi.mocked(runLearningCommand).mock.calls[0]![0]).toEqual(
+      expect.arrayContaining(["updates", "mem_1"]),
+    )
+  })
+
+  it("refuses a suggested update that belongs to another learning", async () => {
+    vi.mocked(validatePrivateStorageRoot).mockResolvedValue("/private/learning/repository")
+    vi.mocked(runLearningCommand)
+      .mockReset()
+      .mockResolvedValueOnce({ updates: [{ id: "upd_1", state: "open" }] })
+
+    await expect(
+      executeLearningDecision({
+        actor: "human:mona",
+        applicationRoot: "/app",
+        cliPath: "/app/replica-learning.mjs",
+        decision: { decision: "dismiss_update", proposalId: "upd_other", reason: "Not needed." },
+        learningDatabaseUrl: "postgresql://learning.example/replica",
+        learningId: "mem_1",
+        nodePath: "/node",
+        operationId: "33333333-3333-4333-8333-333333333333",
+        repositoryId: "11111111-2222-4333-8444-555555555555",
+        repositoryScope: "github.com/repositories/123",
+        root: "/private/learning",
+        staticDirectories: [],
+      }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    expect(runLearningCommand).toHaveBeenCalledTimes(1)
+  })
+
+  it("refuses a suggested update another administrator already decided", async () => {
+    vi.mocked(validatePrivateStorageRoot).mockResolvedValue("/private/learning/repository")
+    vi.mocked(runLearningCommand)
+      .mockReset()
+      .mockResolvedValueOnce({ updates: [{ id: "upd_1", state: "applied" }] })
+
+    await expect(
+      executeLearningDecision({
+        actor: "human:mona",
+        applicationRoot: "/app",
+        cliPath: "/app/replica-learning.mjs",
+        decision: {
+          decision: "apply_update",
+          proposalId: "upd_1",
+          content: "Put labels above inputs.",
+          reason: "The suggestion matches what reviewers asked for.",
+        },
+        learningDatabaseUrl: "postgresql://learning.example/replica",
+        learningId: "mem_1",
+        nodePath: "/node",
+        operationId: "33333333-3333-4333-8333-333333333333",
+        repositoryId: "11111111-2222-4333-8444-555555555555",
+        repositoryScope: "github.com/repositories/123",
+        root: "/private/learning",
+        staticDirectories: [],
+      }),
+    ).rejects.toMatchObject({ code: "stale_review" })
+    expect(runLearningCommand).toHaveBeenCalledTimes(1)
+  })
 })

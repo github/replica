@@ -1,6 +1,8 @@
 import type { CurrentSessionDependencies } from "../auth/types.ts"
 import type { ProductViewer } from "../product/types.ts"
 import type {
+  EarlierLearningGuidance,
+  LearningUpdateSuggestion,
   AcceptedLearning,
   AppliedLearning,
   LearningDecision,
@@ -101,6 +103,10 @@ export interface LearningsRouteDependencies {
     evidence: LearningEvidence[]
     otherEvidenceCount: number
     outcomes: LearningOutcome[]
+    earlierGuidance: EarlierLearningGuidance[]
+    updates: LearningUpdateSuggestion[]
+    /** Whether the last check found too few scored uses to suggest new wording. */
+    updateNeedsMoreEvidence: boolean
   }>
   getAppliedLearnings(input: {
     repositoryId: string

@@ -8,6 +8,19 @@ const resultSchema = z
     state: z.enum(["proposed", "accepted", "rejected", "retired"]).nullable(),
   })
   .loose()
+const updatesSchema = z
+  .object({
+    updates: z.array(
+      z
+        .object({
+          id: z.string(),
+          state: z.string(),
+          decision: z.object({ operationId: z.string().optional() }).loose().optional(),
+        })
+        .loose(),
+    ),
+  })
+  .loose()
 
 export async function reconcileLearningDecisionOperation(
   operation: {
@@ -15,6 +28,7 @@ export async function reconcileLearningDecisionOperation(
     actorMembershipId: string
     decision: string
     learningId: string
+    proposalId: string | null
     repositoryId: string
   },
   dependencies: {
@@ -39,25 +53,52 @@ export async function reconcileLearningDecisionOperation(
     reinstate: "accepted",
     reject: "rejected",
     retire: "retired",
+    // An apply's edit carries the operation, so the edit landing means it worked.
+    apply_update: "accepted",
+    dismiss_update: "dismissed",
   }[operation.decision]
-  if (!expected) throw new Error("The pending learning decision is invalid.")
+  const update = operation.decision === "apply_update" || operation.decision === "dismiss_update"
+  if (!expected || (update && !operation.proposalId))
+    throw new Error("The pending learning decision is invalid.")
   await dependencies.withLock(async (signal) => {
     let outcome: "succeeded" | "failed" = "failed"
     let reason = "interrupted_or_failed"
     const store = await dependencies.prepare(operation.repositoryId)
-    const result = resultSchema.parse(
-      await dependencies.runCommand(
-        [
-          "operation-status",
-          operation.learningId,
-          "--operation-id",
-          operation.id,
-          ...learningStoreArguments(store),
-        ],
-        { signal },
-      ),
-    )
-    if (result.state === expected) {
+    async function operationState() {
+      return resultSchema.parse(
+        await dependencies.runCommand(
+          [
+            "operation-status",
+            operation.learningId,
+            "--operation-id",
+            operation.id,
+            ...learningStoreArguments(store),
+          ],
+          { signal },
+        ),
+      ).state
+    }
+    // Another administrator may decide the same suggestion later, so each request
+    // looks only for its own mark: the edit an apply made, or the dismissal it saved.
+    const state =
+      operation.decision === "dismiss_update"
+        ? updatesSchema
+            .parse(
+              await dependencies.runCommand(
+                ["updates", operation.learningId, ...learningStoreArguments(store)],
+                { signal },
+              ),
+            )
+            .updates.some(
+              (item) =>
+                item.id === operation.proposalId &&
+                item.state === "dismissed" &&
+                item.decision?.operationId === operation.id,
+            )
+          ? "dismissed"
+          : null
+        : await operationState()
+    if (state === expected) {
       outcome = "succeeded"
       reason = ""
     }

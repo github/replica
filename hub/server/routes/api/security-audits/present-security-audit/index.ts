@@ -91,6 +91,10 @@ function actorFor(record: SecurityAuditListRecord) {
     }
     case "learning.accept":
     case "learning.accept.requested":
+    case "learning.apply_update":
+    case "learning.apply_update.requested":
+    case "learning.dismiss_update":
+    case "learning.dismiss_update.requested":
     case "learning.edit":
     case "learning.edit.requested":
     case "learning.reinstate":
@@ -407,6 +411,10 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
     }
     case "learning.accept":
     case "learning.accept.requested":
+    case "learning.apply_update":
+    case "learning.apply_update.requested":
+    case "learning.dismiss_update":
+    case "learning.dismiss_update.requested":
     case "learning.edit":
     case "learning.edit.requested":
     case "learning.reinstate":

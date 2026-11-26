@@ -79,6 +79,14 @@ export type LearningDecision =
   | { decision: "retire"; reason: string }
   | { decision: "edit"; digest: string; title?: string; content?: string; reason: string }
   | { decision: "reinstate"; digest: string; reason: string }
+  | {
+      decision: "apply_update"
+      proposalId: string
+      title?: string
+      content?: string
+      reason: string
+    }
+  | { decision: "dismiss_update"; proposalId: string; reason: string }
 
 /** A learning an agent said it applied in a Build, with screenshots it may show. */
 export type AppliedLearning = {
@@ -123,3 +131,22 @@ export interface ReportedLearningOutcome {
 }
 
 type ReportedScreenshot = { sha256: string; route: string; consentGrantId?: string }
+
+/** Suggested new wording for an accepted learning, waiting for an administrator. */
+export interface LearningUpdateSuggestion<Support = LearningOutcome["build"]> {
+  id: string
+  issue: string
+  title: string | null
+  content: string
+  reasoning: string
+  /** Where the issue showed: the scores as reported, or the Builds people can open. */
+  support: Support[]
+}
+
+/** Wording agents were given before the current version, with how it was scored. */
+export interface EarlierLearningGuidance<Outcome = LearningOutcome> {
+  version: number
+  title: string | null
+  content: string
+  outcomes: Outcome[]
+}

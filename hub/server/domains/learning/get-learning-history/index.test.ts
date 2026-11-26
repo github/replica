@@ -154,6 +154,7 @@ describe("getLearningHistory()", () => {
           },
         ],
       })
+      .mockResolvedValueOnce({ updates: [] })
 
     const result = await getLearningHistory({
       applicationRoot: "/app",
@@ -197,6 +198,7 @@ describe("getLearningHistory()", () => {
           { ...outcome, id: "score_confirmed", inputs: ["build_diff", "reviewer_verification"] },
         ],
       })
+      .mockResolvedValueOnce({ updates: [] })
 
     const result = await getLearningHistory({
       applicationRoot: "/app",
@@ -313,5 +315,82 @@ describe("getLearningHistory()", () => {
     expect(observationArguments.filter((argument) => argument === "--event")).toHaveLength(1)
     expect(observationArguments).toContain("evt_1")
     expect(observationArguments).not.toContain("evt 2")
+  })
+
+  it("shows earlier wording with its own scores and only open suggested updates", async () => {
+    const outcome = {
+      commitSha: "a".repeat(40),
+      prototypeId: "proto_1",
+      efficiency: 2,
+      followed: "followed",
+      reasoning: "The labels moved inside the fields.",
+      issue: "The rule did not say where the label goes.",
+      scoredAt: "2026-11-05T00:00:00.000Z",
+      inputs: ["build_diff"],
+    }
+    const open = {
+      id: "upd_open",
+      state: "open",
+      issue: "The rule did not say where the label goes.",
+      content: "Put labels above inputs.",
+      reasoning: "Builds kept placing labels inside inputs.",
+      support: ["score_new"],
+    }
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce({
+        withheld: false,
+        record: {},
+        versions: [
+          { version: 1, state: "accepted", contentDigest: "old", content: "Label fields." },
+          // Wording changed before approval never reached agents.
+          { version: 2, state: "proposed", contentDigest: "draft", content: "Label it." },
+          { version: 3, state: "accepted", contentDigest: "new", content: "Label every field." },
+        ],
+      })
+      .mockResolvedValueOnce({
+        outcomes: [
+          { ...outcome, id: "score_old", usedLearningId: "use_1", version: 1 },
+          { ...outcome, id: "score_new", usedLearningId: "use_2", version: 3 },
+        ],
+      })
+      .mockResolvedValueOnce({
+        updates: [
+          { ...open, id: "upd_dismissed", state: "dismissed" },
+          // The package hides wording whose scores may no longer be read.
+          { id: "upd_withheld", state: "open", withheld: true, support: [] },
+          open,
+        ],
+      })
+
+    const result = await getLearningHistory({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      learningId: "mem_1",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+
+    expect(result.outcomes.map(({ id }) => id)).toEqual(["score_new"])
+    expect(result.earlierGuidance).toEqual([
+      {
+        version: 1,
+        title: null,
+        content: "Label fields.",
+        outcomes: [expect.objectContaining({ id: "score_old" })],
+      },
+    ])
+    expect(result.updates).toEqual([
+      {
+        id: "upd_open",
+        issue: "The rule did not say where the label goes.",
+        title: null,
+        content: "Put labels above inputs.",
+        reasoning: "Builds kept placing labels inside inputs.",
+        support: [expect.objectContaining({ id: "score_new", commitSha: "a".repeat(40) })],
+      },
+    ])
   })
 })

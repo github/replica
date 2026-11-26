@@ -9,8 +9,10 @@ model LearningDecisionOperation {
   actorMembership Membership @relation(fields: [actorMembershipId], references: [id], onDelete: Cascade)
 
   // Attribute columns
-  learningId String @map("learning_id") @db.VarChar(255)
-  decision   String @db.VarChar(20)
+  learningId String  @map("learning_id") @db.VarChar(255)
+  decision   String  @db.VarChar(20)
+  // Set only for decisions on a suggested update, so recovery can check that suggestion.
+  proposalId String? @map("proposal_id") @db.VarChar(255)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
