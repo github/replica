@@ -58,7 +58,8 @@ const SCHEMA = `
   create index if not exists decision_collections_by_source on records (
     scope_key,
     json_extract(body, '$.source.hubOrigin'),
-    json_extract(body, '$.source.repositoryId')
+    json_extract(body, '$.source.repositoryId'),
+    seq
   ) where stream = 'collections' and json_extract(body, '$.reviewerIdentity') = 'stable-user-id';
   create index if not exists decision_collections_by_snapshot
     on records (scope_key, json_extract(body, '$.snapshotId')) where stream = 'collections';
@@ -786,25 +787,30 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         )
         .all(key, JSON.stringify(grants.map((grant) => grant.id)))
         .map(storedRecord)
+      // Adopting stable reviewer IDs is permanent, so the earliest stable collection for a
+      // source is enough to prove it. Reading one row keeps decisions bounded.
       const stableCollections = db
         .prepare(
           `
-          select distinct ${columns
-            .split(", ")
-            .map((column) => `collection.${column}`)
-            .join(", ")}
-          from json_each(?) as source
-          join records as collection
-            on collection.scope_key = ? and collection.stream = 'collections'
-            and json_extract(collection.body, '$.reviewerIdentity') = 'stable-user-id'
-            and json_extract(collection.body, '$.source.hubOrigin')
-              is json_extract(source.value, '$.hubOrigin')
-            and json_extract(collection.body, '$.source.repositoryId')
-              is json_extract(source.value, '$.repositoryId')
-          order by collection.seq
+          select ${columns} from records
+          where seq in (
+            select (
+              select collection.seq from records as collection
+              where collection.scope_key = ? and collection.stream = 'collections'
+                and json_extract(collection.body, '$.reviewerIdentity') = 'stable-user-id'
+                and json_extract(collection.body, '$.source.hubOrigin')
+                  is json_extract(source.value, '$.hubOrigin')
+                and json_extract(collection.body, '$.source.repositoryId')
+                  is json_extract(source.value, '$.repositoryId')
+              order by collection.seq
+              limit 1
+            )
+            from json_each(?) as source
+          )
+          order by seq
         `,
         )
-        .all(JSON.stringify(hubSources), key)
+        .all(key, JSON.stringify(hubSources))
         .map(storedRecord)
       const collections = db
         .prepare(

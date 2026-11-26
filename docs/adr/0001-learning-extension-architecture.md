@@ -111,7 +111,7 @@ Learning happens first in explicit, inspectable memory. A training-purpose expor
 ## Consequences
 
 - Hub runs the explicit learning loop through the package boundary. Teams can swap the provider, labeler, or consolidator by configuration without changing core logic. After the checkout's GitHub repository ID is saved, every step except labeling with Copilot works offline.
-- One damaged policy record blocks every learning operation until someone repairs it. That is deliberate; a store that keeps running on damaged consent records can restore permissions nobody granted.
+- A damaged policy record blocks every learning operation that reads it until someone repairs it, and `verify` checks every record. That is deliberate; a store that keeps running on damaged consent records can restore permissions nobody granted. Decisions read only the records tied to their evidence, so they stay fast as a store grows.
 - Providers, labelers, and consolidators are trusted code. The store limits what they are given and re-checks what they return, but it does not sandbox them.
 - Inside a checkout, learning data and exports live only under `.replica/`, after following links, and only when Git ignores that exact path. The checkout root and names that merely start with two dots count as inside. Git ignoring a path is not enough, since a dev server or build may still serve it.
 - The command asserts identities. An integrating host must pass only identities and repository authority it authenticated.

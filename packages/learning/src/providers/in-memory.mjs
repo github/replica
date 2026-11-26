@@ -203,12 +203,17 @@ export function createInMemoryProvider() {
         withdrawalsByGrant,
         grants.map((grant) => canonicalJson([scope, grant.id])),
       )
-      const stableCollections = selected(
-        collectionsBySource,
-        hubSources.map((source) =>
-          canonicalJson([scope, source.hubOrigin ?? null, source.repositoryId ?? null]),
-        ),
-      )
+      // The earliest stable collection for a source proves adoption, matching the
+      // bounded single-row read in the database providers.
+      const earliest = new Set()
+      for (const source of hubSources) {
+        const key = canonicalJson([scope, source.hubOrigin ?? null, source.repositoryId ?? null])
+        const first = collectionsBySource.get(key)?.values().next().value
+        if (first) earliest.add(first)
+      }
+      const stableCollections = [...earliest]
+        .sort((a, b) => a.order - b.order)
+        .map((entry) => entry.record)
       const collections = selected(
         collectionsBySnapshot,
         stableCollections

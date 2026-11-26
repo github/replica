@@ -135,6 +135,43 @@ export function memoryProviderConformance({ name, createProvider }) {
       )
     })
 
+    it("returns only the earliest stable collection for each Hub source", async (t) => {
+      const provider = await fresh()
+      if (!supportsIndexedDecisions(provider)) {
+        t.skip("Provider does not support indexed learning decisions.")
+        return
+      }
+      const source = { hubOrigin: "https://replica.example.com", repositoryId: 42 }
+      function collection(id, fields) {
+        return {
+          id,
+          scope: SCOPE,
+          snapshotId: `snapshot-${id}`,
+          reviewerIdentity: "stable-user-id",
+          source,
+          digest: `sha256:${id}`,
+          ...fields,
+        }
+      }
+      await provider.appendRecords("collections", [
+        collection("collection_first"),
+        collection("collection_second"),
+        collection("collection_third"),
+        collection("collection_othersource", { source: { ...source, repositoryId: 43 } }),
+      ])
+      const inputs = await provider.readDecisionInputs(SCOPE, {
+        evidence: [],
+        at: "2026-10-09T12:00:00.000000Z",
+        purpose: "instruction",
+        hubSources: [source],
+        eventIds: [],
+      })
+      assert.deepEqual(
+        inputs.collections.map(({ id }) => id),
+        ["collection_first"],
+      )
+    })
+
     it("skips a record whose ID and digest are already stored", async () => {
       const provider = await fresh()
       const record = grant("grant_aaaaaaaa1")

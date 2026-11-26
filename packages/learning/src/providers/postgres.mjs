@@ -311,7 +311,8 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
         throw new LearningError("storage_corrupt", "A PostgreSQL record contains invalid JSON.")
       }
       const grantIds = grants.map((grant) => grant.id)
-      // Keep source lookups selective even when PostgreSQL overestimates the input array.
+      // Adopting stable reviewer IDs is permanent, so the earliest stable collection for a
+      // source is enough to prove it. Reading one row keeps decisions bounded.
       const [withdrawalResult, collectionResult, originResult] = await Promise.all([
         query(
           `select distinct withdrawal.seq, withdrawal.body
@@ -334,7 +335,8 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
                = coalesce(source.value -> 'hubOrigin', 'null'::jsonb)
              and coalesce((body::jsonb -> 'source') -> 'repositoryId', 'null'::jsonb)
                = coalesce(source.value -> 'repositoryId', 'null'::jsonb)
-             offset 0
+             order by seq
+             limit 1
            ) as collection
            order by collection.seq`,
           [key, JSON.stringify(hubSources)],

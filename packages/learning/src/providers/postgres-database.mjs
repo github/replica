@@ -76,7 +76,8 @@ const MIGRATIONS = [
       create index decision_collections_by_source on replica_learning.records (
         scope_key,
         (coalesce((body::jsonb -> 'source') -> 'hubOrigin', 'null'::jsonb)),
-        (coalesce((body::jsonb -> 'source') -> 'repositoryId', 'null'::jsonb))
+        (coalesce((body::jsonb -> 'source') -> 'repositoryId', 'null'::jsonb)),
+        seq
       ) where stream = 'collections' and (body::jsonb) ->> 'reviewerIdentity' = 'stable-user-id';
       create index decision_collections_by_snapshot on replica_learning.records
         (scope_key, ((body::jsonb) ->> 'snapshotId')) where stream = 'collections';

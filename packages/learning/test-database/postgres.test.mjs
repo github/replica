@@ -2266,7 +2266,7 @@ it("keeps decision and related-thread reads indexed and bounded", async () => {
            'snapshotId', 'snapshot-' || n,
            'reviewerIdentity', 'stable-user-id',
            'source', json_build_object(
-             'hubOrigin', 'https://replica.example.com', 'repositoryId', n
+             'hubOrigin', 'https://replica.example.com', 'repositoryId', 1
            )
          )::text
        from generate_series(1, 2500) as n`,
