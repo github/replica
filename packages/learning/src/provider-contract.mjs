@@ -44,6 +44,15 @@ import { sameScope } from "./policy.mjs"
  * conflict, or invalid_input as redactionProblem describes. This is the only
  * rewrite the contract allows, because an event's digest leaves out its payload.
  *
+ * A provider that declares the optional records.delete capability also implements
+ * deleteRecords(scope, { records, memories }, { audit }). records maps stream names to record
+ * IDs, and memories lists learning IDs. In one atomic write it removes those records and every
+ * version of those learnings in scope, then appends the audit entries; if any part fails,
+ * nothing changes. It skips IDs it does not hold and returns { records, memories } with how
+ * many it removed from each stream and how many learning versions it removed. Deletion serves
+ * retention and a person's request to remove a learning or a repository; with redaction, it is
+ * the only change to stored records the contract allows.
+ *
  * A provider with atomicDecisionFence === true implements decisionFence(scope). The returned
  * opaque token changes when eligibility records, memory versions, or scope migrations change.
  * A caller obtains it before reading eligibility and passes it as expectedDecisionFence to
@@ -62,6 +71,9 @@ export const PROVIDER_CONTRACT = Object.freeze({ name: "replica.memory-provider"
 
 /** The optional capability for removing an event's payload; see redactRecord above. */
 export const REDACT_CAPABILITY = "observation.redact"
+
+/** The optional capability for removing records and learnings; see deleteRecords above. */
+export const DELETE_CAPABILITY = "records.delete"
 
 export const REQUIRED_CAPABILITIES = Object.freeze([
   "observation.append",
@@ -206,6 +218,28 @@ export function redactionProblem(stored, record) {
       )
   }
   return null
+}
+
+/**
+ * The records and learnings a deleteRecords call removes, checked before a provider changes
+ * anything: a scope, known streams, and string IDs.
+ *
+ * @returns {{ records: Map<string, Set<string>>, memories: Set<string> }}
+ */
+export function deletionPlan(scope, { records = {}, memories = [] } = {}) {
+  assertQuery({ scope })
+  if (!records || typeof records !== "object" || Array.isArray(records) || !Array.isArray(memories))
+    throw new LearningError("invalid_input", "A deletion names records by stream and learning IDs.")
+  const plan = new Map()
+  for (const [stream, ids] of Object.entries(records)) {
+    assertStream(stream)
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string"))
+      throw new LearningError("invalid_input", "A deletion names records by their string IDs.")
+    plan.set(stream, new Set(ids))
+  }
+  if (memories.some((id) => typeof id !== "string"))
+    throw new LearningError("invalid_input", "A deletion names learnings by their string IDs.")
+  return { records: plan, memories: new Set(memories) }
 }
 
 /** Check that records are objects with an ID and a digest before a provider stores them. */

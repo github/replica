@@ -1262,12 +1262,14 @@ it("migrates only with the migration URL and lets a limited runtime login use th
     )
     await db.query(`grant usage on schema replica_learning to "${role}"`)
     await db.query(`grant select on replica_learning.schema_migrations to "${role}"`)
-    await db.query(`grant select, insert, update on replica_learning.records to "${role}"`)
-    await db.query(`grant select, insert on replica_learning.memory_versions to "${role}"`)
+    await db.query(`grant select, insert, update, delete on replica_learning.records to "${role}"`)
+    await db.query(`grant select, insert, delete on replica_learning.memory_versions to "${role}"`)
     await db.query(
       `grant select, insert, update on replica_learning.decision_generations to "${role}"`,
     )
-    await db.query(`grant select, insert on replica_learning.decision_memory_targets to "${role}"`)
+    await db.query(
+      `grant select, insert, delete on replica_learning.decision_memory_targets to "${role}"`,
+    )
     await db.query(
       `grant select, insert, delete on replica_learning.decision_grant_sources to "${role}"`,
     )
@@ -1371,6 +1373,11 @@ it("migrates only with the migration URL and lets a limited runtime login use th
     assert.deepEqual(await runtime.scopeMigrationFrom(oldScope), mapping)
     assert.equal(await runtime.hasSqliteImport(scope), true)
     assert.equal(await runtime.hasSqliteImport(oldScope), false)
+    await runtime.deleteRecords(record.scope, {
+      records: { events: [event.id] },
+      memories: [memory.id],
+    })
+    assert.deepEqual(await runtime.readMemoryVersions({ scope: record.scope }), [])
   } finally {
     await db.end()
   }

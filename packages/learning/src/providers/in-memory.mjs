@@ -3,6 +3,7 @@ import { canonicalJson } from "../canonical-json.mjs"
 import {
   PROVIDER_CONTRACT,
   DECISION_FENCE_STREAMS,
+  DELETE_CAPABILITY,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
@@ -13,6 +14,7 @@ import {
   assertStream,
   batchWrites,
   decisionGenerationFence,
+  deletionPlan,
   matchesQuery,
   newRecords,
   redactionProblem,
@@ -230,7 +232,7 @@ export function createInMemoryProvider() {
         name: "In-process memory",
         version: PRODUCER.version,
         contract: { name: PROVIDER_CONTRACT.name, versions: [PROVIDER_CONTRACT.version] },
-        capabilities: [...REQUIRED_CAPABILITIES, REDACT_CAPABILITY],
+        capabilities: [...REQUIRED_CAPABILITIES, REDACT_CAPABILITY, DELETE_CAPABILITY],
         storage: { kind: "memory" },
         externalCalls: [],
         dataRetention: "Records are lost when the process exits.",
@@ -294,6 +296,56 @@ export function createInMemoryProvider() {
     async readMemoryVersions(query) {
       assertQuery(query)
       return structuredClone(memories.filter((record) => matchesQuery("memories", record, query)))
+    },
+
+    async deleteRecords(scope, selection, { audit = [] } = {}) {
+      const plan = deletionPlan(scope, selection)
+      assertStorable(audit)
+      const receipts = structuredClone(newRecords("audit", streams.get("audit"), audit).fresh)
+      const key = canonicalJson(scope)
+      function inScope(record) {
+        return canonicalJson(record.scope) === key
+      }
+      const removed = new Set()
+      const counts = {}
+      for (const [stream, ids] of plan.records) {
+        const gone = streams.get(stream).filter((record) => ids.has(record.id) && inScope(record))
+        for (const record of gone) removed.add(record)
+        counts[stream] = gone.length
+      }
+      const goneVersions = memories.filter(
+        (record) => plan.memories.has(record.id) && inScope(record),
+      )
+      if (removed.size || goneVersions.length) changed(scope)
+      for (const stream of plan.records.keys())
+        streams.set(
+          stream,
+          streams.get(stream).filter((record) => !removed.has(record)),
+        )
+      for (const index of [
+        grantsBySource,
+        withdrawalsByGrant,
+        collectionsBySource,
+        collectionsBySnapshot,
+      ])
+        for (const entries of index.values())
+          for (const entry of entries) if (removed.has(entry.record)) entries.delete(entry)
+      for (const record of removed) {
+        const identity = canonicalJson([record.scope, record.id])
+        const thread = episodes.get(identity)
+        if (thread === undefined) continue
+        episodeThreads.get(thread)?.delete(record.id)
+        episodes.delete(identity)
+      }
+      const links = targets.get(key)
+      for (const id of plan.memories) {
+        for (const other of links?.get(id) ?? []) links.get(other)?.delete(id)
+        links?.delete(id)
+      }
+      const versions = new Set(goneVersions)
+      memories.splice(0, memories.length, ...memories.filter((record) => !versions.has(record)))
+      for (const receipt of receipts) streams.get("audit").push(receipt)
+      return { records: counts, memories: goneVersions.length }
     },
 
     async redactRecord(stream, record) {

@@ -2,6 +2,7 @@ import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
+  DELETE_CAPABILITY,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
@@ -12,6 +13,7 @@ import {
   assertStream,
   batchWrites,
   decisionGenerationFence,
+  deletionPlan,
   redactionProblem,
 } from "../provider-contract.mjs"
 import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
@@ -386,7 +388,7 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
         name: "PostgreSQL",
         version: PRODUCER.version,
         contract: { name: PROVIDER_CONTRACT.name, versions: [PROVIDER_CONTRACT.version] },
-        capabilities: [...REQUIRED_CAPABILITIES, REDACT_CAPABILITY],
+        capabilities: [...REQUIRED_CAPABILITIES, REDACT_CAPABILITY, DELETE_CAPABILITY],
         storage: {
           kind: destination.socket ? "local" : "remote",
           location: "PostgreSQL replica_learning schema",
@@ -663,6 +665,28 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
           [key, sourceDigest],
         )
         return { alreadyImported: false }
+      })
+    },
+
+    async deleteRecords(scope, selection, { audit = [] } = {}) {
+      const plan = deletionPlan(scope, selection)
+      assertStorable(audit)
+      const key = canonicalJson(scope)
+      return transaction([key], async (client) => {
+        const records = {}
+        for (const [stream, ids] of plan.records) {
+          const { rowCount } = await client.query(
+            "delete from replica_learning.records where stream = $1 and scope_key = $2 and id = any($3::text[])",
+            [stream, key, [...ids]],
+          )
+          records[stream] = rowCount
+        }
+        const { rowCount: memories } = await client.query(
+          "delete from replica_learning.memory_versions where scope_key = $1 and id = any($2::text[])",
+          [key, [...plan.memories]],
+        )
+        await insert(client, "audit", audit)
+        return { records, memories }
       })
     },
 

@@ -7,6 +7,7 @@ export {
 export { LearningError, ProviderConflictError } from "./src/errors.mjs"
 export { PURPOSES } from "./src/policy.mjs"
 export {
+  DELETE_CAPABILITY,
   PROVIDER_CONTRACT,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,

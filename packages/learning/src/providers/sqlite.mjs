@@ -14,6 +14,7 @@ import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
+  DELETE_CAPABILITY,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
@@ -24,6 +25,7 @@ import {
   assertStream,
   batchWrites,
   decisionGenerationFence,
+  deletionPlan,
   redactionProblem,
 } from "../provider-contract.mjs"
 import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
@@ -482,6 +484,8 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         order by id`),
       storedEvent: db.prepare("select body from records where stream = 'events' and id = ?"),
       replaceEvent: db.prepare("update records set body = ? where stream = 'events' and id = ?"),
+      deleteRecord: db.prepare("delete from records where stream = ? and id = ? and scope_key = ?"),
+      deleteMemory: db.prepare("delete from memory_versions where id = ? and scope_key = ?"),
       latestVersion: db.prepare(
         "select version, digest from memory_versions where id = ? order by version desc limit 1",
       ),
@@ -848,11 +852,11 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         name: "SQLite file",
         version: PRODUCER.version,
         contract: { name: PROVIDER_CONTRACT.name, versions: [PROVIDER_CONTRACT.version] },
-        capabilities: [...REQUIRED_CAPABILITIES, REDACT_CAPABILITY],
+        capabilities: [...REQUIRED_CAPABILITIES, REDACT_CAPABILITY, DELETE_CAPABILITY],
         storage: { kind: "local", location: target },
         externalCalls: [],
         dataRetention:
-          "Records stay in the file until someone deletes it. Nothing leaves the machine. Redaction overwrites removed text in the file, but backups and copies keep their own.",
+          "Records stay in the file until someone deletes them or the file. Nothing leaves the machine. Redaction and deletion overwrite removed text in the file, but backups and copies keep their own.",
       }
     },
 
@@ -1030,6 +1034,27 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
         .prepare("select metadata from scope_migrations where old_scope_key = ?")
         .get(canonicalJson(scope))
       return row ? JSON.parse(row.metadata) : null
+    },
+
+    /** Remove records and learnings in one transaction; secure_delete overwrites their text. */
+    async deleteRecords(scope, selection, { audit = [] } = {}) {
+      const plan = deletionPlan(scope, selection)
+      assertStorable(audit)
+      const key = canonicalJson(scope)
+      const result = transaction(() => {
+        const records = {}
+        for (const [stream, ids] of plan.records) {
+          records[stream] = 0
+          for (const id of ids)
+            records[stream] += statements.deleteRecord.run(stream, id, key).changes
+        }
+        let memories = 0
+        for (const id of plan.memories) memories += statements.deleteMemory.run(id, key).changes
+        insert("audit", audit)
+        return { records, memories }
+      })
+      db.exec("pragma wal_checkpoint(truncate)")
+      return result
     },
 
     /**

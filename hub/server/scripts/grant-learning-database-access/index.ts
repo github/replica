@@ -14,13 +14,13 @@ export async function grantLearningDatabaseAccess(databaseUrl: string) {
     await client.query("REVOKE ALL ON SCHEMA replica_learning FROM PUBLIC")
     await client.query("GRANT USAGE ON SCHEMA replica_learning TO replica_learning_runtime")
     await client.query(
-      "GRANT SELECT, INSERT, UPDATE ON replica_learning.records TO replica_learning_runtime",
+      "GRANT SELECT, INSERT, UPDATE, DELETE ON replica_learning.records TO replica_learning_runtime",
     )
     await client.query(
       "REVOKE UPDATE ON replica_learning.memory_versions FROM replica_learning_runtime",
     )
     await client.query(
-      "GRANT SELECT, INSERT ON replica_learning.memory_versions TO replica_learning_runtime",
+      "GRANT SELECT, INSERT, DELETE ON replica_learning.memory_versions TO replica_learning_runtime",
     )
     await client.query(
       "GRANT SELECT, INSERT ON replica_learning.scope_migrations, replica_learning.sqlite_imports TO replica_learning_runtime",
@@ -29,7 +29,7 @@ export async function grantLearningDatabaseAccess(databaseUrl: string) {
       "GRANT SELECT, INSERT, UPDATE ON replica_learning.decision_generations TO replica_learning_runtime",
     )
     await client.query(
-      "GRANT SELECT, INSERT ON replica_learning.decision_memory_targets TO replica_learning_runtime",
+      "GRANT SELECT, INSERT, DELETE ON replica_learning.decision_memory_targets TO replica_learning_runtime",
     )
     await client.query(
       "GRANT SELECT, INSERT, DELETE ON replica_learning.decision_grant_sources TO replica_learning_runtime",
