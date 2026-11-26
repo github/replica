@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { createCopilotEvaluator, scoreUsedLearning } from "../src/evaluation.mjs"
 import { connectCopilot } from "../src/labelers/copilot.mjs"
+import { LearningError } from "../src/errors.mjs"
 
 const ANSWER = { efficiency: 4, followed: "followed", reasoning: "The label stayed visible." }
 
@@ -106,6 +107,9 @@ describe("scoreUsedLearning()", () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])
     const recorded = []
     const store = {
+      async scoreFor() {
+        return null
+      },
       async evaluationInputs() {
         return {
           learning: { version: 2, title: "Visible labels", text: "Keep labels visible." },
@@ -151,6 +155,9 @@ describe("scoreUsedLearning()", () => {
 
   it("keeps no score when the evaluator gives a low score without naming the issue", async () => {
     const store = {
+      async scoreFor() {
+        return null
+      },
       async evaluationInputs() {
         return { learning: {}, report: {}, screenshots: [] }
       },
@@ -179,6 +186,68 @@ describe("scoreUsedLearning()", () => {
         },
       ),
       (error) => error.code === "unavailable" && error.details.usage[0].nanoAiu === 5,
+    )
+  })
+
+  it("returns a retried attempt's score without asking Copilot again", async () => {
+    const kept = { id: "score_1", efficiency: 3, route: { kind: "fusion", fusionTier: "max" } }
+    const store = {
+      async scoreFor() {
+        return kept
+      },
+    }
+    const evaluator = {
+      async evaluate() {
+        assert.fail("A scored attempt must not be paid for twice.")
+      },
+    }
+
+    const result = await scoreUsedLearning(
+      store,
+      {},
+      {
+        evaluator,
+        usedLearningId: "used_12345678",
+        operationId: "33333333-3333-4333-8333-333333333333",
+      },
+    )
+
+    assert.deepEqual([result.score, result.stored, result.usage], [kept, false, []])
+  })
+
+  it("reports what Copilot cost when the score cannot be saved", async () => {
+    const store = {
+      async scoreFor() {
+        return null
+      },
+      async evaluationInputs() {
+        return { learning: {}, report: {}, screenshots: [] }
+      },
+      async recordScore() {
+        throw new LearningError("not_found", "The learning was deleted.")
+      },
+    }
+    const evaluator = {
+      async evaluate() {
+        return {
+          result: ANSWER,
+          route: { kind: "fusion", fusionTier: "max" },
+          usage: [{ model: "m", inputTokens: 1, outputTokens: 1, nanoAiu: 7 }],
+        }
+      },
+    }
+
+    await assert.rejects(
+      scoreUsedLearning(
+        store,
+        {},
+        {
+          evaluator,
+          usedLearningId: "used_12345678",
+          operationId: "33333333-3333-4333-8333-333333333333",
+        },
+      ),
+      (error) => error.code === "not_found" && error.details.usage[0].nanoAiu === 7,
     )
   })
 })
