@@ -159,7 +159,7 @@ Do not bind a page selector directly to `hash` or `query` navigation. Those bind
 
 The option is only for API value bindings with a `read` method, not buttons. Ordinary API bindings keep their default-first behavior: a missing saved override writes the JSON `default` on initialization. Keep `writePage` idempotent either way.
 
-`initial: "app"` requires Copilot plugin 1.10.1 or a Hub/Build capture runtime containing this option. Older runtimes reject the definition and show a Controls error while the ordinary app keeps working. The definition and Controls protocol versions remain `1`.
+`initial: "app"` requires Copilot plugin 1.10.2 or a Hub/Build capture runtime containing this option. Older runtimes reject the definition and show a Controls error while the ordinary app keeps working. The definition and Controls protocol versions remain `1`.
 
 ## Defaults, URLs and reset
 

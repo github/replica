@@ -165,7 +165,7 @@ it("ignores legacy app-owned overrides and never saves route edits as rc values"
   await vi.waitFor(() =>
     expect(post.mock.calls.at(-1)?.[0]).toMatchObject({ type: "reply", requestId: "hello" }),
   )
-  expect(new URLSearchParams(window.location.search).has("rc.canvasPage.page")).toBe(true)
+  expect(new URLSearchParams(window.location.search).has("rc.canvasPage.page")).toBe(false)
   async function command(requestId: string, operation: string, fields: object) {
     message({
       protocol: "replica:controls",
@@ -207,6 +207,53 @@ it("ignores legacy app-owned overrides and never saves route edits as rc values"
   expect(new URLSearchParams(window.location.search).get("rc.canvasPage.title")).toBe(
     '"Saved title"',
   )
+})
+
+it("removes inactive app-owned overrides from the URL before the set mounts", async () => {
+  const post = await setup({
+    version: 1,
+    sets: [
+      declaration,
+      {
+        version: 1,
+        scope: "inactive",
+        container: "#unmounted-page",
+        controls: [
+          {
+            id: "page",
+            label: "Page",
+            type: "text",
+            default: "/default",
+            binding: {
+              type: "api",
+              object: "inactivePage",
+              read: "read",
+              write: "write",
+              subscribe: "subscribe",
+              initial: "app",
+            },
+          },
+        ],
+      },
+    ],
+  })
+  hello({
+    controlQuery: "rc.inactive.page=%22%2Fold%22&rc.inactive.title=%22Saved%22",
+  })
+  await vi.waitFor(() =>
+    expect(post.mock.calls.at(-1)?.[0]).toMatchObject({
+      type: "reply",
+      requestId: "hello",
+      state: {
+        inactiveDeclarations: [{ scope: "inactive" }],
+      },
+    }),
+  )
+  expect(new URLSearchParams(window.location.search).has("rc.inactive.page")).toBe(false)
+  expect(new URLSearchParams(window.location.search).get("rc.inactive.title")).toBe('"Saved"')
+  window.history.pushState({}, "", "/other")
+  expect(new URLSearchParams(window.location.search).has("rc.inactive.page")).toBe(false)
+  expect(new URLSearchParams(window.location.search).get("rc.inactive.title")).toBe('"Saved"')
 })
 
 it("adopts a history entry without rc values without writing its app-owned route", async () => {
@@ -577,4 +624,93 @@ it("keeps startup binding discovery pending while a mount effect registers its A
       controls: [{ id: "search", available: true, error: "" }],
     },
   })
+})
+
+it("clears saved settings before Reset all lets the app navigate", async () => {
+  let page = "Enterprise"
+  const routes: Record<string, string> = { Organization: "/org", Enterprise: "/enterprise" }
+  vi.stubGlobal("pageNavigation", {
+    readPage: () => page,
+    writePage: (next: string) => {
+      if (next === page) return
+      page = next
+      window.history.pushState({ router: next }, "", routes[next])
+    },
+  })
+  window.history.replaceState(null, "", '/enterprise?rc=1&rc.navigation.page="Enterprise"')
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      Response.json({
+        version: 1,
+        scope: "navigation",
+        controls: [
+          {
+            id: "page",
+            label: "Page",
+            type: "select",
+            default: "Organization",
+            options: ["Organization", "Enterprise"],
+            binding: {
+              type: "api",
+              object: "pageNavigation",
+              read: "readPage",
+              write: "writePage",
+              pollMs: 250,
+            },
+          },
+        ],
+      }),
+    ),
+  )
+  vi.spyOn(document, "readyState", "get").mockReturnValue("complete")
+  const post = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
+  dispose = installControlsBridge(origin)
+  hello({ controlQuery: 'rc.navigation.page="Enterprise"' })
+  await vi.waitFor(() => expect(post.mock.calls.at(-1)?.[0]).toMatchObject({ type: "reply" }))
+  const controller = getControlsRuntime().list()[0]!
+  message({
+    protocol: "replica:controls",
+    version: 1,
+    epoch: "canvas-epoch",
+    requestId: "restore",
+    type: "command",
+    command: {
+      operation: "restore",
+      scope: "navigation",
+      fingerprint: JSON.stringify(controller.declaration),
+      revision: controller.getSnapshot().revision,
+      values: { page: "Enterprise" },
+    },
+  })
+  await vi.waitFor(() =>
+    expect(post.mock.calls.at(-1)?.[0]).toMatchObject({ type: "reply", requestId: "restore" }),
+  )
+  expect(window.location.pathname).toBe("/enterprise")
+  expect(new URLSearchParams(window.location.search).get("rc.navigation.page")).toBe('"Enterprise"')
+  message({
+    protocol: "replica:controls",
+    version: 1,
+    epoch: "canvas-epoch",
+    requestId: "reset",
+    type: "command",
+    command: {
+      operation: "reset-all",
+      contexts: [
+        {
+          scope: "navigation",
+          fingerprint: JSON.stringify(controller.declaration),
+          revision: controller.getSnapshot().revision,
+        },
+      ],
+    },
+  })
+  await vi.waitFor(() =>
+    expect(post.mock.calls.at(-1)?.[0]).toMatchObject({ type: "reply", requestId: "reset" }),
+  )
+  expect(post.mock.calls.at(-1)?.[0]).not.toHaveProperty("error")
+  expect(window.location.pathname).toBe("/org")
+  expect(new URLSearchParams(window.location.search).has("rc.navigation.page")).toBe(false)
+  window.dispatchEvent(new PopStateEvent("popstate"))
+  expect(post.mock.calls.at(-1)?.[0]).toMatchObject({ type: "snapshot", controlQuery: "" })
 })

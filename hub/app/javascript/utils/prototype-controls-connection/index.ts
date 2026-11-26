@@ -11,6 +11,7 @@ import { validControlsState } from "../prototype-controls-protocol/valid-state"
 import type { ControlFieldResult } from "./types"
 import { nonDefaultValues } from "../prototype-controls-url/non-default-values"
 import { savedValues } from "../prototype-controls-url/saved-values"
+import { excludeAppOwnedValues } from "../prototype-controls-url/exclude-app-owned-values"
 import type { ControlValues } from "../prototype-controls-url/constants"
 import { encodeControlValues } from "../prototype-controls-url/encode-control-values"
 import { readControlQuery } from "../prototype-controls-url/read-control-query"
@@ -79,12 +80,33 @@ export class ControlsConnection {
     private surface: "canvas" | "build" = "canvas",
   ) {}
   getSnapshot = () => this.state
+  private withoutAppOwned(values: ControlValues, state: ControlsState = this.state): ControlValues {
+    const declarations = new Map(
+      [...this.cachedScopes.values()].map((scope) => [scope.declaration.scope, scope.declaration]),
+    )
+    for (const declaration of state.inactiveDeclarations ?? [])
+      declarations.set(declaration.scope, declaration)
+    for (const scope of state.scopes) declarations.set(scope.declaration.scope, scope.declaration)
+    return excludeAppOwnedValues(values, [...declarations.values()])
+  }
   getControlValues = (): ControlValues => {
-    const values: ControlValues = structuredClone(this.saved?.scopes ?? {})
+    if (!this.state.runtimeAvailable || !["ready", "no-controls"].includes(this.state.status))
+      return {}
+    const values: ControlValues = this.withoutAppOwned(this.saved?.scopes ?? {})
     const scopes = new Map(this.cachedScopes)
     for (const scope of this.state.scopes) scopes.set(scope.declaration.scope, scope)
     for (const [key, scope] of scopes) values[key] = savedValues(scope)
     return values
+  }
+  getControlValuesError = (): string => {
+    if (this.state.loading) return "Options are still loading. Wait before sharing settings."
+    if (this.state.storageError) return this.state.storageError
+    if (
+      (!this.state.runtimeAvailable || !["ready", "no-controls"].includes(this.state.status)) &&
+      Object.values(this.saved?.scopes ?? {}).some((values) => Object.keys(values).length > 0)
+    )
+      return "Options are unavailable. Reconnect before sharing settings."
+    return ""
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
@@ -95,7 +117,9 @@ export class ControlsConnection {
   private publish(patch: Partial<PanelState>) {
     this.state = { ...this.state, ...patch }
     this.state.hasResettableValues =
-      Object.values(this.getControlValues()).some((values) => Object.keys(values).length > 0) ||
+      Object.values(this.withoutAppOwned(this.saved?.scopes ?? {})).some(
+        (values) => Object.keys(values).length > 0,
+      ) ||
       [...this.cachedScopes.values(), ...this.state.scopes].some(
         (scope) => Object.keys(nonDefaultValues(scope)).length > 0,
       )
@@ -282,6 +306,7 @@ export class ControlsConnection {
     if ((data.sequence ?? -1) > this.sequence) {
       if (data.type === "snapshot" && data.controlQuery !== undefined && this.saved) {
         const parsed = readControlQuery(data.controlQuery)
+        const scopes = this.withoutAppOwned(parsed.scopes, data.state)
         const identity = this.saved.identity
         const epoch = this.epoch
         this.stop()
@@ -291,7 +316,7 @@ export class ControlsConnection {
         void this.api({
           method: "POST",
           signal: requests.signal,
-          body: JSON.stringify({ identity, replace: true, scopes: parsed.scopes }),
+          body: JSON.stringify({ identity, replace: true, scopes }),
         })
           .then(() => {
             if (this.epoch !== epoch || requests.signal.aborted) return
@@ -312,7 +337,8 @@ export class ControlsConnection {
         const epoch = this.epoch
         const requests = this.requests
         const parsed = readControlQuery(data.controlQuery)
-        this.saved.scopes = parsed.scopes
+        const scopes = this.withoutAppOwned(parsed.scopes, data.state)
+        this.saved.scopes = scopes
         this.restored.clear()
         this.persisted.clear()
         this.cachedScopes.clear()
@@ -323,7 +349,7 @@ export class ControlsConnection {
           body: JSON.stringify({
             identity: this.saved.identity,
             replace: true,
-            scopes: parsed.scopes,
+            scopes,
           }),
         }).catch((error) => {
           if (this.epoch !== epoch || this.stopped || requests.signal.aborted) return
@@ -332,6 +358,13 @@ export class ControlsConnection {
               error instanceof Error ? error.message : "Options history could not be restored.",
           })
         })
+      }
+      if (this.saved) {
+        const filtered = this.withoutAppOwned(this.saved.scopes, data.state)
+        for (const [scope, values] of Object.entries(filtered))
+          if (JSON.stringify(values) !== JSON.stringify(this.saved.scopes[scope]))
+            this.persistValues(scope, values)
+        this.saved.scopes = filtered
       }
       this.sequence = data.sequence!
       const status = data.state.status
@@ -502,11 +535,13 @@ export class ControlsConnection {
       this.publish({ loading: this.preparing.size > 0 })
   }
   private persist(scope: ScopeSnapshot) {
+    this.persistValues(scope.declaration.scope, savedValues(scope))
+  }
+  private persistValues(scope: string, values: Record<string, unknown>) {
     if (!this.saved || this.state.storageError) return
-    const values = savedValues(scope)
     const serialized = JSON.stringify(values)
-    if (this.persisted.get(scope.declaration.scope) === serialized) return
-    this.persisted.set(scope.declaration.scope, serialized)
+    if (this.persisted.get(scope) === serialized) return
+    this.persisted.set(scope, serialized)
     const identity = this.saved.identity
     const epoch = this.epoch
     const signal = this.requests.signal
@@ -520,7 +555,7 @@ export class ControlsConnection {
             signal,
             body: JSON.stringify({
               identity,
-              scope: scope.declaration.scope,
+              scope,
               values,
             }),
           })
@@ -528,10 +563,11 @@ export class ControlsConnection {
             const saved = await this.api()
             this.checkSaved(saved)
             if (this.epoch !== epoch || this.stopped) return
+            saved.scopes = this.withoutAppOwned(saved.scopes)
             this.saved = saved
             await this.send("command", {
               operation: "url",
-              scope: scope.declaration.scope,
+              scope,
               query: encodeControlValues(saved.scopes),
             })
           }

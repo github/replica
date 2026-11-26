@@ -14,6 +14,7 @@ export type ControlsState = {
   reconnectRequired?: boolean
   status: "ready" | "no-controls" | "missing-runtime" | "unsupported-runtime" | "invalid-config"
   scopes: ScopeSnapshot[]
+  inactiveDeclarations?: Declaration[]
   scopeErrors?: readonly { scope: string; error: string }[]
   error?: string
 }

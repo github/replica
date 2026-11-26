@@ -11,6 +11,7 @@ import { scopeProjection } from "@utils/prototype-controls-protocol/scope-projec
 import { validControlsValues } from "@utils/prototype-controls-protocol/valid-values"
 import { installControlsUrl } from "@utils/install-prototype-controls-url"
 import { savedValues } from "@utils/prototype-controls-url/saved-values"
+import { excludeAppOwnedValues } from "@utils/prototype-controls-url/exclude-app-owned-values"
 import { controlsStatus } from "@utils/prototype-controls-status"
 
 export function installControlsBridge(parentOrigin: string) {
@@ -48,6 +49,11 @@ export function installControlsBridge(parentOrigin: string) {
       urlError = message
       send("snapshot", "event")
     },
+    (values) =>
+      excludeAppOwnedValues(
+        values,
+        (runtime?.list() ?? []).map((controller) => controller.declaration),
+      ),
   )
   async function load() {
     try {
@@ -133,8 +139,18 @@ export function installControlsBridge(parentOrigin: string) {
     }
   }
   function state(): ControlsState {
+    const inactiveDeclarations = (runtime?.list() ?? [])
+      .filter(
+        (controller) =>
+          controller.mountedCount === 0 &&
+          controller.declaration.controls.some(
+            (control) => control.binding?.type === "api" && control.binding.initial === "app",
+          ),
+      )
+      .map((controller) => controller.declaration)
     return {
       ...runtimeState(),
+      ...(inactiveDeclarations.length ? { inactiveDeclarations } : {}),
       scopeErrors: [],
       reconnectRequired,
       ...(reconnectRequired ? { error: "Reconnect controls before sending more commands." } : {}),
@@ -252,9 +268,10 @@ export function installControlsBridge(parentOrigin: string) {
       seen.clear()
       reconnectRequired = false
       restoredScopes.clear()
+      if (!loaded) await ready
+      if (disposed || epoch !== data.epoch) return
       const fromFrameUrl = data.fromFrameUrl && controlsUrl?.managed()
       controlsUrl?.set(fromFrameUrl ? controlsUrl.current() : (data.controlQuery ?? ""))
-      if (!loaded) await ready
       send("reply", data.requestId, undefined, fromFrameUrl ? controlsUrl?.current() : undefined)
       return
     }
@@ -315,6 +332,8 @@ export function installControlsBridge(parentOrigin: string) {
         )
           throw new Error("Controls changed. The stale reset was not applied.")
         restoredScopes.clear()
+        // Clear saved settings first so app navigation during reset cannot carry them forward.
+        controlsUrl.set("")
         await bindings?.reset(undefined, guard)
       } else {
         const controller = runtime
