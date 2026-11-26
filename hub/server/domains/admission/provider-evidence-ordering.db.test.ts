@@ -149,7 +149,7 @@ async function startAuthentication(baseUrl: string) {
   })
   const location = response.headers.location
   const browserCookie = response.headers["set-cookie"]
-    ?.find((cookie) => cookie.startsWith("hub_auth_browser="))
+    ?.find((cookie) => cookie.startsWith("__Host-hub_auth_browser="))
     ?.split(";")[0]
   const state = location ? new URL(location).searchParams.get("state") : null
   const nonce = location ? new URL(location).searchParams.get("nonce") : null

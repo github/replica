@@ -299,8 +299,9 @@ it("validates the authoritative origin and explicit proxy hops while preserving 
     .mockResolvedValueOnce("https://unbound.example.com")
     .mockResolvedValueOnce("https://bound.example.com")
     .mockResolvedValueOnce("")
+    .mockResolvedValueOnce("0")
     .mockResolvedValueOnce("11")
-    .mockResolvedValueOnce("2")
+    .mockResolvedValueOnce("10")
 
   const desired = await configurePostSetup(test.context, "sign-in", test.inputs, test.deployment)
 
@@ -311,7 +312,7 @@ it("validates the authoritative origin and explicit proxy hops while preserving 
     hub_application_origin: "https://bound.example.com",
     runtime_environment_variables: {
       ...original.runtime_environment_variables,
-      HUB_TRUSTED_PROXY_HOPS: "2",
+      HUB_TRUSTED_PROXY_HOPS: "10",
     },
   })
   expect(test.inputs).toEqual(original)

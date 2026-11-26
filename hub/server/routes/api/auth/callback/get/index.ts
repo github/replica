@@ -40,6 +40,7 @@ export function get(
   applicationOrigin: string,
 ): RequestHandler {
   const host = new URL(applicationOrigin).host
+  const browserCookie = browserAuthenticationCookieName(dependencies.secureCookie)
   return async (request, response, next) => {
     if (dependencies.secureCookie && (!request.secure || request.get("host") !== host)) {
       response.sendStatus(404)
@@ -47,9 +48,7 @@ export function get(
     }
 
     const query = querySchema.safeParse(request.query)
-    const browserBinding = browserBindingSchema.safeParse(
-      readCookie(request, browserAuthenticationCookieName),
-    )
+    const browserBinding = browserBindingSchema.safeParse(readCookie(request, browserCookie))
     if (
       !query.success ||
       !browserBinding.success ||
@@ -57,7 +56,7 @@ export function get(
     ) {
       response.setHeader(
         "Set-Cookie",
-        clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+        clearAuthenticationCookie(browserCookie, dependencies.secureCookie),
       )
       response.redirect(303, "/?authentication=denied")
       return
@@ -90,7 +89,7 @@ export function get(
         }
         response.setHeader(
           "Set-Cookie",
-          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+          clearAuthenticationCookie(browserCookie, dependencies.secureCookie),
         )
         const operation = await dependencies.verifyAdministratorAuthorization({
           authorizationAttemptId: completed.proof.authorizationAttemptId,
@@ -128,7 +127,7 @@ export function get(
           ? readCanvasSignInReturn(request, browserBinding.data)
           : null
       response.setHeader("Set-Cookie", [
-        clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+        clearAuthenticationCookie(browserCookie, dependencies.secureCookie),
         ...(returnTo
           ? [clearAuthenticationCookie(canvasSignInReturnCookie, dependencies.secureCookie)]
           : []),
@@ -147,7 +146,7 @@ export function get(
       if (error instanceof AdmissionUnavailableError) {
         response.setHeader(
           "Set-Cookie",
-          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+          clearAuthenticationCookie(browserCookie, dependencies.secureCookie),
         )
         response.setHeader("Retry-After", "1")
         response
@@ -163,9 +162,7 @@ export function get(
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
         const noAccess =
           error instanceof AdmissionDeniedError && error.reason === "no_repository_access"
-        const cookies = [
-          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
-        ]
+        const cookies = [clearAuthenticationCookie(browserCookie, dependencies.secureCookie)]
         if (
           noAccess &&
           githubLogin &&

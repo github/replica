@@ -69,7 +69,7 @@ export function post(dependencies: CopilotConnectionRouteDependencies): RequestH
         "Set-Cookie",
         createAuthenticationCookie({
           expiresAt: started.expiresAt,
-          name: browserAuthenticationCookieName,
+          name: browserAuthenticationCookieName(provider.secureCookie),
           secure: provider.secureCookie,
           value: started.browserBinding,
         }),

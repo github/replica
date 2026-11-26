@@ -19,7 +19,7 @@ export function redirectAuthenticationStart(
   response.setHeader("Set-Cookie", [
     createAuthenticationCookie({
       expiresAt: result.expiresAt,
-      name: browserAuthenticationCookieName,
+      name: browserAuthenticationCookieName(secureCookie),
       secure: secureCookie,
       value: result.browserBinding,
     }),

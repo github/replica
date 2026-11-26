@@ -153,6 +153,7 @@ describe("server runtime", () => {
     const disableAuthenticationProviders = vi.fn().mockResolvedValue(undefined)
     const githubSetup = { readStatus: vi.fn() }
     configureSharedSettings()
+    vi.stubEnv("HUB_TRUSTED_PROXY_HOPS", undefined)
     vi.mocked(parseRuntimeConfig).mockReturnValue({
       ...apiConfiguration,
       databaseUrl: "postgresql://hub.example.test/replica",
@@ -170,7 +171,12 @@ describe("server runtime", () => {
 
     expect(disableAuthenticationProviders).toHaveBeenCalledOnce()
     expect(runApi).toHaveBeenCalledWith(
-      expect.objectContaining({ authentication: undefined, githubSetup, product: undefined }),
+      expect.objectContaining({
+        authentication: undefined,
+        githubSetup,
+        product: undefined,
+        trustedProxyHops: 0,
+      }),
     )
   })
 
@@ -283,6 +289,7 @@ describe("server runtime", () => {
     vi.stubEnv("HUB_AUTHENTICATION_ENCRYPTION_KEY", "")
     vi.stubEnv("HUB_BOOTSTRAP_SECRET", "")
     vi.stubEnv("HUB_LOCAL_SIGN_IN", "true")
+    vi.stubEnv("HUB_TRUSTED_PROXY_HOPS", undefined)
     vi.stubEnv("NODE_ENV", "development")
     vi.mocked(parseRuntimeConfig).mockReturnValue({
       ...apiConfiguration,
@@ -327,7 +334,13 @@ describe("server runtime", () => {
       { scopeGitHubMembers: false },
     )
     expect(runApi).toHaveBeenCalledWith(
-      expect.objectContaining({ authentication, copilotConnection, learnings, product }),
+      expect.objectContaining({
+        authentication,
+        copilotConnection,
+        learnings,
+        product,
+        trustedProxyHops: 0,
+      }),
     )
   })
 
@@ -341,6 +354,68 @@ describe("server runtime", () => {
     expect(logger.fatal).toHaveBeenCalledWith(
       "DATABASE_URL is required when authentication settings are configured.",
     )
+  })
+
+  it.each([
+    { provider: "GitHub", mode: "api", hops: undefined, label: "omitted" },
+    { provider: "Entra", mode: "combined", hops: "0", label: "zero" },
+  ] as const)(
+    "rejects HTTPS authentication before creating $provider providers in $mode mode with $label proxy hops",
+    async ({ provider, mode, hops }) => {
+      const createAuthenticationRouteDependencies = vi
+        .fn()
+        .mockRejectedValue(new Error("Unexpected provider creation"))
+      const disableAuthenticationProviders = vi.fn()
+      configureSharedSettings()
+      if (provider === "GitHub") {
+        configureGitHubApp()
+      } else {
+        vi.stubEnv("ENTRA_OIDC_CLIENT_AUTHENTICATION", "client-secret")
+        vi.stubEnv("ENTRA_OIDC_CLIENT_ID", "00000000-0000-4000-8000-000000000001")
+        vi.stubEnv("ENTRA_OIDC_CLIENT_SECRET", "synthetic-client-secret")
+        vi.stubEnv(
+          "ENTRA_OIDC_ISSUER",
+          "https://login.microsoftonline.com/00000000-0000-4000-8000-000000000002/v2.0",
+        )
+        vi.stubEnv("ENTRA_OIDC_PROVIDER_REVISION", "1")
+      }
+      vi.stubEnv("HUB_TRUSTED_PROXY_HOPS", hops)
+      vi.mocked(parseRuntimeConfig).mockReturnValue({
+        ...apiConfiguration,
+        mode,
+        databaseUrl: "postgresql://hub.example.test/replica",
+      })
+      vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
+        createAuthenticationRouteDependencies,
+        disableAuthenticationProviders,
+      }))
+
+      await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+      expect(createAuthenticationRouteDependencies).not.toHaveBeenCalled()
+      expect(disableAuthenticationProviders).not.toHaveBeenCalled()
+      expect(logger.fatal).toHaveBeenCalledWith(expect.stringContaining("HUB_TRUSTED_PROXY_HOPS"))
+      expect(runApi).not.toHaveBeenCalled()
+      expect(startServerProcesses).not.toHaveBeenCalled()
+    },
+  )
+
+  it("starts the scheduled worker without HTTPS authentication proxy hops", async () => {
+    configureSharedSettings()
+    configureGitHubApp()
+    vi.stubEnv("HUB_TRUSTED_PROXY_HOPS", "0")
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      mode: "scheduled",
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
+
+    await expect(import("./index.ts")).resolves.toBeDefined()
+
+    expect(runJobWorker).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "scheduled" }),
+    )
+    expect(runApi).not.toHaveBeenCalled()
   })
 
   it.each(["api", "combined"] as const)(
@@ -418,6 +493,7 @@ describe("server runtime", () => {
     }
     configureSharedSettings()
     configureGitHubApp()
+    vi.stubEnv("HUB_TRUSTED_PROXY_HOPS", "1")
     const copilotConnection = {
       applicationOrigin: "https://hub.example.test",
     }
@@ -482,6 +558,7 @@ describe("server runtime", () => {
         githubSetup,
         learnings,
         product,
+        trustedProxyHops: 1,
       }),
     )
   })

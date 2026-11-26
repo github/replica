@@ -168,11 +168,15 @@ describe("copilotConnectionRoutes()", () => {
 
   it("requires explicit confirmation and binds fresh authorization to the saved generation", async () => {
     const { authentication, copilotConnection, github } = routeDependencies()
+    const origin = "https://hub.example.test"
+    copilotConnection.applicationOrigin = origin
+    Object.assign(authentication.signOut, { applicationOrigin: origin, secureCookie: true })
+    Object.assign(github.dependencies, { applicationOrigin: origin, secureCookie: true })
 
     await withServer(authentication, copilotConnection, async (baseUrl) => {
       const denied = await fetch(`${baseUrl}/api/copilot-connection/authorizations/start`, {
         method: "POST",
-        headers: sessionHeaders({ "content-type": "application/json", origin: applicationOrigin }),
+        headers: sessionHeaders({ "content-type": "application/json", origin }),
         body: JSON.stringify({ operation: "CONNECT_COPILOT" }),
       })
 
@@ -181,11 +185,14 @@ describe("copilotConnectionRoutes()", () => {
 
       const response = await fetch(`${baseUrl}/api/copilot-connection/authorizations/start`, {
         method: "POST",
-        headers: sessionHeaders({ "content-type": "application/json", origin: applicationOrigin }),
+        headers: sessionHeaders({ "content-type": "application/json", origin }),
         body: JSON.stringify({ confirmed: true, operation: "CONNECT_COPILOT" }),
       })
 
       expect(response.status).toBe(200)
+      expect(response.headers.getSetCookie()).toEqual([
+        expect.stringMatching(/^__Host-hub_auth_browser=browser-binding-with-required-length;/),
+      ])
       expect(github.start).toHaveBeenCalledWith({
         actorMembershipId: session.membershipId,
         expectedCopilotGeneration: 7n,

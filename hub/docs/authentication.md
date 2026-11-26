@@ -6,6 +6,8 @@ Hub exposes same-request GitHub and Microsoft Entra sign-in flows. An installati
 
 The start primitive selects the configured provider revision, snapshots the global session revocation revision, creates opaque state, browser binding, PKCE verifier, and nonce, and persists one short-lived authorization attempt. PostgreSQL owns attempt creation, expiry, locking, and one-use consumption time. The stored attempt contains digests plus encrypted verifier and nonce state, not raw state, browser binding, or provider tokens.
 
+On HTTPS, Hub uses the host-only `__Host-hub_auth_browser` cookie for the browser binding. Restart a sign-in or sensitive authorization that was already in progress when upgrading from a release that used `hub_auth_browser` on HTTPS. HTTP loopback development still uses `hub_auth_browser`.
+
 GitHub and Entra adapters are defined in code, not discovered from database records. Startup validates every complete adapter before one serializable transaction creates, selects, enables, or disables provider revisions. Operators do not seed provider rows. Failed validation or reconciliation leaves every current provider selection unchanged. An incomplete GitHub App configuration disables GitHub until repaired; a complete but invalid configuration fails startup. Removing or disabling a previously selected provider disables its authority and advances the global session revocation revision. Re-enabling it requires the next consecutive provider revision, even when its validated configuration is otherwise unchanged, so previous-version replicas also reject pre-removal attempts.
 
 Increment `GITHUB_PROVIDER_REVISION` for every GitHub App configuration or credential change, and before re-enabling a disabled provider. The digest covers public settings, not secret values. Keep the revision unchanged for an ordinary restart with the same validated enabled provider settings.
@@ -99,9 +101,9 @@ The callback must receive the original Hub session cookie and prove the same ext
 
 Hub creates a fresh opaque session value only after admission succeeds. The browser receives it in an `HttpOnly`, `SameSite=Lax` cookie with a bounded lifetime. On HTTPS, the sign-in callback must arrive at the configured Hub host over HTTPS. It sets `__Host-hub_session` with `Secure`, `Path=/`, and no `Domain`, so the browser confines the cookie to that host. HTTP loopback development still uses `hub_session`. The database stores only the session value's SHA-256 digest.
 
-If ingress terminates TLS, preserve the public Hub `Host` and configure the [trusted proxy chain](deployment.md#image-and-runtime) so Hub recognizes the original HTTPS connection. Verify a fresh provider sign-in after updating Hub; `/api/ready` does not exercise the callback.
+If ingress terminates TLS, preserve the public Hub `Host` and configure the [trusted proxy chain](deployment.md#image-and-runtime) so Hub recognizes the original HTTPS connection. Hub refuses to start with HTTPS sign-in enabled and no trusted proxy hops. Verify a fresh provider sign-in after updating Hub; `/api/ready` does not exercise the callback.
 
-Existing `hub_session` cookies still work for ordinary Hub use until the session expires or ends. If the protected cookie is present, Hub never falls back to the legacy one, even if the protected session is invalid. Hub never exchanges a legacy cookie for a protected one; a fresh HTTPS sign-in sets the new cookie and removes the old one. Sign-out clears both names on HTTPS.
+Existing `hub_session` cookies still work for ordinary Hub use until the session expires or ends. On HTTPS, Hub never falls back to the legacy cookie when the protected cookie is present, even if the protected session is invalid. On HTTP, Hub reads only `hub_session`. A fresh HTTPS sign-in sets the protected cookie and removes the old one rather than exchanging it. HTTPS sign-out ends the distinct sessions presented under both names before clearing the cookies.
 
 Do not serve requests from old and new Hub versions at the same time. An older Hub that only reads `hub_session` does not recognize or clear the protected cookie. After rollback, users who received the protected cookie must sign in again. Before restoring a release that reads it, allow protected sessions issued before the rollback to expire (at most 12 hours from the last issuance), or use an approved global sign-out. Otherwise a browser can return with a still-valid protected session that the older release could not end. The cookie change does not require a database rollback.
 
@@ -165,7 +167,7 @@ Start and sign-out requests require the exact configured application origin. Aut
 
 Home sign-in forms submit native, form-encoded requests without a legacy `authenticity_token` field. The start routes accept only the optional `switch_account=true` choice and reject unknown fields. Exact-origin checks protect these submissions against cross-site requests; OAuth state and the browser-binding cookie protect the callback.
 
-The address digest uses the trusted client address. Behind a protected proxy, configure `HUB_TRUSTED_PROXY_HOPS` to the exact proxy-chain length; leaving it at zero intentionally treats the proxy as the client and shares one rate-limit budget across traffic from that proxy.
+The address digest uses the trusted client address. For HTTPS sign-in, set `HUB_TRUSTED_PROXY_HOPS` to the exact protected proxy-chain length (1–10). Leave it at zero for direct HTTP loopback access.
 
 Consumed attempts remain available as short-lived protocol state for ten minutes after consumption so a trusted same-request consumer can reread them. Cleanup removes expired unconsumed attempts and consumed attempts after that fixed retention window; this is not authentication history.
 

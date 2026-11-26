@@ -143,12 +143,22 @@ try {
         )
       }
       if (authenticationConfiguration.applicationOrigin) {
+        let sharedContext: ReturnType<typeof createSharedAuthenticationContext>
         try {
-          createSharedAuthenticationContext(authenticationEnvironment)
+          sharedContext = createSharedAuthenticationContext(authenticationEnvironment)
         } catch (error) {
           throw new AuthenticationConfigurationError(
             "HUB_APPLICATION_ORIGIN, HUB_AUTHENTICATION_ENCRYPTION_KEY, and HUB_BOOTSTRAP_SECRET must be valid before setup. See the authentication guide.",
             { cause: error },
+          )
+        }
+        if (
+          authenticationConfiguration.providerConfigured &&
+          sharedContext.secureCookie &&
+          trustedProxyHops === 0
+        ) {
+          throw new AuthenticationConfigurationError(
+            "HTTPS authentication requires HUB_TRUSTED_PROXY_HOPS between 1 and 10.",
           )
         }
       }

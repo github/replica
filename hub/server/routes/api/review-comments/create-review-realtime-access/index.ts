@@ -32,7 +32,7 @@ export function createReviewRealtimeAccess(
   return {
     async authenticate(request, signal) {
       if (request.headers.origin !== authentication.signOut.applicationOrigin) return null
-      const cookie = readHubSessionCookie(request)
+      const cookie = readHubSessionCookie(request, authentication.signOut.secureCookie)
       if (!cookie || signal.aborted) return null
       const digest = hashAuthenticationValue(cookie)
       const current = await authentication.currentSession.restore(digest)
