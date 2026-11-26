@@ -8,6 +8,7 @@ export function findPendingAgentAuthorization(
     where: { id, expiresAt: { gt: new Date() }, approvedAt: null, consumedAt: null },
     select: {
       id: true,
+      clientId: true,
       redirectUri: true,
       state: true,
       expiresAt: true,

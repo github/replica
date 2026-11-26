@@ -501,6 +501,10 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
           }
         : {}
     }
+    case "agent_connection.approve":
+      return targetId ? { agentClientId: targetId } : {}
+    case "agent_connection.revoke":
+      return targetId ? { agentConnectionId: targetId } : {}
     case "decision.candidate.rejected": {
       const parsed = z
         .object({

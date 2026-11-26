@@ -1,8 +1,9 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
+import type { CanvasAuthorityReference } from "../../canvas/authority/index.ts"
 
 export function listAgentConnections(
   database: Pick<Prisma.TransactionClient, "agentConnection">,
-  owner: { membershipId: string; externalIdentityId: string },
+  owner: CanvasAuthorityReference,
 ) {
   const now = new Date()
   return database.agentConnection.findMany({

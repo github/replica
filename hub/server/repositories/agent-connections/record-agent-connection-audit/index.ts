@@ -5,22 +5,20 @@ export function recordAgentConnectionAudit(
   input: {
     action: "agent_connection.approve" | "agent_connection.revoke"
     actorMembershipId: string
-    connectionId?: string
-    authorizationId?: string
-  },
+  } & ({ connectionId: string } | { clientId: string }),
 ) {
-  const { action, actorMembershipId, connectionId, authorizationId } = input
+  // An approval happens before its connection exists, so it names the lasting agent
+  // client instead of the short-lived authorization request.
+  const target =
+    "connectionId" in input
+      ? { targetType: "agent_connection", targetId: input.connectionId }
+      : { targetType: "agent_client", targetId: input.clientId }
   return database.securityAudit.create({
     data: {
-      action,
+      action: input.action,
       outcome: "SUCCESS",
-      targetType: connectionId ? "agent_connection" : "agent_authorization",
-      targetId: connectionId ?? authorizationId ?? null,
-      context: {
-        actorMembershipId,
-        ...(connectionId ? { connectionId } : {}),
-        ...(authorizationId ? { authorizationId } : {}),
-      },
+      ...target,
+      context: { actorMembershipId: input.actorMembershipId },
     },
   })
 }

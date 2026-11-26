@@ -106,7 +106,7 @@ export function createAgentConnections(database: PrismaClient) {
           await recordAgentConnectionAudit(transaction, {
             action: "agent_connection.approve",
             actorMembershipId: browser.viewer.membershipId,
-            authorizationId: id,
+            clientId: pending.clientId,
           })
         }
         return settled
@@ -184,15 +184,29 @@ export function createAgentConnections(database: PrismaClient) {
     },
 
     async revokeToken(clientId: string, token: string) {
-      if (accessPattern.test(token))
-        await revokeAgentConnection(database, { clientId, tokenDigest: canvasDigest(token) })
-      else if (refreshPattern.test(token))
-        await revokeAgentConnection(database, { clientId, refreshDigest: canvasDigest(token) })
+      const digest = canvasDigest(token)
+      const where = accessPattern.test(token)
+        ? { clientId, tokenDigest: digest }
+        : refreshPattern.test(token)
+          ? { clientId, refreshDigest: digest }
+          : null
+      if (!where) return
+      await database.$transaction(async (transaction) => {
+        const revoked = await revokeAgentConnection(transaction, where)
+        if (!revoked) return
+        await recordAgentConnectionAudit(transaction, {
+          action: "agent_connection.revoke",
+          actorMembershipId: revoked.membershipId,
+          connectionId: revoked.id,
+        })
+      })
     },
 
+    // Only connections that would still pass verify() are listed, so ones ended by a
+    // sign-out everywhere or a provider change do not look connected.
     list(browser: CanvasBrowser) {
-      const { membershipId, externalIdentityId } = browser.viewer
-      return listAgentConnections(database, { membershipId, externalIdentityId })
+      const reference = canvasAuthorityReference(browser.viewer)
+      return reference ? listAgentConnections(database, reference) : Promise.resolve([])
     },
 
     revokeBrowser(id: string, browser: CanvasBrowser) {
