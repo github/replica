@@ -5,8 +5,8 @@ import type { RepositoryWorkspaceData } from "@features/repository-workspace/typ
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 
-import { AgentConnectionsPrototype } from "."
-import type { AgentConnectionsPrototypeData } from "./types"
+import { AgentConnectionsPage } from "."
+import type { AgentConnectionsPageData } from "./types"
 
 const workspace: RepositoryWorkspaceData = {
   ...authenticatedHeaderData,
@@ -30,48 +30,52 @@ const workspace: RepositoryWorkspaceData = {
   welcomePath: "/welcome",
 }
 
-const connections: AgentConnectionsPrototypeData = {
-  repositoryId: "2001",
-  repositoryName: "github/prototype",
-  hubUrl: "https://hub.example.com",
-  signedInAs: "@octocat",
+const connections: AgentConnectionsPageData = {
   view: "connections",
+  repositoryName: "github/prototype",
+  mcpUrl: "https://hub.example.com/mcp/repositories/2001",
+  signedInAs: "octocat",
+  notice: null,
   connections: [
     {
       id: "agent-vscode",
       name: "Visual Studio Code",
-      connectedAt: "2026-11-18",
-      lastUsedAt: "2026-11-24",
+      connectedLabel: "Connected 11/18/2026",
+      lastUsedLabel: "Last used 11/24/2026",
+      revokePath: "/repositories/2001/learnings/agents/agent-vscode",
     },
     {
       id: "agent-local",
       name: "Local MCP client",
-      connectedAt: "2026-11-12",
-      lastUsedAt: "2026-11-21",
+      connectedLabel: "Connected 11/12/2026",
+      lastUsedLabel: "Not used yet",
+      revokePath: "/repositories/2001/learnings/agents/agent-local",
     },
   ],
 }
 
-const approval: AgentConnectionsPrototypeData = {
-  ...connections,
+const approval: AgentConnectionsPageData = {
   view: "approval",
   requestingAgent: "Visual Studio Code",
+  signedInAs: "octocat",
+  expiresLabel: "This request expires at 3:15:00 PM.",
+  decisionPath: "/agents/approve/7c9e6679-7425-40de-944b-e07fc1f90ae7",
 }
 
 const meta = {
   title: "Hub/Pages/Learnings/Agent connections",
-  component: AgentConnectionsPrototype,
+  component: AgentConnectionsPage,
   parameters: { layout: "fullscreen" },
   args: { data: connections },
   render: ({ data }) =>
     data.view === "connections" ? (
       <RepositoryWorkspace data={workspace}>
-        <AgentConnectionsPrototype data={data} />
+        <AgentConnectionsPage data={data} />
       </RepositoryWorkspace>
     ) : (
-      <AgentConnectionsPrototype data={data} />
+      <AgentConnectionsPage data={data} />
     ),
-} satisfies Meta<typeof AgentConnectionsPrototype>
+} satisfies Meta<typeof AgentConnectionsPage>
 
 export default meta
 type Story = StoryObj<typeof meta>
@@ -81,26 +85,20 @@ export const NoConnectedAgents: Story = {
   args: { data: { ...connections, connections: [] } },
 }
 export const RevokeConfirmation: Story = {
-  args: { data: connections },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Revoke Visual Studio Code access" }))
     await canvas.findByRole("dialog", { name: "Revoke agent access?" })
   },
 }
+export const Revoked: Story = {
+  args: {
+    data: {
+      ...connections,
+      connections: connections.connections.slice(1),
+      notice: "Agent access revoked.",
+    },
+  },
+}
 export const ApprovalRequest: Story = {
   args: { data: approval },
-}
-export const Approved: Story = {
-  args: { data: approval },
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: "Approve access" }))
-    await canvas.findByRole("heading", { name: "Agent connected" })
-  },
-}
-export const Cancelled: Story = {
-  args: { data: approval },
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: "Cancel" }))
-    await canvas.findByRole("heading", { name: "Connection cancelled" })
-  },
 }

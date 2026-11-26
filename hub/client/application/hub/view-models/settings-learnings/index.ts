@@ -334,6 +334,7 @@ export function settingsLearnings(
           ? null
           : `Copilot used ${formatCredits(state.usageCredits)} for this repository in the last 30 days.`,
     },
+    agentsPath: `/repositories/${repositoryId}/learnings/agents`,
     run: {
       path: `/repositories/${repositoryId}/learnings/runs`,
       available: state.permissions.requestRun && state.runAvailable,

@@ -1336,6 +1336,26 @@ describe("real workspace navigation", () => {
     expect(screen.queryByRole("link", { name: "Prototypes" })).not.toBeInTheDocument()
   })
 
+  it("returns to an agent's approval request after sign-in", async () => {
+    const path = "/agents/approve/7c9e6679-7425-40de-944b-e07fc1f90ae7"
+    await renderApplication(path, [
+      json("/api/auth/providers", { providers: ["github"] }),
+      ...[
+        "/api/auth/session",
+        "/api/agent-connections/authorizations/7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      ].map((endpoint) =>
+        http.get(`${window.location.origin}${endpoint}`, () =>
+          Response.json({ error: "Sign in to continue." }, { status: 401 }),
+        ),
+      ),
+    ])
+
+    const signIn = await screen.findByRole<HTMLButtonElement>("button", {
+      name: "Sign in with GitHub",
+    })
+    expect(new FormData(signIn.form ?? undefined).get("return_to")).toBe(path)
+  })
+
   it("shows a disabled picker and Prototypes without Create on a repository-free landing", async () => {
     await renderApplication("/repositories", workspaceApi([]))
 

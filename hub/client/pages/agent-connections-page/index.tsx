@@ -5,67 +5,55 @@ import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { CopyableCodeBlock } from "@components/copyable-code-block"
 import { HubToast } from "@components/hub-toast"
 
-import type { AgentConnectionsPrototypeData } from "./types"
+import type { AgentConnectionsPageData } from "./types"
 import "./styles.css"
 
-export function AgentConnectionsPrototype({ data }: { data: AgentConnectionsPrototypeData }) {
-  const [connections, setConnections] = useState(data.connections)
+/**
+ * Lets people approve a coding agent's request to use their Hub access, and review or
+ * revoke the agents they already connected.
+ */
+export function AgentConnectionsPage({
+  data,
+  busy = false,
+}: {
+  data: AgentConnectionsPageData
+  busy?: boolean
+}) {
   const [connectionToRevoke, setConnectionToRevoke] = useState<string | null>(null)
-  const [notice, setNotice] = useState("")
-  const [approval, setApproval] = useState<"pending" | "approved" | "cancelled">("pending")
   const connectionsHeadingRef = useRef<HTMLHeadingElement>(null)
-  const endpoint = `${data.hubUrl.replace(/\/$/, "")}/mcp/repositories/${data.repositoryId}`
-  const configuration = JSON.stringify({ mcpServers: { replica: { url: endpoint } } }, null, 2)
-  const selectedConnection = connections.find(({ id }) => id === connectionToRevoke)
-
-  function revokeConnection() {
-    if (!selectedConnection) return
-    setConnections((current) => current.filter(({ id }) => id !== selectedConnection.id))
-    setConnectionToRevoke(null)
-    setNotice(`${selectedConnection.name} can no longer access Hub.`)
-  }
 
   if (data.view === "approval") {
     return (
       <main className="agent-connections">
-        {approval === "pending" ? (
-          <section aria-labelledby="agent-approval-title" className="agent-connections__approval">
-            <Heading as="h1" id="agent-approval-title" size="5">
-              Connect {data.requestingAgent} to Hub?
-            </Heading>
-            <Text as="p">
-              You are signed in as <strong>{data.signedInAs}</strong>. This agent can read guidance
-              and report which learnings it applied for repositories you can access. Hub checks
-              access on every request; only people can accept or change learnings.
-            </Text>
-            <Text as="p">
-              This does not allow session-message storage, screenshot storage, or automated
-              screenshot review. Those choices require separate consent.
-            </Text>
-            <div className="agent-connections__actions">
-              <Button onClick={() => setApproval("cancelled")} type="button" variant="subtle">
-                Cancel
-              </Button>
-              <Button onClick={() => setApproval("approved")} type="button" variant="primary">
-                Approve access
-              </Button>
-            </div>
-          </section>
-        ) : (
-          <section aria-live="polite" className="agent-connections__approval-result">
-            <Heading as="h1" size="5">
-              {approval === "approved" ? "Agent connected" : "Connection cancelled"}
-            </Heading>
-            <Text as="p">
-              {approval === "approved"
-                ? `Return to ${data.requestingAgent} to continue. You can revoke its Hub access at any time.`
-                : `You can close this page and return to ${data.requestingAgent}. No Hub access was granted.`}
-            </Text>
-          </section>
-        )}
+        <section aria-labelledby="agent-approval-title" className="agent-connections__approval">
+          <Heading as="h1" id="agent-approval-title" size="5">
+            Connect {data.requestingAgent} to Hub?
+          </Heading>
+          <Text as="p">
+            You are signed in as <strong>@{data.signedInAs}</strong>. This agent can read guidance
+            and report which learnings it applied for repositories you can access. Hub checks access
+            on every request; only people can accept or change learnings.
+          </Text>
+          <Text as="p">
+            This does not allow session-message storage, screenshot storage, or automated screenshot
+            review. Those choices require separate consent.
+          </Text>
+          <Text as="p">{data.expiresLabel}</Text>
+          <form action={data.decisionPath} className="agent-connections__actions" method="post">
+            <Button disabled={busy} name="decision" type="submit" value="cancel" variant="subtle">
+              Cancel
+            </Button>
+            <Button disabled={busy} name="decision" type="submit" value="approve" variant="primary">
+              Approve access
+            </Button>
+          </form>
+        </section>
       </main>
     )
   }
+
+  const configuration = JSON.stringify({ mcpServers: { replica: { url: data.mcpUrl } } }, null, 2)
+  const selectedConnection = data.connections.find(({ id }) => id === connectionToRevoke)
 
   return (
     <div className="agent-connections">
@@ -95,24 +83,22 @@ export function AgentConnectionsPrototype({ data }: { data: AgentConnectionsProt
           Your connected agents
         </Heading>
         <Text as="p">
-          Connected as {data.signedInAs}. These agents can use your Hub access for any repository
+          Connected as @{data.signedInAs}. These agents can use your Hub access for any repository
           you can access.
         </Text>
-        {connections.length ? (
+        {data.connections.length ? (
           <ul className="agent-connections__list">
-            {connections.map((connection) => (
+            {data.connections.map((connection) => (
               <li className="agent-connections__item" key={connection.id}>
                 <div>
                   <strong>{connection.name}</strong>
                   <span>
-                    Connected{" "}
-                    <time dateTime={connection.connectedAt}>{connection.connectedAt}</time>
-                    {" · "}Last used{" "}
-                    <time dateTime={connection.lastUsedAt}>{connection.lastUsedAt}</time>
+                    {connection.connectedLabel} · {connection.lastUsedLabel}
                   </span>
                 </div>
                 <Button
                   aria-label={`Revoke ${connection.name} access`}
+                  disabled={busy}
                   onClick={() => setConnectionToRevoke(connection.id)}
                   type="button"
                   variant="secondary"
@@ -134,7 +120,13 @@ export function AgentConnectionsPrototype({ data }: { data: AgentConnectionsProt
           returnFocusRef={connectionsHeadingRef}
           onClose={() => setConnectionToRevoke(null)}
         >
-          <div className="agent-connections__revoke-dialog">
+          <form
+            action={selectedConnection.revokePath}
+            className="agent-connections__revoke-dialog"
+            method="post"
+            onSubmit={() => setConnectionToRevoke(null)}
+          >
+            <input type="hidden" name="_method" value="delete" />
             <Text as="p">
               {selectedConnection.name} will no longer be able to use your Hub account. This does
               not sign you out of Hub or change your repository access.
@@ -143,14 +135,14 @@ export function AgentConnectionsPrototype({ data }: { data: AgentConnectionsProt
               <Button onClick={() => setConnectionToRevoke(null)} type="button" variant="subtle">
                 Cancel
               </Button>
-              <Button onClick={revokeConnection} type="button" variant="primary">
+              <Button type="submit" variant="primary">
                 Revoke access
               </Button>
             </div>
-          </div>
+          </form>
         </CanvasDialog>
       ) : null}
-      {notice ? <HubToast title={notice} /> : null}
+      {data.notice ? <HubToast title={data.notice} /> : null}
     </div>
   )
 }

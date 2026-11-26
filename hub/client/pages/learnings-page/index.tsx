@@ -81,14 +81,19 @@ function LearningsContent({
         title={copy.heading}
         description={copy.description}
         trailing={
-          data.run.available ? (
-            <form action={data.run.path} method="post">
-              <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-              <Button type="submit" variant="secondary">
-                {copy.runLabel}
-              </Button>
-            </form>
-          ) : null
+          <div className="learnings-page__header-actions">
+            <Button as="a" href={data.agentsPath} variant="secondary">
+              Connect an agent
+            </Button>
+            {data.run.available ? (
+              <form action={data.run.path} method="post">
+                <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+                <Button type="submit" variant="secondary">
+                  {copy.runLabel}
+                </Button>
+              </form>
+            ) : null}
+          </div>
         }
       />
       {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}

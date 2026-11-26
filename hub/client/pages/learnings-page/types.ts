@@ -41,6 +41,7 @@ export type LearningsPageData =
         usage: string | null
       }
       run: { path: string; available: boolean }
+      agentsPath: string
       loadError: string | null
       identityNotice: string | null
       library: LearningsLibraryData

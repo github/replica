@@ -197,9 +197,11 @@ export function HubApplication({ canvasReturnTo }: { canvasReturnTo?: string } =
                 : null,
         badge: "Collaborative prototyping",
         badgeAlternate: "Built for feedback",
-        description: canvasReturnTo
-          ? "Sign in to continue to your Replica canvas connection."
-          : "Sign in with an active Replica Hub membership.",
+        description: canvasReturnTo?.startsWith("/agents/")
+          ? "Sign in to connect your coding agent to Replica Hub."
+          : canvasReturnTo
+            ? "Sign in to continue to your Replica canvas connection."
+            : "Sign in with an active Replica Hub membership.",
         footerNote: "\u00a9 2026 GitHub, Inc.",
         heading: "Build and review prototypes with your team.",
         notice: null,

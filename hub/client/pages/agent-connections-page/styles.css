@@ -14,16 +14,14 @@
 
 .agent-connections__header,
 .agent-connections__section,
-.agent-connections__approval,
-.agent-connections__approval-result {
+.agent-connections__approval {
   display: grid;
   gap: 0.75rem;
 }
 
 .agent-connections__header > p,
 .agent-connections__section > p,
-.agent-connections__approval > p,
-.agent-connections__approval-result > p {
+.agent-connections__approval > p {
   color: var(--hub-fg-muted);
 }
 
@@ -67,11 +65,6 @@
   border: 1px solid var(--hub-border-default);
   border-radius: var(--hub-radius-medium);
   background: var(--hub-canvas-default);
-}
-
-.agent-connections__approval-result {
-  max-width: 36rem;
-  margin: 10vh auto;
 }
 
 .agent-connections__actions {

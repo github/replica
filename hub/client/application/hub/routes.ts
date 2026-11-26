@@ -8,6 +8,7 @@ export default [
   route("signed-in/no-access", "routes/no-repository-access/index.tsx"),
   route("sign-in", "routes/sign-in/index.tsx"),
   route("canvas/pair/:userCode", "routes/canvas-pairing/index.tsx"),
+  route("agents/approve/:authorizationId", "routes/agent-approval/index.tsx"),
   route("shared/:shareId", "routes/product-public/index.tsx"),
   ...standaloneSetupRoutes,
   layout("routes/workspace/index.tsx", [

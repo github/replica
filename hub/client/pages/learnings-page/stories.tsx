@@ -365,6 +365,7 @@ const data: LearningsPageData = {
     usage: "Copilot used 0.147 AI credits for this repository in the last 30 days.",
   },
   run: { path: "/repositories/2001/learnings/runs", available: true },
+  agentsPath: "/repositories/2001/learnings/agents",
   loadError: null,
   identityNotice: null,
   library,

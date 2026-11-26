@@ -1,24 +1,24 @@
 export interface AgentConnection {
   id: string
   name: string
-  connectedAt: string
-  lastUsedAt: string
+  connectedLabel: string
+  lastUsedLabel: string
+  revokePath: string
 }
 
-interface AgentConnectionsPrototypeBase {
-  repositoryId: string
-  repositoryName: string
-  hubUrl: string
-  signedInAs: string
-}
-
-export type AgentConnectionsPrototypeData =
-  | (AgentConnectionsPrototypeBase & {
+export type AgentConnectionsPageData =
+  | {
       view: "connections"
+      repositoryName: string
+      mcpUrl: string
+      signedInAs: string
       connections: AgentConnection[]
-    })
-  | (AgentConnectionsPrototypeBase & {
+      notice: string | null
+    }
+  | {
       view: "approval"
-      connections: AgentConnection[]
       requestingAgent: string
-    })
+      signedInAs: string
+      expiresLabel: string
+      decisionPath: string
+    }

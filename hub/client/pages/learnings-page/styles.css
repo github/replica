@@ -63,3 +63,9 @@
 .learnings-page__run-state {
   font-weight: 600;
 }
+
+.learnings-page__header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
