@@ -406,7 +406,6 @@ function errorStatusCode(error: unknown): number | undefined {
 }
 
 function pickAndPolishCommand(value: unknown): string | null {
-  if (value === null) return null
   if (!isRecord(value) || !isUnknownArray(value.skills))
     fail("Copilot returned an invalid skill catalog.")
   const commands = new Set(["replica-pick-and-polish", "replica-prototype:replica-pick-and-polish"])
@@ -804,8 +803,9 @@ export function createImprovementNotes(
   }
 
   async function prepareInstructions() {
-    const skillCatalog = session.rpc?.skills?.list ? await session.rpc.skills.list() : null
-    const command = pickAndPolishCommand(skillCatalog)
+    const command = session.rpc?.skills?.list
+      ? pickAndPolishCommand(await session.rpc.skills.list())
+      : null
     if (command) return { command, instructions: null }
     const skill = (
       await readFile(new URL("../skills/replica-pick-and-polish/SKILL.md", import.meta.url), "utf8")

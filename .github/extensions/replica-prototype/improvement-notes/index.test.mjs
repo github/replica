@@ -1452,6 +1452,13 @@ for (const { label, error, configure } of [
     },
   },
   {
+    label: "the catalog RPC returns null",
+    error: /invalid skill catalog/i,
+    configure: (session) => {
+      session.rpc = { skills: { list: async () => null } }
+    },
+  },
+  {
     label: "the skill's enabled policy is unknown",
     error: /invalid skill catalog/i,
     configure: (session) => {
