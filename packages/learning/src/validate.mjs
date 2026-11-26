@@ -22,6 +22,7 @@ const SEALED_KINDS = new Set([
   "usageReport",
   "usedLearning",
   "screenshot",
+  "score",
 ])
 
 /**

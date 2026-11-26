@@ -17,6 +17,7 @@ const STREAMS = {
   usageReports: "reportedAt",
   usedLearnings: "reportedAt",
   screenshots: "capturedAt",
+  scores: "scoredAt",
 }
 
 const queues = new Map()

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "replica.score/v1",
+  "id": "score_5d0e2a7c41b98f3e6a2d1c09",
+  "scope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "usedLearningId": "used_86cb6647d216cf8e3de96d55",
+  "usageReportId": "usage_c980d22472110f3f8aa8184f",
+  "memoryId": "memory_3c1f0a9b8e7d6c5b4a392817",
+  "operationId": "5b1f8f0e-6a8c-4c2e-9d3a-0f6e2b7c9a41",
+  "rubricVersion": "replica.efficiency-rubric/v1",
+  "efficiency": 2,
+  "followed": "followed",
+  "reasoning": "Every field gained a visible label, but the labels sit beside the fields and the form needed rework to fit narrow screens.",
+  "issue": "The learning does not say where labels go, so side labels broke narrow layouts.",
+  "inputs": ["build_diff"],
+  "route": {
+    "kind": "fusion",
+    "fusionTier": "max"
+  },
+  "scoredBy": {
+    "kind": "agent",
+    "id": "agent:copilot"
+  },
+  "scoredAt": "2026-10-12T10:20:00.000000Z",
+  "digest": "sha256:aa391a0bb6c512697a6534a9e1f8a9e57024e7359ddbfacecc130f35f73c3526"
+}

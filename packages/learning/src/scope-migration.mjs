@@ -27,6 +27,7 @@ const KINDS = {
   usageReports: "usage_report",
   usedLearnings: "used_learning",
   screenshots: "screenshot",
+  scores: "score",
 }
 
 /**
@@ -160,6 +161,7 @@ export async function migrateRepositoryScope({
         "usageReports",
         "usedLearnings",
         "screenshots",
+        "scores",
       ])
         for (const record of records[stream]) {
           const draft = { ...record, scope: newScope }

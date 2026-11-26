@@ -41,6 +41,7 @@
         "memory.recall",
         "memory.delete",
         "usage.report",
+        "usage.score",
         "guidance.expire",
         "export.create"
       ]
@@ -68,7 +69,8 @@
               "delivery",
               "usage_report",
               "used_learning",
-              "screenshot"
+              "screenshot",
+              "score"
             ]
           },
           "id": { "$ref": "common.schema.json#/$defs/id" },
