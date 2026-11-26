@@ -18,6 +18,10 @@
       "types": "./conformance/index.d.mts",
       "import": "./conformance/index.mjs"
     },
+    "./mcp": {
+      "types": "./mcp.d.mts",
+      "import": "./src/mcp.mjs"
+    },
     "./contracts/v1/*": "./contracts/v1/*"
   },
   "scripts": {
