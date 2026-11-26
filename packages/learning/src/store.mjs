@@ -2609,7 +2609,10 @@ class LearningStore {
       (decision === "edit" && latest.state !== "accepted") ||
       (decision === "reinstate" && !["rejected", "retired"].includes(latest.state))
     )
-      throw new LearningError("invalid_transition", `Memory ${id} cannot be ${decision}ed.`)
+      throw new LearningError(
+        "invalid_transition",
+        `Memory ${id} cannot be ${decision === "edit" ? "edited" : "reinstated"}.`,
+      )
     if (latest.digest !== expectedDigest)
       throw new LearningError("stale_review", `Memory ${id} changed since it was reviewed.`)
     if (entry.status.superseded || entry.status.conflicts.length)
