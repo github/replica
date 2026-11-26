@@ -264,9 +264,99 @@ export interface ExportManifest {
   digest: Digest
 }
 
+export interface AgentSession {
+  id: string
+  label?: string
+}
+
+/** One recall an agent asked for. */
+export interface Guidance {
+  schemaVersion: "replica.guidance/v1"
+  id: string
+  scope: Scope
+  requestedAt: Timestamp
+  requestedBy: Actor
+  via: "local" | "hub"
+  session?: AgentSession
+  digest: Digest
+}
+
+/** One learning a recall gave an agent, at its place in the guidance. */
+export interface DeliveredLearning {
+  schemaVersion: "replica.delivered-learning/v1"
+  id: string
+  scope: Scope
+  guidanceId: string
+  memoryId: string
+  contentDigest: Digest
+  sourceScope: Scope
+  position: number
+  text: string
+  deliveredAt: Timestamp
+  digest: Digest
+}
+
+/** An agent's report of which delivered learnings it used in a commit. */
+export interface UsageReport {
+  schemaVersion: "replica.usage-report/v1"
+  id: string
+  scope: Scope
+  reportId: string
+  guidanceIds: string[]
+  session?: AgentSession
+  commitSha: string
+  prototypeId?: string
+  contentDigest: Digest
+  reportedBy: Actor
+  reportedAt: Timestamp
+  digest: Digest
+}
+
+/** One delivered learning a usage report says the agent used. */
+export interface UsedLearning {
+  schemaVersion: "replica.used-learning/v1"
+  id: string
+  scope: Scope
+  usageReportId: string
+  deliveryId: string
+  memoryId: string
+  claimedBy: Actor
+  beforeScreenshotId?: string
+  afterScreenshotId?: string
+  reportedAt: Timestamp
+  digest: Digest
+}
+
+/** A screenshot's capture details. The image stays on the machine, named by sha256. */
+export interface ScreenshotRecord {
+  schemaVersion: "replica.screenshot/v1"
+  id: string
+  scope: Scope
+  usageReportId: string
+  sha256: Digest
+  role: "before" | "after"
+  route: string
+  viewport: { width: number; height: number }
+  theme: string
+  capturedAt: Timestamp
+  consentGrantId?: string
+  digest: Digest
+}
+
 /** Any record a provider stores in a stream. */
 export type StoredRecord =
-  Episode | EpisodeEvent | ConsentGrant | GrantWithdrawal | Collection | AuditEntry | ExportManifest
+  | Episode
+  | EpisodeEvent
+  | ConsentGrant
+  | GrantWithdrawal
+  | Collection
+  | AuditEntry
+  | ExportManifest
+  | Guidance
+  | DeliveredLearning
+  | UsageReport
+  | UsedLearning
+  | ScreenshotRecord
 
 export interface RecalledMemory {
   id: string
@@ -512,8 +602,8 @@ export interface MemoryProvider {
    */
   deleteRecords?(
     scope: Scope,
-    targets: { records: Partial<Record<Stream, string[]>>; memories: string[] },
-    options: { audit: AuditEntry[] },
+    targets: { records: Partial<Record<Stream, string[]>>; memories?: string[] },
+    options?: { audit?: AuditEntry[] },
   ): Promise<DeletionResult>
   close?(): Promise<void>
 }
@@ -1048,12 +1138,23 @@ export declare class LearningError extends Error {
 }
 export declare class ProviderConflictError extends LearningError {}
 
+/** Where a store keeps screenshot images; records hold only their sha256. */
+export interface ScreenshotStore {
+  put(bytes: Uint8Array): Promise<Digest>
+  read(digest: Digest): Promise<Uint8Array | null>
+  remove(digest: Digest): Promise<void>
+}
+
 export declare function createLearningStore(options: {
   provider: MemoryProvider
   clock?: () => number
   legacyScopes?: Scope[]
   digestMappings?: Record<string, string>
+  /** Without it, a usage report with screenshots is refused. */
+  screenshots?: ScreenshotStore
 }): Promise<LearningStore>
+/** Keep screenshot images in a private directory on this machine. */
+export declare function createScreenshotStore(directory: string): ScreenshotStore
 export declare function createSqliteMemoryProvider(options: {
   directory: string
   file?: string

@@ -450,6 +450,9 @@ export function repositoryFromRemote(remote) {
  * @param {Awaited<ReturnType<typeof resolveEnvironment>>} environment
  * @param {{ clock?: () => number }} [options]
  */
+/** Providers whose records live only on this machine, beside the screenshot files. */
+const LOCAL_PROVIDERS = ["built-in sqlite", "built-in jsonl", "built-in in-memory"]
+
 export async function openLearningStore(environment, { clock = Date.now } = {}) {
   const problem = await placementProblem(environment, environment.dataDirectory)
   if (problem) throw new LearningError("invalid_input", problem)
@@ -573,8 +576,9 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
         clock,
         legacyScopes: migrations.map((migration) => migration.oldScope),
         digestMappings,
-        // A hosted store may span machines, so only a local store keeps screenshot bytes.
-        ...(environment.hosted
+        // The bytes stay on this machine, so a store other machines can read, through a
+        // hosted CLI or a shared database, keeps no screenshots.
+        ...(environment.hosted || !LOCAL_PROVIDERS.includes(source)
           ? {}
           : {
               screenshots: createScreenshotStore(path.join(environment.dataDirectory, "evidence")),

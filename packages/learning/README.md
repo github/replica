@@ -53,7 +53,7 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `accept`, `reject`, `retire`, `edit`, `reinstate`, `supersede` | Records a person's decision |
 | `recall --task <text>` | Prints the accepted learnings for the next run. `--task-file -` reads the task from standard input instead, which keeps a person's prompt out of the process list. `--session-id` and `--session-label` name the agent session asking. Each recall stores a guidance record and the exact text of each learning it gave, so a later report can name them. `--preview --by github:<login>` shows a person the same text without recording a use. Only a person can preview, so an agent never reads learnings without an audit entry |
 | `report-usage <report.json>` | Records which recalled learnings an agent says it used for a commit. The report names its own `reportId`, so sending it again stores nothing new. Each used learning names the `deliveryId` recall gave it, and may add a before and an after screenshot as a PNG file beside the report. Only each screenshot's digest is recorded; the bytes are kept under `evidence/` in the learning data directory. A report is the agent's claim, never a verified result |
-| `delete <memory-id> --reason <text>` | Removes a learning for good: every version, the records of its deliveries and use, and their screenshots. A learning that replaces or was replaced by another cannot be deleted; retire it instead |
+| `delete <memory-id> --reason <text>` | Removes a learning for good: every version, the records of its deliveries and use, and their screenshots. A learning that is part of a replacement, or that a stored proposal would replace, cannot be deleted; retire it instead |
 | `expire-guidance [--days <n>]` | Removes guidance records older than `--days`, 365 by default, that no usage report names |
 | `delete-repository --confirm <owner/name>` | Removes every record this repository's store holds, including its audit trail. Naming the repository again guards against deleting the wrong store. Copies outside the store, such as exports, are not touched |
 | `export --purpose <p>` | Writes a bundle of what that purpose may use; `--learnings-only` leaves out episodes and their comments, and `--preview` prepares a temporary copy without recording an export or export audit |
@@ -76,6 +76,28 @@ An agent session file for `import agent-session` looks like this. Only `sessionI
     { "role": "agent", "text": "Moved the labels above the fields." }
   ],
   "outcome": { "status": "success", "summary": "The form is done." }
+}
+```
+
+To report use, run recall once with `--json` and keep its output. `guidanceId` names the recall and each entry in `memories` carries its `deliveryId`. A second recall gives new IDs, so report against the recall the agent actually read. Then write `report.json` beside any screenshots and send it with `report-usage report.json --actor agent:<name>`. Only `reportId`, `guidanceIds`, and `commitSha` are required. A screenshot names a PNG `file` in the report's directory, with the `route`, `viewport`, `theme`, and `capturedAt` it was taken with.
+
+```json
+{
+  "reportId": "checkout-form-1",
+  "guidanceIds": ["<guidanceId from recall>"],
+  "commitSha": "0123456789abcdef0123456789abcdef01234567",
+  "used": [
+    {
+      "deliveryId": "<deliveryId from recall>",
+      "after": {
+        "file": "after.png",
+        "route": "/checkout",
+        "viewport": { "width": 1280, "height": 800 },
+        "theme": "light",
+        "capturedAt": "2026-10-02T09:30:00Z"
+      }
+    }
+  ]
 }
 ```
 

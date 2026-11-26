@@ -1,5 +1,5 @@
-import { createReadStream, existsSync } from "node:fs"
-import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
+import { constants, createReadStream, existsSync } from "node:fs"
+import { mkdir, open as openFile, readFile, realpath, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 import { decodeUtf8, parseJson } from "./canonical-json.mjs"
@@ -19,7 +19,8 @@ import {
 import { labelComments, labelingError } from "./labeling.mjs"
 import { migratePostgres } from "./providers/postgres-database.mjs"
 import { FEEDBACK_TYPES, feedbackText, PRODUCER } from "./records.mjs"
-import { MAX_SCREENSHOT_BYTES } from "./screenshots.mjs"
+import { NO_FOLLOW } from "./providers/files.mjs"
+import { MAX_REPORT_SCREENSHOT_BYTES, MAX_SCREENSHOT_BYTES } from "./screenshots.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
 import { parseTimeOption, timestampFromMilliseconds } from "./time.mjs"
@@ -1345,18 +1346,32 @@ async function reportUsage(session) {
   const principal = actor(session, { required: true })
   if (!report || typeof report !== "object" || Array.isArray(report))
     throw new LearningError("invalid_input", `${file} must be a JSON object.`)
-  const used = Array.isArray(report.used)
-    ? await Promise.all(
-        report.used.map(async (item) => {
-          if (!item || typeof item !== "object") return item
-          const copy = { ...item }
-          for (const role of ["before", "after"])
-            if (copy[role]?.file !== undefined)
-              copy[role] = await screenshotFile(directory, copy[role])
-          return copy
-        }),
-      )
-    : report.used
+  // The store checks these limits too, but only after every file is in memory, so the
+  // count and total size are checked here first and files are read one at a time.
+  if (Array.isArray(report.used) && report.used.length > 1000)
+    throw new LearningError("invalid_input", "used lists at most 1000 delivered learnings.")
+  let used = report.used
+  if (Array.isArray(report.used)) {
+    used = []
+    let total = 0
+    for (const item of report.used) {
+      if (!item || typeof item !== "object") {
+        used.push(item)
+        continue
+      }
+      const copy = { ...item }
+      for (const role of ["before", "after"])
+        if (copy[role]?.file !== undefined) {
+          copy[role] = await screenshotFile(
+            directory,
+            copy[role],
+            MAX_REPORT_SCREENSHOT_BYTES - total,
+          )
+          total += copy[role].bytes.length
+        }
+      used.push(copy)
+    }
+  }
   const { store } = await open(session)
   const result = await store.reportUsage(context(session, principal), { ...report, used })
   session.out(
@@ -1367,7 +1382,7 @@ async function reportUsage(session) {
   )
 }
 
-async function screenshotFile(directory, { file, ...rest }) {
+async function screenshotFile(directory, { file, ...rest }, remaining) {
   if (typeof file !== "string" || !file)
     throw new LearningError("invalid_input", "A screenshot names its PNG file.")
   // An agent writes the report, so a screenshot path must not reach other files on disk.
@@ -1376,8 +1391,7 @@ async function screenshotFile(directory, { file, ...rest }) {
       "invalid_input",
       `${file} must be a path inside the report's directory.`,
     )
-  let target
-  let info
+  let handle
   try {
     const home = await realpath(directory)
     const parent = await realpath(path.dirname(path.resolve(home, file)))
@@ -1387,16 +1401,26 @@ async function screenshotFile(directory, { file, ...rest }) {
         "invalid_input",
         `${file} must be a path inside the report's directory.`,
       )
-    target = path.join(parent, path.basename(file))
-    info = await lstat(target)
+    // Checking the open handle, not the path, means a file swapped in after the check
+    // cannot be read in its place.
+    handle = await openFile(path.join(parent, path.basename(file)), constants.O_RDONLY | NO_FOLLOW)
   } catch (error) {
     if (error instanceof LearningError) throw error
+    if (error.code === "ELOOP")
+      throw new LearningError("invalid_input", `${file} must be a regular file.`)
     throw new LearningError("not_found", `Cannot read ${file} (${error.code}).`)
   }
-  if (!info.isFile()) throw new LearningError("invalid_input", `${file} must be a regular file.`)
-  if (info.size > MAX_SCREENSHOT_BYTES)
-    throw new LearningError("invalid_input", `${file} is larger than 10 MB.`)
-  return { ...rest, bytes: await readFile(target) }
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) throw new LearningError("invalid_input", `${file} must be a regular file.`)
+    if (info.size > MAX_SCREENSHOT_BYTES)
+      throw new LearningError("invalid_input", `${file} is larger than 10 MB.`)
+    if (info.size > remaining)
+      throw new LearningError("invalid_input", "A report's screenshots can total at most 100 MB.")
+    return { ...rest, bytes: await handle.readFile() }
+  } finally {
+    await handle.close()
+  }
 }
 
 async function deleteMemory(session) {
@@ -1422,8 +1446,9 @@ async function deleteRepository(session) {
   const { store } = await open(session)
   // Naming the repository again guards against deleting the wrong store by accident. A
   // GitHub scope is a numeric ID, so its owner/name is accepted too.
-  const names = [environment.scope.repository, environment.legacyScope?.repository]
-  if (!names.includes(session.values.confirm))
+  const names = [environment.scope.repository, environment.legacyScope?.repository].filter(Boolean)
+  const { confirm } = session.values
+  if (typeof confirm !== "string" || !confirm || !names.includes(confirm))
     throw new UsageError(
       `Confirm with --confirm ${names.at(-1) ?? names[0]} to delete this repository's records.`,
     )

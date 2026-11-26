@@ -37,7 +37,7 @@ import {
   sessionEpisodeId,
   sessionEvents,
 } from "./sources/agent-sessions.mjs"
-import { assertScreenshot, screenshotDigest } from "./screenshots.mjs"
+import { MAX_REPORT_SCREENSHOT_BYTES, assertScreenshot, screenshotDigest } from "./screenshots.mjs"
 import { isTimestamp, timestampFromMilliseconds } from "./time.mjs"
 import { assertValid, validateRecord } from "./validate.mjs"
 
@@ -3342,6 +3342,8 @@ class LearningStore {
     })
     if (new Set(claims.map((claim) => claim.deliveryId)).size !== claims.length)
       throw new LearningError("invalid_input", "A usage report names each delivery once.")
+    if (shots.reduce((total, shot) => total + shot.bytes.length, 0) > MAX_REPORT_SCREENSHOT_BYTES)
+      throw new LearningError("invalid_input", "A report's screenshots can total at most 100 MB.")
     if (shots.length && !this.#screenshots)
       throw new LearningError(
         "unsupported",
@@ -3404,7 +3406,17 @@ class LearningStore {
     for (const shot of shots) {
       const record = sealRecord({
         schemaVersion: SCHEMA_VERSIONS.screenshot,
-        id: derivedId("shot", { usageReportId: id, sha256: shot.sha256, role: shot.role }),
+        // The same image can be captured on other routes or viewports, so the capture
+        // details are part of the identity; the bytes are still stored once.
+        id: derivedId("shot", {
+          usageReportId: id,
+          sha256: shot.sha256,
+          role: shot.role,
+          route: shot.route,
+          viewport: shot.viewport,
+          theme: shot.theme,
+          capturedAt: shot.capturedAt,
+        }),
         scope: context.scope,
         usageReportId: id,
         sha256: shot.sha256,
@@ -3478,12 +3490,15 @@ class LearningStore {
     const linked =
       entry.versions.some((version) => version.supersedes?.length) ||
       [...entries.values()].some((other) =>
-        other.versions.some((version) => version.supersedes?.includes(id)),
+        other.versions.some(
+          (version) =>
+            version.supersedes?.includes(id) || version.proposal?.lifecycle?.targets?.includes(id),
+        ),
       )
     if (linked)
       throw new LearningError(
         "conflict",
-        `Learning ${id} replaced or was replaced by another learning. Retire it instead.`,
+        `Learning ${id} is part of another learning's replacement. Retire it instead.`,
       )
     const deliveries = (await this.#read("deliveries", context)).filter(
       (record) => record.memoryId === id,

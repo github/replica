@@ -753,6 +753,56 @@ describe("replica-learning CLI: a store a host names", () => {
     }
   })
 
+  it("deletes one repository's records only after a person names it", async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-hosted-"))
+    try {
+      const target = ["--dir", "stores/42", ...HOSTED]
+      const other = ["--dir", "stores/42", "--repository", "github.com/repositories/654321"]
+      for (const store of [target, other])
+        await ok(outside, [
+          "grants",
+          "add",
+          "--purpose",
+          "review",
+          "--basis",
+          "A Hub administrator turned on Learnings.",
+          "--by",
+          "github:ana-designer",
+          ...store,
+        ])
+
+      const unconfirmed = await cli(outside, [
+        "delete-repository",
+        "--by",
+        "github:ana-designer",
+        ...target,
+      ])
+      assert.match(unconfirmed.stderr, /Confirm with --confirm/)
+      const agent = await cli(outside, [
+        "delete-repository",
+        "--by",
+        "agent:copilot",
+        "--confirm",
+        "repositories/123456",
+        ...target,
+      ])
+      assert.match(agent.stderr, /human_required/)
+      await ok(outside, [
+        "delete-repository",
+        "--by",
+        "github:ana-designer",
+        "--confirm",
+        "repositories/123456",
+        ...target,
+      ])
+
+      assert.deepEqual((await ok(outside, ["grants", "list", ...target, "--json"])).json(), [])
+      assert.equal((await ok(outside, ["grants", "list", ...other, "--json"])).json().length, 1)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
   it("removes one deleted Hub comment by its ID, with no import and no active grant", async () => {
     const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-hosted-"))
     try {

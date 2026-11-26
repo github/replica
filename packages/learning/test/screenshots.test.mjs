@@ -8,7 +8,7 @@ import { createScreenshotStore } from "../src/screenshots.mjs"
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
 
 describe("screenshot store", () => {
-  it("returns stored bytes and refuses bytes that no longer match their digest", async (t) => {
+  it("refuses damaged bytes on read and replaces them when the image is stored again", async (t) => {
     const directory = await mkdtemp(path.join(tmpdir(), "replica-shots-"))
     t.after(() => rm(directory, { recursive: true, force: true }))
     const store = createScreenshotStore(directory)
@@ -19,6 +19,8 @@ describe("screenshot store", () => {
     await writeFile(path.join(directory, file), Buffer.concat([PNG, Buffer.from([4])]))
 
     await assert.rejects(store.read(digest), { code: "storage_corrupt" })
+    assert.equal(await store.put(PNG), digest)
+    assert.deepEqual(await store.read(digest), PNG)
     await store.remove(digest)
     assert.equal(await store.read(digest), null)
   })

@@ -7,6 +7,8 @@ import { NO_FOLLOW, assertOwnPath, openError } from "./providers/files.mjs"
 
 /** The most bytes one screenshot may hold, so a report cannot fill the disk. */
 export const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024
+/** The most screenshot bytes one usage report may hold, so a report cannot exhaust memory. */
+export const MAX_REPORT_SCREENSHOT_BYTES = 100 * 1024 * 1024
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const DIGEST = /^sha256:[0-9a-f]{64}$/
 
@@ -46,6 +48,30 @@ export function createScreenshotStore(directory) {
     assertOwnPath(path.dirname(root), root, lstatSync(root), { directory: true })
   }
 
+  /** The stored bytes, or null when they are gone. Refuses bytes that no longer match. */
+  async function read(digest) {
+    const target = fileFor(digest)
+    let handle
+    try {
+      handle = await open(target, constants.O_RDONLY | NO_FOLLOW)
+    } catch (error) {
+      if (error.code === "ENOENT") return null
+      throw openError(root, target, error)
+    }
+    try {
+      assertOwnPath(root, target, await handle.stat())
+      const bytes = await handle.readFile()
+      if (screenshotDigest(bytes) !== digest)
+        throw new LearningError(
+          "storage_corrupt",
+          `The screenshot stored for ${digest} has other bytes.`,
+        )
+      return bytes
+    } finally {
+      await handle.close()
+    }
+  }
+
   return {
     /** Store the bytes, once per digest, and return the digest. */
     async put(bytes) {
@@ -56,7 +82,12 @@ export function createScreenshotStore(directory) {
       const existing = lstatSync(target, { throwIfNoEntry: false })
       if (existing) {
         assertOwnPath(root, target, existing)
-        return digest
+        // A damaged file would make every later reference unreadable, so it is replaced.
+        const kept = await read(digest).catch((error) => {
+          if (error.code !== "storage_corrupt") throw error
+          return null
+        })
+        if (kept) return digest
       }
       // Write a private temporary file, then rename it, so a reader never sees half an image.
       const temporary = path.join(root, `.${randomBytes(8).toString("hex")}.tmp`)
@@ -79,29 +110,7 @@ export function createScreenshotStore(directory) {
       return digest
     },
 
-    /** The stored bytes, or null when they are gone. Refuses bytes that no longer match. */
-    async read(digest) {
-      const target = fileFor(digest)
-      let handle
-      try {
-        handle = await open(target, constants.O_RDONLY | NO_FOLLOW)
-      } catch (error) {
-        if (error.code === "ENOENT") return null
-        throw openError(root, target, error)
-      }
-      try {
-        assertOwnPath(root, target, await handle.stat())
-        const bytes = await handle.readFile()
-        if (screenshotDigest(bytes) !== digest)
-          throw new LearningError(
-            "storage_corrupt",
-            `The screenshot stored for ${digest} has other bytes.`,
-          )
-        return bytes
-      } finally {
-        await handle.close()
-      }
-    },
+    read,
 
     /** Remove the bytes for a digest; a digest with no file is already removed. */
     async remove(digest) {
