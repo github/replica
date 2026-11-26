@@ -1450,7 +1450,7 @@ describe("replica-learning CLI: guard rails", () => {
 
   it("records what an agent used, then deletes the learning with its screenshot", async () => {
     const repo = checkout("usage-and-deletion")
-    const { proposal } = await learnFromReviews(repo)
+    const { grant, proposal } = await learnFromReviews(repo)
     await ok(repo, [
       "accept",
       proposal.id,
@@ -1510,6 +1510,26 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(report.used[0].memoryId, memory.id)
     assert.equal(report.used[0].version, 2)
     assert.equal(report.used[0].after.route, "/checkout")
+    writeFileSync(path.join(repo, "reason.txt"), "The team moved to a new form layout.")
+    await ok(
+      repo,
+      ["retire", memory.id, "--by", "github:ana-designer", "--reason-file", "reason.txt"],
+      { clock: CLOCK + 60_000 },
+    )
+    const [retired] = (await ok(repo, usage)).json().reports
+    assert.equal(retired.used[0].version, 2)
+    await ok(repo, [
+      "grants",
+      "withdraw",
+      grant.id,
+      "--purpose",
+      "review",
+      "--by",
+      "github:ana-designer",
+    ])
+    const [withdrawn] = (await ok(repo, usage)).json().reports
+    assert.equal(withdrawn.used[0].title, null)
+    assert.equal(withdrawn.used[0].text, null)
 
     const deleted = (
       await ok(repo, [

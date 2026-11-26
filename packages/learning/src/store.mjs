@@ -3556,14 +3556,19 @@ class LearningStore {
         .filter((record) => reportIds.has(record.usageReportId))
         .map((record) => [record.id, record]),
     )
-    const entries = await this.#memories(context, [
-      ...new Set(used.map((record) => record.memoryId)),
-    ])
+    const delivered = await this.#deliveredVersions(context, "review")
     function screenshot(id) {
       const record = shots.get(id)
       if (!record) return undefined
-      const { sha256, route, viewport, theme, capturedAt } = record
-      return { sha256, route, viewport, theme, capturedAt }
+      const { sha256, route, viewport, theme, capturedAt, consentGrantId } = record
+      return {
+        sha256,
+        route,
+        viewport,
+        theme,
+        capturedAt,
+        ...(consentGrantId ? { consentGrantId } : {}),
+      }
     }
     return reports.map((report) => ({
       id: report.id,
@@ -3574,22 +3579,41 @@ class LearningStore {
         .filter((record) => record.usageReportId === report.id)
         .map((record) => {
           const delivery = deliveries.get(record.deliveryId)
-          const version = entries
-            .get(record.memoryId)
-            ?.versions.findLast((item) => item.contentDigest === delivery?.contentDigest)
+          const match = delivery && delivered(record.memoryId, delivery)
+          const shown = match?.allowed ? match.version : null
           const before = screenshot(record.beforeScreenshotId)
           const after = screenshot(record.afterScreenshotId)
           return {
             id: record.id,
             memoryId: record.memoryId,
-            version: version?.version ?? null,
-            title: version?.title ?? null,
-            text: delivery?.text ?? null,
+            version: match?.version.version ?? null,
+            title: shown?.title ?? null,
+            text: shown ? delivery.text : null,
             ...(before ? { before } : {}),
             ...(after ? { after } : {}),
           }
         }),
     }))
+  }
+
+  /**
+   * Finds the learning version each delivery carried, and whether its evidence still permits
+   * purpose. Retiring or superseding keeps the content, so the version must also predate the
+   * delivery, or a later version would be named for text the agent got earlier.
+   */
+  async #deliveredVersions(context, purpose) {
+    const view = await this.#statuses(context, purpose)
+    const items = new Map(view.items.map((item) => [item.id, item]))
+    return (memoryId, { contentDigest, deliveredAt }) => {
+      const item = items.get(memoryId)
+      const version = item?.versions.findLast(
+        (entry) => entry.contentDigest === contentDigest && entry.updatedAt <= deliveredAt,
+      )
+      if (!version) return null
+      const allowed =
+        !item.problems.length && this.#evidenceEligible(dependencies(version), view.eligible)
+      return { version, allowed }
+    }
   }
 
   /**
