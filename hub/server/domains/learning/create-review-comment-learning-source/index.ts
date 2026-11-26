@@ -1,5 +1,7 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import { findReviewThreadsWithComments } from "../../../repositories/review-comments/find-review-threads-with-comments/index.ts"
 import { captureRepositoryReviewSnapshot } from "../../review-comments/capture-repository-review-snapshot/index.ts"
+import { serializeReviewThread } from "../../review-comments/serialize-review-thread/index.ts"
 import { createHubReviewCollection } from "../create-hub-review-collection/index.ts"
 import { getLearningRepositoryScope } from "../get-learning-repository-scope/index.ts"
 import type {
@@ -12,7 +14,7 @@ function eventMap(events: LearningObservationEvent[]) {
 }
 
 export function createReviewCommentLearningSource(
-  database: Pick<PrismaClient, "$transaction" | "repository">,
+  database: Pick<PrismaClient, "$transaction" | "repository" | "reviewThread">,
   hubOrigin: string,
 ): ReviewCommentLearningSource {
   return {
@@ -39,9 +41,18 @@ export function createReviewCommentLearningSource(
       }
     },
     async resolveEvidence({ repositoryId, references, events }) {
-      const snapshot = await captureRepositoryReviewSnapshot(database, repositoryId)
+      const commentIds = [
+        ...new Set(
+          references.flatMap((reference) =>
+            reference.source.commentId === undefined ? [] : [reference.source.commentId],
+          ),
+        ),
+      ]
+      const threads = (await findReviewThreadsWithComments(database, repositoryId, commentIds)).map(
+        serializeReviewThread,
+      )
       const comments = new Map(
-        snapshot.threads.flatMap((thread) =>
+        threads.flatMap((thread) =>
           [thread.root, ...thread.replies].map(
             (comment) => [comment.id, { comment, thread }] as const,
           ),

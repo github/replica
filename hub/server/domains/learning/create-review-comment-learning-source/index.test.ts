@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from "vitest"
 import type { RepositoryReviewSnapshot } from "../../review-comments/types"
 
-const { capture } = vi.hoisted(() => ({ capture: vi.fn() }))
+const { capture, findThreads } = vi.hoisted(() => ({ capture: vi.fn(), findThreads: vi.fn() }))
 vi.mock("../../review-comments/capture-repository-review-snapshot/index.ts", () => ({
   captureRepositoryReviewSnapshot: capture,
+}))
+vi.mock("../../../repositories/review-comments/find-review-threads-with-comments/index.ts", () => ({
+  findReviewThreadsWithComments: findThreads,
+}))
+vi.mock("../../review-comments/serialize-review-thread/index.ts", () => ({
+  serializeReviewThread: (thread: unknown) => thread,
 }))
 
 import { createReviewCommentLearningSource } from "."
@@ -133,9 +139,9 @@ describe("createReviewCommentLearningSource()", () => {
   })
 
   it("resolves only evidence whose source and observed comment version match", async () => {
-    const value = snapshot()
-    capture.mockResolvedValue(value)
-    const source = createReviewCommentLearningSource({} as never, "https://hub.example.com")
+    findThreads.mockResolvedValue(snapshot().threads)
+    const database = {}
+    const source = createReviewCommentLearningSource(database as never, "https://hub.example.com")
 
     const result = await source.resolveEvidence({
       repositoryId,
@@ -191,5 +197,7 @@ describe("createReviewCommentLearningSource()", () => {
       }),
     ])
     expect(result[1]?.evidence).toEqual([])
+    expect(findThreads).toHaveBeenCalledWith(database, repositoryId, [101])
+    expect(capture).not.toHaveBeenCalled()
   })
 })
