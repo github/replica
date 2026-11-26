@@ -3530,6 +3530,69 @@ class LearningStore {
   }
 
   /**
+   * What agents said they used for one commit, so a host can show it beside the Build made
+   * from that commit. Each used learning names the latest version whose content the agent
+   * received. A learning deleted since leaves nothing here.
+   */
+  async usageForCommit(context, { commitSha } = {}) {
+    assertContext(context)
+    if (typeof commitSha !== "string" || !COMMIT_SHA.test(commitSha))
+      throw new LearningError("invalid_input", "Name the full commit SHA.")
+    const reports = (await this.#read("usageReports", context)).filter(
+      (report) => report.commitSha === commitSha,
+    )
+    if (!reports.length) return []
+    const reportIds = new Set(reports.map((report) => report.id))
+    const used = (await this.#read("usedLearnings", context)).filter((record) =>
+      reportIds.has(record.usageReportId),
+    )
+    const deliveries = new Map(
+      (
+        await this.#read("deliveries", context, { ids: used.map((record) => record.deliveryId) })
+      ).map((delivery) => [delivery.id, delivery]),
+    )
+    const shots = new Map(
+      (await this.#read("screenshots", context))
+        .filter((record) => reportIds.has(record.usageReportId))
+        .map((record) => [record.id, record]),
+    )
+    const entries = await this.#memories(context, [
+      ...new Set(used.map((record) => record.memoryId)),
+    ])
+    function screenshot(id) {
+      const record = shots.get(id)
+      if (!record) return undefined
+      const { sha256, route, viewport, theme, capturedAt } = record
+      return { sha256, route, viewport, theme, capturedAt }
+    }
+    return reports.map((report) => ({
+      id: report.id,
+      reportId: report.reportId,
+      ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
+      reportedAt: report.reportedAt,
+      used: used
+        .filter((record) => record.usageReportId === report.id)
+        .map((record) => {
+          const delivery = deliveries.get(record.deliveryId)
+          const version = entries
+            .get(record.memoryId)
+            ?.versions.findLast((item) => item.contentDigest === delivery?.contentDigest)
+          const before = screenshot(record.beforeScreenshotId)
+          const after = screenshot(record.afterScreenshotId)
+          return {
+            id: record.id,
+            memoryId: record.memoryId,
+            version: version?.version ?? null,
+            title: version?.title ?? null,
+            text: delivery?.text ?? null,
+            ...(before ? { before } : {}),
+            ...(after ? { after } : {}),
+          }
+        }),
+    }))
+  }
+
+  /**
    * Refuse screenshots unless the grant lets agent screenshots be evaluated now, and each was
    * captured inside the period the grant covers.
    */

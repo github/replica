@@ -118,6 +118,7 @@ Use
                                   Record which recalled learnings an agent used for a
                                   commit, with optional before and after screenshots;
                                   --grant names the consent that allows them
+  usage --commit <sha>            List what agents reported using for one commit
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
   mcp [--actor <agent:name>] [--grant <grant-id>]...
                                   Serve the learning tools to a coding agent over
@@ -196,6 +197,7 @@ const OPTIONS = {
   "created-at": { type: "string" },
   "session-id": { type: "string" },
   "session-label": { type: "string" },
+  commit: { type: "string" },
   days: { type: "string" },
   confirm: { type: "string" },
 }
@@ -317,6 +319,7 @@ export async function main(
           "redact",
           "recall",
           "report-usage",
+          "usage",
           "delete",
           "expire-guidance",
           "delete-repository",
@@ -427,6 +430,8 @@ async function run(session) {
       return recall(session)
     case "report-usage":
       return reportUsage(session)
+    case "usage":
+      return usage(session)
     case "delete":
       return deleteMemory(session)
     case "expire-guidance":
@@ -1384,6 +1389,28 @@ async function reportUsage(session) {
     result.stored
       ? `Stored usage report ${result.reportId}.`
       : `Usage report ${result.reportId} was already stored.`,
+  )
+}
+
+async function usage(session) {
+  const commitSha = session.values.commit
+  if (!commitSha) throw new UsageError("Name the commit with --commit <sha>.")
+  const { store } = await open(session)
+  const reports = await store.usageForCommit(context(session, actor(session)), { commitSha })
+  session.out(
+    { reports },
+    reports.length
+      ? reports
+          .map((report) =>
+            [
+              `${report.reportId}  reported ${report.reportedAt}`,
+              ...report.used.map(
+                (item) => `    ${item.memoryId} v${item.version ?? "?"}  ${item.title ?? ""}`,
+              ),
+            ].join("\n"),
+          )
+          .join("\n")
+      : "No usage reports for this commit.",
   )
 }
 

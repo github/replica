@@ -1504,6 +1504,12 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal((await ok(repo, args)).json().stored, false)
     const evidence = path.join(repo, ".replica", "learning", "evidence")
     assert.equal(readdirSync(evidence).length, 1)
+    const usage = ["usage", "--commit", "a".repeat(40), "--json"]
+    const [report] = (await ok(repo, usage)).json().reports
+    assert.equal(report.reportId, "report-1")
+    assert.equal(report.used[0].memoryId, memory.id)
+    assert.equal(report.used[0].version, 2)
+    assert.equal(report.used[0].after.route, "/checkout")
 
     const deleted = (
       await ok(repo, [
@@ -1518,6 +1524,7 @@ describe("replica-learning CLI: guard rails", () => {
     ).json()
     assert.equal(deleted.records.screenshots, 1)
     assert.deepEqual(readdirSync(evidence), [])
+    assert.deepEqual((await ok(repo, usage)).json().reports, [])
     assert.equal((await ok(repo, ["verify", "--json"])).json().ok, true)
   })
 
