@@ -335,6 +335,21 @@
   color: var(--hub-fg-link);
 }
 
+.learning-library__outcome-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--hub-fg-default);
+}
+
+.learning-library__outcome-result--supports svg {
+  color: var(--hub-fg-success);
+}
+
+.learning-library__outcome-result--concern svg {
+  color: var(--hub-attention);
+}
+
 @container (max-width: 40rem) {
   .learning-library__toolbar {
     align-items: stretch;

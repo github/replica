@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
+  AlertIcon,
   ArrowLeftIcon,
   CheckCircleIcon,
+  CircleIcon,
   LightBulbIcon,
   SearchIcon,
   XCircleIcon,
@@ -32,6 +34,7 @@ import { ReviewRelativeTime } from "@features/review-relative-time"
 import type {
   LearningDetail,
   LearningEvidence,
+  LearningOutcome,
   LearningStatus,
   LearningsLibraryData,
 } from "./types"
@@ -63,6 +66,19 @@ const emptyMessages: Record<LearningStatus, string> = {
   suggested: "Hub suggests a learning when the same point comes up in at least two review threads.",
   active: "Accept a suggestion to share it with agents.",
   rejected: "Learnings you reject or stop using stay here so you can accept them again.",
+}
+
+const outcomeLabels: Record<LearningOutcome["result"], string> = {
+  supports: "Supports the guidance",
+  concern: "Possible concern",
+  inconclusive: "Inconclusive",
+}
+
+// A result icon sets outcomes apart from review comments, which lead with an avatar.
+const outcomeIcons: Record<LearningOutcome["result"], Icon> = {
+  supports: CheckCircleIcon,
+  concern: AlertIcon,
+  inconclusive: CircleIcon,
 }
 
 /** Renders a learning's state icon; Brand labels need an element, not a component. */
@@ -415,6 +431,15 @@ function LearningDetailView({
         </DetailSection>
       ) : null}
 
+      {learning.outcomes ? (
+        <DetailSection
+          heading="Observed outcomes"
+          description="How later Builds did with this guidance."
+        >
+          <OutcomeList outcomes={learning.outcomes} />
+        </DetailSection>
+      ) : null}
+
       {decision && dialog ? (
         <CanvasDialog
           title={
@@ -526,6 +551,60 @@ function DetailSection({
       </div>
       {children}
     </section>
+  )
+}
+
+function OutcomeList({ outcomes }: { outcomes: LearningOutcome[] }) {
+  if (!outcomes.length) {
+    return (
+      <Text as="p" size="200" variant="muted">
+        Not evaluated yet.
+      </Text>
+    )
+  }
+  return (
+    <ul className="learning-library__evidence-list">
+      {outcomes.map((outcome) => {
+        const ResultIcon = outcomeIcons[outcome.result]
+        return (
+          <li className="learning-library__evidence-item" key={outcome.id}>
+            <div className="learning-library__evidence-meta">
+              <span
+                className={`learning-library__outcome-result learning-library__outcome-result--${outcome.result}`}
+              >
+                <ResultIcon size={16} />
+                <strong>{outcomeLabels[outcome.result]}</strong>
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>Automated assessment</span>
+              <span aria-hidden="true">·</span>
+              <a href={outcome.buildPath}>{outcome.buildLabel}</a>
+              <span aria-hidden="true">·</span>
+              <ReviewRelativeTime value={outcome.evaluatedAt} />
+            </div>
+            {outcome.summary ? (
+              <Text as="p" size="200">
+                {outcome.summary}
+              </Text>
+            ) : null}
+            {outcome.beforeScreenshotUrl || outcome.afterScreenshotUrl ? (
+              <div className="learning-library__evidence-meta">
+                {outcome.beforeScreenshotUrl ? (
+                  <a href={outcome.beforeScreenshotUrl} target="_blank" rel="noreferrer">
+                    Before screenshot
+                  </a>
+                ) : null}
+                {outcome.afterScreenshotUrl ? (
+                  <a href={outcome.afterScreenshotUrl} target="_blank" rel="noreferrer">
+                    After screenshot
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

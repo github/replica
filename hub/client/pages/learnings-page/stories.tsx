@@ -188,6 +188,7 @@ const suggestionDetail: LearningDetail = {
   contradictions: [],
   otherContradictions: null,
   history: [{ label: "Suggested", at: "2026-10-09T04:07:00Z", by: null, reason: null }],
+  outcomes: null,
   decision: {
     path: decisionPath(suggestionId),
     digest: `sha256:${"a".repeat(64)}`,
@@ -218,6 +219,38 @@ const activeDetail: LearningDetail = {
       at: "2026-10-06T15:05:00Z",
       by: "mona",
       reason: "Name the action so the rule is easier to apply.",
+    },
+  ],
+  outcomes: [
+    {
+      id: "score-3",
+      result: "supports",
+      summary: "The form kept a single primary button named for its action.",
+      buildLabel: "Checkout, Build 12",
+      buildPath: "/repositories/2001/prototypes/17?build=12",
+      evaluatedAt: "2026-10-09T10:00:00Z",
+      beforeScreenshotUrl: `/api/repositories/2001/learnings/screenshots/${"d".repeat(64)}`,
+      afterScreenshotUrl: `/api/repositories/2001/learnings/screenshots/${"e".repeat(64)}`,
+    },
+    {
+      id: "score-2",
+      result: "concern",
+      summary: "The rule did not say which button wins when a form has two equal actions.",
+      buildLabel: "Signup, Build 4",
+      buildPath: "/repositories/2001/prototypes/18?build=4",
+      evaluatedAt: "2026-10-08T10:00:00Z",
+      beforeScreenshotUrl: null,
+      afterScreenshotUrl: null,
+    },
+    {
+      id: "score-1",
+      result: "inconclusive",
+      summary: "The change did not touch a form, so the guidance did not apply.",
+      buildLabel: "Checkout, Build 11",
+      buildPath: "/repositories/2001/prototypes/17?build=11",
+      evaluatedAt: "2026-10-07T10:00:00Z",
+      beforeScreenshotUrl: null,
+      afterScreenshotUrl: null,
     },
   ],
   decision: {
@@ -254,6 +287,7 @@ const rejectedDetail: LearningDetail = {
       reason: "Only external links should open a new tab. This rule would break the back button.",
     },
   ],
+  outcomes: null,
   decision: {
     path: decisionPath(rejectedId),
     digest: `sha256:${"c".repeat(64)}`,
@@ -921,6 +955,10 @@ export const SuggestionWithOpposingEvidence: Story = {
 
 export const ActiveDetail: Story = {
   args: { data: { ...data, library: showing(activeDetail) } },
+}
+
+export const NotEvaluatedYet: Story = {
+  args: { data: { ...data, library: showing({ ...activeDetail, outcomes: [] }) } },
 }
 
 export const EditingLearning: Story = {

@@ -36,6 +36,18 @@ export interface LearningHistoryEntry {
 }
 
 /** Everything the detail view shows for the selected learning. */
+/** How one later Build did with a learning's guidance. */
+export interface LearningOutcome {
+  id: string
+  result: "supports" | "concern" | "inconclusive"
+  summary: string
+  buildLabel: string
+  buildPath: string
+  evaluatedAt: string
+  beforeScreenshotUrl: string | null
+  afterScreenshotUrl: string | null
+}
+
 export interface LearningDetail {
   id: string
   status: LearningStatus
@@ -50,6 +62,8 @@ export interface LearningDetail {
   contradictions: LearningEvidence[]
   otherContradictions: string | null
   history: LearningHistoryEntry[]
+  /** How later Builds did with the current wording. Null when agents don't get it. */
+  outcomes: LearningOutcome[] | null
   /**
    * Present only when the viewer can decide and the stored version is intact. The
    * title and content are the stored wording, which the edit form starts from.

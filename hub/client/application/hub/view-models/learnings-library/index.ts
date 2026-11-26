@@ -1,6 +1,7 @@
 import type {
   LearningDetail,
   LearningEvidence,
+  LearningOutcome,
   LearningStatus,
   LearningsLibraryData,
   LibraryLearning,
@@ -8,6 +9,7 @@ import type {
 import type {
   LearningEvidenceResponse,
   LearningHistoryResponse,
+  LearningOutcomeResponse,
   LearningsResponse,
 } from "@application/hub/learnings-contracts/types"
 
@@ -71,6 +73,27 @@ function evidence(items: LearningEvidenceResponse[], repositoryId: string): Lear
   return items.map(({ prototypeId, ...item }) => ({
     ...item,
     prototypePath: `/repositories/${repositoryId}/prototypes/${prototypeId}`,
+  }))
+}
+
+/**
+ * Reads a score as a plain result. A score only says something about the guidance when
+ * the agent followed it, and 3 or 4 means the work went well.
+ */
+function outcomes(items: LearningOutcomeResponse[], repositoryId: string): LearningOutcome[] {
+  function screenshot(value?: { sha256: string }) {
+    return value ? `/api/repositories/${repositoryId}/learnings/screenshots/${value.sha256}` : null
+  }
+  return items.toReversed().map((item) => ({
+    id: item.id,
+    result:
+      item.followed !== "followed" ? "inconclusive" : item.efficiency >= 3 ? "supports" : "concern",
+    summary: item.issue ?? item.reasoning,
+    buildLabel: `${item.build.prototypeName}, Build ${item.build.number}`,
+    buildPath: `/repositories/${repositoryId}/prototypes/${item.build.prototypeId}?build=${item.build.number}`,
+    evaluatedAt: item.scoredAt,
+    beforeScreenshotUrl: screenshot(item.before),
+    afterScreenshotUrl: screenshot(item.after),
   }))
 }
 
@@ -227,6 +250,8 @@ function detail(
       by: entry.by?.includes(":") ? null : entry.by,
       reason: entry.reason,
     })),
+    // Only guidance agents get now can have later Builds to judge.
+    outcomes: record.status === "active" ? outcomes(history?.outcomes ?? [], repositoryId) : null,
     source: record.source,
     share: null,
   }

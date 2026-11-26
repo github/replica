@@ -106,6 +106,7 @@ describe("learningsLibrary()", () => {
         otherEvidenceCount: 2,
         contradictions: [],
         otherContradictionsCount: 0,
+        outcomes: [],
       },
     )
 
@@ -221,6 +222,7 @@ describe("learningsLibrary()", () => {
           },
         ],
         otherContradictionsCount: 1,
+        outcomes: [],
       },
     )
 
@@ -229,5 +231,76 @@ describe("learningsLibrary()", () => {
     expect(result.selected?.otherContradictions).toBe(
       "1 more opposing comment that Hub cannot show here",
     )
+  })
+
+  it("reads each score as a result, newest first", () => {
+    const state = emptyLearnings()
+    state.learnings = [
+      {
+        id: "mem_active",
+        title: "Keep labels visible",
+        content: "Show a label above every field.",
+        digest,
+        acceptedBy: "hubot",
+        acceptedAt: "2026-10-09T15:00:00Z",
+        edited: false,
+        lastDecision: "accepted",
+        status: "recalled",
+        shared: false,
+      },
+    ]
+    const score = {
+      reasoning: "The form kept its labels.",
+      issue: null,
+      build: { prototypeId: "17", prototypeName: "Checkout", number: 3 },
+    }
+
+    const result = learningsLibrary(
+      state,
+      { pathname, search: "?status=active&learning=mem_active" },
+      {
+        decisions: [],
+        evidence: [],
+        otherEvidenceCount: 0,
+        contradictions: [],
+        otherContradictionsCount: 0,
+        outcomes: [
+          {
+            ...score,
+            id: "score_not_followed",
+            efficiency: 4,
+            followed: "not_followed",
+            scoredAt: "2026-10-10T00:00:00Z",
+          },
+          {
+            ...score,
+            id: "score_concern",
+            efficiency: 2,
+            followed: "followed",
+            issue: "The rule did not say where the label goes.",
+            scoredAt: "2026-10-11T00:00:00Z",
+          },
+          {
+            ...score,
+            id: "score_supports",
+            efficiency: 3,
+            followed: "followed",
+            scoredAt: "2026-10-12T00:00:00Z",
+            after: { sha256: "b".repeat(64), route: "/checkout" },
+          },
+        ],
+      },
+    )
+
+    expect(result.selected?.outcomes?.map((outcome) => [outcome.result, outcome.summary])).toEqual([
+      ["supports", "The form kept its labels."],
+      ["concern", "The rule did not say where the label goes."],
+      ["inconclusive", "The form kept its labels."],
+    ])
+    expect(result.selected?.outcomes?.[0]).toMatchObject({
+      buildPath: "/repositories/2001/prototypes/17?build=3",
+      beforeScreenshotUrl: null,
+      afterScreenshotUrl: `/api/repositories/2001/learnings/screenshots/${"b".repeat(64)}`,
+    })
   })
 })
