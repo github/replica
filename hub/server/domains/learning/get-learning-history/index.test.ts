@@ -21,7 +21,7 @@ describe("getLearningHistory()", () => {
   })
 
   it("lists each decision once, including edits, reinstatements, and damaged versions", async () => {
-    vi.mocked(runLearningCommand).mockResolvedValue({
+    vi.mocked(runLearningCommand).mockResolvedValueOnce({
       withheld: false,
       record: { evidence: [] },
       versions: [
@@ -69,6 +69,7 @@ describe("getLearningHistory()", () => {
         { withheld: true },
       ],
     })
+    vi.mocked(runLearningCommand).mockResolvedValueOnce({ outcomes: [] })
 
     const result = await getLearningHistory({
       applicationRoot: "/app",
@@ -112,6 +113,59 @@ describe("getLearningHistory()", () => {
     expect(runLearningCommand).not.toHaveBeenCalled()
   })
 
+  it("shows only how the current wording was scored", async () => {
+    const digest = "c".repeat(64)
+    const outcome = {
+      id: "score_1",
+      commitSha: "a".repeat(40),
+      prototypeId: "proto_1",
+      efficiency: 2,
+      followed: "followed",
+      reasoning: "The form kept its labels.",
+      issue: "The rule did not say where the label goes.",
+      scoredAt: "2026-11-05T00:00:00.000Z",
+    }
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce({
+        withheld: false,
+        record: {},
+        versions: [
+          { version: 1, state: "accepted", contentDigest: "first wording" },
+          { version: 2, state: "accepted", contentDigest: "second wording" },
+          { version: 3, state: "retired", contentDigest: "second wording" },
+          { version: 4, state: "accepted", contentDigest: "second wording" },
+        ],
+      })
+      .mockResolvedValueOnce({
+        outcomes: [
+          { ...outcome, id: "score_old", version: 1 },
+          {
+            ...outcome,
+            version: 2,
+            after: { sha256: `sha256:${digest}`, route: "/checkout", consentGrantId: "grant-1" },
+          },
+        ],
+      })
+
+    const result = await getLearningHistory({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      learningId: "mem_1",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+
+    expect(result.outcomes).toEqual([
+      {
+        ...outcome,
+        after: { sha256: digest, route: "/checkout", consentGrantId: "grant-1" },
+      },
+    ])
+  })
+
   it("separates supporting and opposing comments and counts the ones it cannot show", async () => {
     const comment = {
       commentId: 1,
@@ -137,6 +191,7 @@ describe("getLearningHistory()", () => {
         },
         versions: [],
       })
+      .mockResolvedValueOnce({ outcomes: [] })
       .mockResolvedValueOnce({
         events: [
           {
@@ -191,6 +246,7 @@ describe("getLearningHistory()", () => {
         },
         versions: [],
       })
+      .mockResolvedValueOnce({ outcomes: [] })
       .mockResolvedValueOnce({ events: [] })
 
     await getLearningHistory({
@@ -205,7 +261,7 @@ describe("getLearningHistory()", () => {
       staticDirectories: [],
     })
 
-    const observationArguments = vi.mocked(runLearningCommand).mock.calls[1]?.[0] ?? []
+    const observationArguments = vi.mocked(runLearningCommand).mock.calls[2]?.[0] ?? []
     expect(observationArguments.filter((argument) => argument === "--event")).toHaveLength(1)
     expect(observationArguments).toContain("evt_1")
     expect(observationArguments).not.toContain("evt 2")

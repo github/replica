@@ -95,4 +95,29 @@ export type ReportedAppliedLearning = Omit<AppliedLearning, "before" | "after"> 
   after?: ReportedScreenshot
 }
 
+/** How one use of a learning was scored, with the Build it judged. */
+export type LearningOutcome = Omit<
+  ReportedLearningOutcome,
+  "commitSha" | "prototypeId" | "before" | "after"
+> & {
+  build: { prototypeId: string; prototypeName: string; number: number }
+  before?: { sha256: string; route: string }
+  after?: { sha256: string; route: string }
+}
+
+/** How one use of a learning was scored, as the package recorded it. */
+export interface ReportedLearningOutcome {
+  id: string
+  commitSha: string
+  prototypeId: string | null
+  /** 4 is best. 1 and 2 come with an issue. */
+  efficiency: number
+  followed: "followed" | "not_followed" | "unclear"
+  reasoning: string
+  issue: string | null
+  scoredAt: string
+  before?: ReportedScreenshot
+  after?: ReportedScreenshot
+}
+
 type ReportedScreenshot = { sha256: string; route: string; consentGrantId?: string }

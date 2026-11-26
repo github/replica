@@ -10,7 +10,7 @@ import type {
   LearningEvidenceReference,
   ReviewCommentLearningSource,
 } from "../review-comment-learning-source/types.ts"
-import type { LearningDecisionRecord, LearningEvidence } from "../types.ts"
+import type { LearningDecisionRecord, LearningEvidence, ReportedLearningOutcome } from "../types.ts"
 
 const decisionSchema = z
   .object({
@@ -45,6 +45,7 @@ const versionSchema = z
     version: z.number().int().positive().optional().catch(undefined),
     state: z.enum(["proposed", "accepted", "rejected", "retired"]).optional().catch(undefined),
     digest: z.string().optional().catch(undefined),
+    contentDigest: z.string().optional().catch(undefined),
     withheld: z.literal(true).optional(),
     updatedAt: z.string().optional(),
     proposal: z
@@ -69,6 +70,34 @@ const showSchema = z
       })
       .loose(),
     versions: z.array(versionSchema).optional(),
+  })
+  .loose()
+const screenshotSchema = z
+  .object({
+    sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    route: z.string(),
+    consentGrantId: z.string().optional(),
+  })
+  .loose()
+const outcomesSchema = z
+  .object({
+    outcomes: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          version: z.number().int().positive(),
+          commitSha: z.string().regex(/^[0-9a-f]{40}$/),
+          prototypeId: z.string().optional(),
+          efficiency: z.number().int().min(1).max(4),
+          followed: z.enum(["followed", "not_followed", "unclear"]),
+          reasoning: z.string(),
+          issue: z.string().optional(),
+          scoredAt: z.string().min(1),
+          before: screenshotSchema.optional(),
+          after: screenshotSchema.optional(),
+        })
+        .loose(),
+    ),
   })
   .loose()
 const observationsSchema = z
@@ -189,6 +218,7 @@ export async function getLearningHistory(input: {
   otherEvidenceCount: number
   contradictions: LearningEvidence[]
   otherContradictionsCount: number
+  outcomes: ReportedLearningOutcome[]
 }> {
   // The ID is passed to the package as an argument, so it must never read as an option.
   if (input.learningId.startsWith("-")) {
@@ -229,6 +259,17 @@ export async function getLearningHistory(input: {
     ),
   )
   const history = decisions(shown.versions ?? [])
+  const outcomes = shown.withheld
+    ? []
+    : currentOutcomes(
+        outcomesSchema.parse(
+          await runLearningCommand(
+            ["outcomes", input.learningId, ...commonArguments],
+            commandOptions,
+          ),
+        ).outcomes,
+        shown.versions ?? [],
+      )
   const supporting = shown.withheld ? [] : (shown.record.evidence ?? [])
   const opposing = shown.withheld ? [] : (shown.record.contradictions ?? [])
   const references = [...supporting, ...opposing]
@@ -239,6 +280,7 @@ export async function getLearningHistory(input: {
       otherEvidenceCount: missingEventCount(supporting, []),
       contradictions: [],
       otherContradictionsCount: missingEventCount(opposing, []),
+      outcomes,
     }
   }
   // The package reads at most 100 events at once, so a detail page shows the first 100.
@@ -288,5 +330,41 @@ export async function getLearningHistory(input: {
     otherEvidenceCount: missingEventCount(supporting, evidence),
     contradictions,
     otherContradictionsCount: missingEventCount(opposing, contradictions),
+    outcomes,
+  }
+}
+
+// Scores of older wording say nothing about the guidance agents get now. Retiring and
+// reinstating add versions with the same wording, so match the wording, not the number.
+function currentOutcomes(
+  outcomes: z.infer<typeof outcomesSchema>["outcomes"],
+  versions: z.infer<typeof versionSchema>[],
+): ReportedLearningOutcome[] {
+  const wording = versions.at(-1)?.contentDigest
+  if (!wording) return []
+  const current = new Set(
+    versions.filter((entry) => entry.contentDigest === wording).map((entry) => entry.version),
+  )
+  return outcomes
+    .filter((outcome) => current.has(outcome.version))
+    .map((outcome) => ({
+      id: outcome.id,
+      commitSha: outcome.commitSha,
+      prototypeId: outcome.prototypeId ?? null,
+      efficiency: outcome.efficiency,
+      followed: outcome.followed,
+      reasoning: outcome.reasoning,
+      issue: outcome.issue ?? null,
+      scoredAt: outcome.scoredAt,
+      ...(outcome.before ? { before: screenshot(outcome.before) } : {}),
+      ...(outcome.after ? { after: screenshot(outcome.after) } : {}),
+    }))
+}
+
+function screenshot(value: z.infer<typeof screenshotSchema>) {
+  return {
+    sha256: value.sha256.slice("sha256:".length),
+    route: value.route,
+    ...(value.consentGrantId ? { consentGrantId: value.consentGrantId } : {}),
   }
 }
