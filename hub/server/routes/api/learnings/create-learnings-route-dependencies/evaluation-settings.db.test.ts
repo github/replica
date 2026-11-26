@@ -66,7 +66,16 @@ describe("evaluation settings", () => {
       },
     })
     vi.mocked(changeScreenshotConsent).mockResolvedValueOnce("grant_1")
-    vi.mocked(changeScreenshotConsent).mockResolvedValueOnce(null)
+    // Records what Hub showed at the moment the store grant was withdrawn.
+    let grantAtWithdrawal: string | null | undefined
+    vi.mocked(changeScreenshotConsent).mockImplementationOnce(async () => {
+      grantAtWithdrawal = (
+        await prisma.repositoryEvaluationSetting.findUnique({
+          where: { repositoryId: repository.id },
+        })
+      )?.screenshotGrantId
+      return null
+    })
     const learnings = await createLearningsRouteDependencies(
       { HUB_APPLICATION_ORIGIN: "https://hub.example.test", DATABASE_URL: getDatabaseUrl() },
       { restore: vi.fn() },
@@ -97,6 +106,7 @@ describe("evaluation settings", () => {
       allowed: false,
       grantId: "grant_1",
     })
+    expect(grantAtWithdrawal).toBeNull()
     expect(vi.mocked(enqueueJob).mock.lastCall?.[2]).toEqual({
       repositoryId: repository.id,
       grantId: "grant_1",

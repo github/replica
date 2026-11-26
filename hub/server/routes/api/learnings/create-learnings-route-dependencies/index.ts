@@ -669,6 +669,19 @@ export async function createLearningsRouteDependencies(
               }
             }
             if (allowed === Boolean(grantId)) return
+            function saveGrant(screenshotGrantId: string | null) {
+              return withAuthority((transaction) =>
+                saveRepositoryEvaluationSetting(transaction, input.repositoryId, {
+                  screenshotGrantId,
+                  screenshotsChangedAt: new Date(),
+                  screenshotsChangedByMembershipId: actorMembershipId,
+                }),
+              )
+            }
+            // Hub stops showing screenshots before the store grant is withdrawn, so a
+            // failed withdrawal can't leave Hub serving them. The cleanup sweep still
+            // deletes them, since their grant is no longer the active one.
+            if (grantId && !allowed && !(await saveGrant(null))) return deny()
             const nextGrantId = await changeScreenshotConsent({
               ...configuration,
               actor: input.actor,
@@ -678,15 +691,11 @@ export async function createLearningsRouteDependencies(
               repositoryScope,
               signal,
             })
-            const saved = await withAuthority((transaction) =>
-              saveRepositoryEvaluationSetting(transaction, input.repositoryId, {
-                screenshotGrantId: nextGrantId,
-                screenshotsChangedAt: new Date(),
-                screenshotsChangedByMembershipId: actorMembershipId,
-              }),
-            )
-            if (!saved) return deny()
-            if (grantId && !allowed)
+            if (allowed) {
+              if (!(await saveGrant(nextGrantId))) return deny()
+              return
+            }
+            if (grantId)
               await queueScreenshotDeletion({
                 databaseUrl,
                 grantId,
