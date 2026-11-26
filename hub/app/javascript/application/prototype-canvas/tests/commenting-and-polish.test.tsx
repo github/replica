@@ -167,15 +167,24 @@ describe("App()", () => {
         }}
       />,
     )
-    await screen.findByRole("button", { name: /^Comments, 1/ })
-    const picker = await screen.findByRole("button", { name: notesCopy.annotate })
+    const reviewControls = view.container.querySelector<HTMLElement>("#canvas-review-controls")
+    if (!reviewControls) throw new Error("Expected the canvas review controls.")
+    const improvementControls = view.container.querySelector<HTMLElement>(
+      "#canvas-improvement-controls",
+    )
+    if (!improvementControls) throw new Error("Expected the canvas improvement controls.")
+    const comments = within(reviewControls)
+    await comments.findByRole("button", { name: /^Comments, 1/ })
+    const picker = await within(improvementControls).findByRole("button", {
+      name: notesCopy.annotate,
+    })
     fireEvent.keyDown(window, { key: "c" })
-    expect(screen.queryByRole("button", { name: commentsCopy.cancelSelectionLabel })).toBeNull()
+    expect(comments.queryByRole("button", { name: commentsCopy.cancelSelectionLabel })).toBeNull()
     const bridge = previewBridge()
     function select() {
       return bridge.messages().filter((data) => data.type === "replica:canvas:select")
     }
-    fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
+    fireEvent.click(comments.getByRole("button", { name: commentsCopy.commentMenuLabel }))
     const menu = screen.getByRole("menu")
     expect(
       within(menu).getByRole("menuitem", { name: commentsCopy.commentMenuLabel }),
@@ -193,7 +202,9 @@ describe("App()", () => {
     expect(picker).toHaveAttribute("aria-pressed", "false")
     bridge.post.mockClear()
     fireEvent.keyDown(window, { key: "C" })
-    expect(await screen.findByRole("button", { name: commentsCopy.commentMenuLabel })).toBeEnabled()
+    expect(
+      await comments.findByRole("button", { name: commentsCopy.commentMenuLabel }),
+    ).toBeEnabled()
     expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Edit details" }))
     expect(select()).toEqual([])
     expect(bridge.messages().some((data) => data.type === "replica:canvas:cancel-selection")).toBe(
