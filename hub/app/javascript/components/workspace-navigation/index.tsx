@@ -80,6 +80,7 @@ export function WorkspaceNavigation({
           signOutLabel={data.signOutLabel}
           signOutPath={data.signOutPath}
           systemThemeLabel={data.systemThemeLabel}
+          notificationSettings={data.notificationSettings}
         />
       </div>
     </aside>

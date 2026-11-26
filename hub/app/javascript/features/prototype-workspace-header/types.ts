@@ -44,6 +44,12 @@ export interface PrototypeWorkspaceHeaderData extends WorkspaceHeaderData {
   moreActionsLabel: string
   shareLinksLabel?: string
   shareLinksPath?: string
+  notificationMute?: {
+    label: string
+    path: string
+    muted: boolean
+    authenticityToken: string
+  }
 }
 
 export interface ReplicaWorkspaceHeaderData extends WorkspaceHeaderData {

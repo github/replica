@@ -67,6 +67,16 @@ json.historyPath repository_prototype_builds_path \
   @prototype,
   **(params.key?(:build) ? { build: @selected_build.number } : {})
 json.moreActionsLabel t("prototypes.show.more_actions")
+if NotificationDelivery.configured? && Current.user.github_id.present?
+  recipient = GithubIdentity.find_by(github_id: Current.user.github_id)
+  muted = recipient && NotificationMute.exists?(recipient:, prototype: @prototype)
+  json.notificationMute do
+    json.label t(muted ? "notification_settings.unmute" : "notification_settings.mute", provider: NotificationDelivery.provider.label)
+    json.path repository_prototype_notification_mute_path(@repository.route_id, @prototype)
+    json.muted !!muted
+    json.authenticityToken form_authenticity_token
+  end
+end
 json.openInNewTabLabel t("prototypes.show.open_in_new_tab")
 json.minimizeHubLabel t("prototypes.show.minimize_hub")
 json.maximizeHubLabel t("prototypes.show.maximize_hub")

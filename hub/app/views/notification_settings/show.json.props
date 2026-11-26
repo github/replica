@@ -1,0 +1,42 @@
+json.partial! \
+  partial: "shared/hub_workspace",
+  locals: { navigation_label: t("repository_workspace.navigation") }
+json.pageTitle t("notification_settings.heading")
+json.heading t("notification_settings.heading")
+json.description t("notification_settings.description")
+json.enabled @preference.enabled?
+json.enabledLabel t("notification_settings.enabled", provider: NotificationDelivery.provider.label)
+json.explanation t("notification_settings.explanation")
+json.privacy t("notification_settings.privacy")
+json.pausedMessage(@deployment_enabled ? nil : t("notification_settings.paused"))
+json.submitPath notification_settings_path
+json.saveLabel t("notification_settings.save")
+json.alert flash[:alert]
+json.mutedHeading t("notification_settings.muted_heading")
+json.mutedEmpty t("notification_settings.muted_empty")
+json.prototypeExplanation t("notification_settings.prototype_explanation")
+json.mutes do
+  json.array! @mutes do |mute|
+    prototype = mute.prototype
+    json.id mute.id
+    json.repository prototype.repository.name_with_owner
+    json.prototype prototype.name.presence || prototype.branch_name
+    json.path repository_prototype_path(prototype.repository.route_id, prototype)
+    json.submitPath repository_prototype_notification_mute_path(prototype.repository.route_id, prototype)
+    json.unmuteLabel t("notification_settings.unmute_label")
+  end
+end
+if @administrator
+  json.administration do
+    json.heading t("notification_settings.administration_heading")
+    json.description t("notification_settings.administration_description")
+    json.status t(@deployment_enabled ? "notification_settings.deployment_enabled" : "notification_settings.deployment_disabled")
+    json.submitPath notification_delivery_setting_path
+    json.operation(@deployment_enabled ? "disable" : "enable")
+    json.submitLabel t(@deployment_enabled ? "notification_settings.disable" : "notification_settings.enable")
+    json.confirmLabel t("notification_settings.confirm")
+    json.failureMessage(@failed_count.positive? ? t("notification_settings.failures", count: @failed_count) : nil)
+  end
+else
+  json.administration nil
+end

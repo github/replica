@@ -1,4 +1,10 @@
 context_repository = local_assigns.fetch(:context_repository, @repository)
+if NotificationDelivery.configured? && Current.user.github_id.present?
+  json.notificationSettings do
+    json.label t("notification_settings.heading")
+    json.path notification_settings_path
+  end
+end
 json.notificationsPath notifications_path(repository_github_id: context_repository&.route_id)
 json.partial! \
   partial: "shared/welcome_navigation",

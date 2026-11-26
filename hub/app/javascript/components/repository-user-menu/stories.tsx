@@ -36,6 +36,10 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
+export const NotificationSettings: Story = {
+  args: { notificationSettings: { label: "Notifications", path: "/notification_settings" } },
+}
+
 export const Collapsed: Story = {
   args: { collapsed: true },
 }

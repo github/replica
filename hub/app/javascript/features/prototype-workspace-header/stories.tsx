@@ -77,6 +77,34 @@ type Story = StoryObj<typeof meta>
 
 export const Ready: Story = {}
 
+export const ExternalNotifications: Story = {
+  args: {
+    data: {
+      ...data,
+      notificationMute: {
+        label: "Mute Slack for this prototype",
+        path: "/repositories/2001/prototypes/1/notification_mute",
+        muted: false,
+        authenticityToken: "storybook-token",
+      },
+    },
+  },
+}
+
+export const ExternalNotificationsMuted: Story = {
+  args: {
+    data: {
+      ...data,
+      notificationMute: {
+        label: "Unmute Slack for this prototype",
+        path: "/repositories/2001/prototypes/1/notification_mute",
+        muted: true,
+        authenticityToken: "storybook-token",
+      },
+    },
+  },
+}
+
 export const ReplicaBrowse: Story = {
   args: {
     data: replicaBrowseData,

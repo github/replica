@@ -1,0 +1,50 @@
+.notification-settings-page {
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--brand-space-40);
+  margin-inline: auto;
+  max-width: 52rem;
+  padding: var(--brand-space-32) var(--brand-space-24);
+  width: 100%;
+}
+
+.notification-settings-page section,
+.notification-settings-page form {
+  display: grid;
+  gap: var(--brand-space-16);
+}
+
+.notification-settings-page form > button {
+  justify-self: start;
+}
+
+.notification-settings-page__checkbox {
+  align-items: start;
+  display: flex;
+  gap: var(--brand-space-12);
+}
+
+.notification-settings-page__checkbox input {
+  flex-shrink: 0;
+  margin-block-start: 0.3em;
+}
+
+.notification-settings-page__mutes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notification-settings-page__mutes li {
+  align-items: center;
+  border-block-end: 1px solid var(--hub-border-default);
+  display: flex;
+  gap: var(--brand-space-16);
+  justify-content: space-between;
+  padding-block: var(--brand-space-16);
+}
+
+.notification-settings-page__mutes li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

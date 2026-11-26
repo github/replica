@@ -41,6 +41,10 @@ These walkthroughs use placeholders for your own hostnames, resources, releases,
 | Build an unreleased commit or reviewed patch | [Source image builds](source-image-builds.md) |
 | Back up or recover a deployment | [Backups and restore](backups-and-restore.md) |
 
+## Optional external notifications
+
+The standard image has no external messaging provider. Operators can add a separately packaged server-only adapter and set `REPLICA_NOTIFICATION_PROVIDER_PATH` to its absolute Ruby registration file inside every web and job container. Keep provider credentials and recipient mappings in private runtime configuration. Review the [delivery behavior, privacy limits, and adapter contract](review-collaboration.md#external-notification-delivery) before enabling a deployment.
+
 ## Optional server-side tracing
 
 Hub can send server-side traces to an OpenTelemetry Protocol (OTLP) endpoint. Traces describe Rails requests, Active Job enqueueing and execution, instrumented Active Record operations, and outbound Net::HTTP calls. The published image includes OpenTelemetry instrumentation and its HTTP/protobuf exporter, not vendor-specific APM SDKs.

@@ -8,6 +8,7 @@ class FreshAuthorization::Continuation < ActiveRecord::AssociatedObject
       "destroy" => "analytics_destination"
     },
     "sharing_settings" => { "update" => "sharing_settings" },
+    "notification_delivery_settings" => { "update" => "notification_delivery" },
     "session_revocations" => { "create" => "session_revocation" },
     "github_apps" => { "destroy" => "github_app_reset" },
     "github_app_credentials" => { "update" => "github_app_credentials" },

@@ -37,6 +37,8 @@ Rails.application.routes.draw do
     resources :notifications, only: %i[index show update] do
       get :inbox, on: :collection
     end
+    resource :notification_settings, only: %i[show update], controller: "notification_settings"
+    resource :notification_delivery_setting, only: :update
     resources :fresh_authorizations, only: %i[show destroy], path: "authorization" do
       post :create, on: :member
     end
@@ -128,6 +130,7 @@ Rails.application.routes.draw do
 
       resources :prototypes, only: :show,
         constraints: { repository_github_id: /\d+/, id: /\d+/ } do
+        resource :notification_mute, only: :update
         resources :mention_candidates, only: :index
         resource :registration, only: :update, controller: "prototype_registrations"
         resource :branch_banner_dismissal, only: :create

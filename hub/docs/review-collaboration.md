@@ -41,7 +41,7 @@ If mention suggestions fail to load, Tab moves from the composer to Retry withou
 
 Each individual message allows ten distinct mention logins, case-insensitively. A reply has its own allowance, independent of its root and other replies. Duplicate tokens and self-mentions never create additional notifications. A GitHub verification failure prevents the message from saving, shows an error, and leaves the draft available to retry.
 
-Hub resolves recipients to immutable GitHub identities, not mutable logins or Hub registration. `CommentMention` records each message's recipients. Each `Notification` has recipient-specific read state and `NotificationResource` rows identifying its source message as primary and its Prototype as context. Notifications are saved atomically with the action. Someone who has not signed in yet receives their retained notifications on their first authorized Hub sign-in; no invitation, email, or Slack message is sent.
+Hub resolves recipients to immutable GitHub identities, not mutable logins or Hub registration. `CommentMention` records each message's recipients. Each `Notification` has recipient-specific read state and `NotificationResource` rows identifying its source message as primary and its Prototype as context. Notifications are saved atomically with the action. Someone who has not signed in yet receives their retained notifications on their first authorized Hub sign-in. Standard installations send no invitation, email, or external message. An operator may separately install the optional [external delivery adapter](#external-notification-delivery).
 
 Both Hub and canvas actions create these activities:
 
@@ -69,7 +69,38 @@ Inbox uses the same Hub workspace data as Welcome and administration pages, incl
 
 Opening an activity from either surface opens its conversation on the current successful Build and focuses and highlights the exact message, including a reply, without automatically opening the Prototype description dialog over it. Only after that message opens does Hub mark that notification read and synchronize the returned read state with the sidebar badge and any loaded preview rows. A missing or inaccessible source is not acknowledged. Explicit read and unread controls use version checks to reject concurrent changes and update the server-derived unread total without discarding loaded pages. Visiting the inbox or reading a thread elsewhere does not change notification read state; existing thread unread rules remain separate.
 
-Ordinary edits do not notify; newly added mentions do. Removing a mention or reaction withdraws its notification and resource associations. Deleting a source message removes notifications for that message. Re-adding a removed mention or reaction creates a new unread activity. Losing mention-only participation does not remove unrelated older activities. Losing repository access hides retained notifications; it does not grant access through a deep link. Existing mentions keep their immutable recipient across GitHub login changes. New activity in existing conversations is supported, but historical activity is not scanned or backfilled. Other notification kinds and external delivery are deferred.
+Ordinary edits do not notify; newly added mentions do. Removing a mention or reaction withdraws its notification and resource associations. Deleting a source message removes notifications for that message. Re-adding a removed mention or reaction creates a new unread activity. Losing mention-only participation does not remove unrelated older activities. Losing repository access hides retained notifications; it does not grant access through a deep link. Existing mentions keep their immutable recipient across GitHub login changes. New activity in existing conversations is supported, but historical activity is not scanned or backfilled.
+
+## External notification delivery
+
+External delivery is inactive unless the operator installs a server-only adapter. Hub ships no messaging provider, internal service endpoint, or recipient directory. A configured deployment starts delivering new activity by default, subject to the adapter's recipient eligibility. It never scans historical Inbox activity.
+
+Open the account menu and choose **Notifications** to turn personal delivery on or off. A Prototype's **More actions** menu can mute or unmute its external updates for yourself. The Notifications page lists your currently accessible muted Prototypes with Unmute controls. Both preferences include mentions and leave Hub Inbox activity, read state, and other people's preferences unchanged.
+
+Hub administrators also have a **Hub delivery** control on that page. Deployment changes require explicit confirmation and fresh GitHub verification. Disabling personal, Prototype, or deployment delivery cancels pending and retryable items; reenabling delivers only new activity. A request already in flight cannot be recalled.
+
+New notifications and their external delivery rows commit together in the primary database. The scheduler recovers due work every minute; activity becomes due at the next UTC hour boundary. A recipient's digest contains at most 25 items per request, so high-volume hours can produce multiple messages. Each item includes its actor, repository, Prototype, a comment excerpt of at most 240 characters, and an authenticated Hub conversation link. Hub refreshes the recipient's login from the immutable GitHub ID and verifies current repository access before sending. Deleted or withdrawn activity is excluded. Sending an item never marks its Inbox notification read, and reading it does not cancel external delivery.
+
+Delivery is at least once, with bounded retries for transient authorization or transport failures. Persisted claims recover from queue failures and abandoned worker leases. A destination key binds queued activity to its original adapter configuration; a different key cancels old work rather than forwarding a backlog. Adapters must change that key when the destination or identity mapping changes. Administrators see a sanitized failure indicator; the server retains fixed failure codes, never provider response bodies or digest text. Delivery history expires after 90 days.
+
+Text already sent to an external provider remains subject to that provider's access and retention rules. Deleting a comment, muting delivery, or losing repository access cannot reliably remove a previously delivered excerpt.
+
+### Adapter contract
+
+Install the adapter separately from the standard Hub image and set `REPLICA_NOTIFICATION_PROVIDER_PATH` to an absolute Ruby initializer path inside the container. Hub loads it during Rails preparation and repeats registration on development reloads. The file registers an object with `NotificationDelivery.provider = adapter` and must support repeated loading. Keep provider code, endpoints, identity mapping, and credentials on the server; inject credentials at runtime, never into public source, browser data, or images.
+
+The adapter implements:
+
+- `key`: a nonsecret stable destination/revision identifier, 1–255 printable ASCII characters. A changed destination or recipient mapping requires a different key. Hub snapshots it with new Inbox activity, so it must be cheap and perform no network requests.
+- `label`: a safe display name, 1–80 characters, used in personal controls.
+- `eligible?(recipient:)`: returns a boolean. Unknown or ineligible recipients return false, not a guessed destination.
+- `deliver!(recipient:, messages:, preferences_url:)`: accepts one bounded digest. Successful return means provider acceptance, not proof someone received or read the message.
+
+`recipient` is a symbol-keyed Hash with `github_id` (Integer) and the freshly resolved `login` (String). `messages` is an Array of at most 25 symbol-keyed Hashes: `id` (Inbox notification ID), `kind`, `actor_login`, `repository` (name with owner), `prototype` (display name), `excerpt`, `occurred_at` (ISO 8601), and `url` (authenticated absolute Hub URL). `preferences_url` is the authenticated absolute Notifications settings URL.
+
+An adapter raises `NotificationDelivery::Failure.new(code:, retryable:)` for an expected configuration, delivery, or eligibility failure. Allowed codes are `transport_timeout`, `rate_limited`, `service_unavailable`, `authentication_failed`, `recipient_unavailable`, `invalid_payload`, and `eligibility_unavailable`; `authorization_unavailable` is reserved for Hub access checks. A key lookup failure records a failed delivery rather than rolling back the comment or Inbox activity; Hub cannot safely retry without an original destination key. Exceptions must not contain credentials, provider response text, endpoint URLs, or message bodies. The adapter must bound timeouts, validate provider acknowledgments, avoid duplicate internal retry loops, and fail closed on ambiguous recipient mapping. An uncertain network response may still lead to a duplicate on retry.
+
+Apply the same adapter and runtime configuration to every web and job process. Run `NotificationDelivery.recover!` to recover due work or `NotificationDelivery.clear_expired!` to expire old delivery records. These operations are also scheduled by Solid Queue. Provider configuration changes and removal require restarting all web and job processes consistently.
 
 ## Saved targets
 
@@ -154,7 +185,7 @@ Hub checks the browser Session, repository access, and an anti-forgery token bef
 
 The Hub page and preview bridge reject messages from unexpected addresses or browser windows and reject unexpected data. Prototype code shares the preview frame with the bridge, so Hub sends the bridge only the comment ID and saved target needed to place a marker.
 
-Comment text, replies, participants, reactions, read state, and credentials stay in Hub.
+The preview does not receive comment text, replies, participants, reactions, read state, or credentials. Optional [external notification delivery](#external-notification-delivery) has its own disclosure and retention limits.
 
 ## Related guides
 
