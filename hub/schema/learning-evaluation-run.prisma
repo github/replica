@@ -9,6 +9,7 @@ model LearningEvaluationRun {
   repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
 
   // Attribute columns
+  trigger         LearningScoreTrigger @default(USAGE)
   state           LearningRunState @default(RUNNING)
   copilotRequests Int              @default(0) @map("copilot_requests")
   aiCredits       Decimal          @default(0) @map("ai_credits") @db.Decimal(20, 9)
@@ -20,7 +21,7 @@ model LearningEvaluationRun {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  @@unique([repositoryId, usedLearningId])
+  @@unique([repositoryId, usedLearningId, trigger])
   @@index([finishedAt])
   @@map("learning_evaluation_runs")
 }

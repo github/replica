@@ -12,6 +12,7 @@ model Repository {
   agentScreenshots           AgentScreenshot[]
   learningEvaluationRuns     LearningEvaluationRun[]
   learningScoreRequests      LearningScoreRequest[]
+  learningVerifications      LearningReviewerVerification[]
   decisionModelConfiguration DecisionModelConfiguration?
   decisionReviewSnapshot     DecisionReviewSnapshot?
   decisionTrainingJobs       DecisionTrainingJob[]
