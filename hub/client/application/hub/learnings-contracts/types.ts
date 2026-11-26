@@ -153,3 +153,12 @@ export interface LearningShareInput {
 export interface LearningMutationResponse {
   notice: string
 }
+
+export interface EvaluationSettingsResponse {
+  repository: { id: string; nameWithOwner: string; defaultBranch: string }
+  monthlyBudgetCredits: string
+  usedCredits: string
+  enabled: boolean
+  screenshots: { allowed: boolean; changedBy: string | null; changedAt: string | null }
+  permissions: { changeBudget: boolean; changeRepository: boolean }
+}

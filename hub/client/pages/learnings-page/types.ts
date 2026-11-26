@@ -42,6 +42,8 @@ export type LearningsPageData =
       }
       run: { path: string; available: boolean }
       agentsPath: string | null
+      /** Null for people who can change neither the budget nor this repository. */
+      evaluationsPath: string | null
       loadError: string | null
       identityNotice: string | null
       library: LearningsLibraryData

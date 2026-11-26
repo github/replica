@@ -82,6 +82,11 @@ function LearningsContent({
         description={copy.description}
         trailing={
           <div className="learnings-page__header-actions">
+            {data.evaluationsPath ? (
+              <Button as="a" href={data.evaluationsPath} variant="secondary">
+                Automated evaluations
+              </Button>
+            ) : null}
             {data.agentsPath ? (
               <Button as="a" href={data.agentsPath} variant="secondary">
                 Connect an agent

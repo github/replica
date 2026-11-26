@@ -366,6 +366,7 @@ const data: LearningsPageData = {
   },
   run: { path: "/repositories/2001/learnings/runs", available: true },
   agentsPath: "/repositories/2001/learnings/agents",
+  evaluationsPath: "/repositories/2001/learnings/evaluations",
   loadError: null,
   identityNotice: null,
   library,

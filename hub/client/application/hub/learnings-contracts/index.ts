@@ -4,6 +4,7 @@ import { recordIdentifierSchema, repositorySchema } from "@application/hub/contr
 
 import type {
   AcceptedLearningResponse,
+  EvaluationSettingsResponse,
   LearningActivityDayResponse,
   LearningDecisionInput,
   LearningEvidenceResponse,
@@ -274,3 +275,26 @@ export const learningShareInputSchema = z
 export const learningMutationResponseSchema = z
   .object({ notice: z.string().min(1) })
   .strict() satisfies z.ZodType<LearningMutationResponse>
+
+export const evaluationSettingsResponseSchema = z
+  .object({
+    repository: z
+      .object({
+        id: recordIdentifierSchema,
+        nameWithOwner: z.string().min(1),
+        defaultBranch: z.string().min(1),
+      })
+      .strict(),
+    monthlyBudgetCredits: credits,
+    usedCredits: credits,
+    enabled: z.boolean(),
+    screenshots: z
+      .object({
+        allowed: z.boolean(),
+        changedBy: z.string().min(1).nullable(),
+        changedAt: timestamp.nullable(),
+      })
+      .strict(),
+    permissions: z.object({ changeBudget: z.boolean(), changeRepository: z.boolean() }).strict(),
+  })
+  .strict() satisfies z.ZodType<EvaluationSettingsResponse>

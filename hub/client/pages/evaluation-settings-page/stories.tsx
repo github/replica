@@ -5,8 +5,8 @@ import type { RepositoryWorkspaceData } from "@features/repository-workspace/typ
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 
-import { EvaluationSettingsPrototype } from "."
-import type { EvaluationSettingsPrototypeData } from "./types"
+import { EvaluationSettingsPage } from "."
+import type { EvaluationSettingsPageData } from "./types"
 
 const workspace: RepositoryWorkspaceData = {
   ...authenticatedHeaderData,
@@ -30,61 +30,59 @@ const workspace: RepositoryWorkspaceData = {
   welcomePath: "/welcome",
 }
 
-const settings: EvaluationSettingsPrototypeData = {
+const settings: EvaluationSettingsPageData = {
   repositoryName: "github/prototype",
   learningsPath: "/iframe.html?id=hub-pages-learnings-library--multiple&viewMode=story",
-  canManageHubBudget: true,
-  canManageRepositorySettings: true,
-  budgetLimitCredits: 100,
-  usedCredits: 42,
-  repositoryEnabled: false,
+  budget: { limitCredits: "100", usedCredits: "42", editable: true },
+  evaluations: {
+    editable: true,
+    enabled: true,
+    screenshotsAllowed: true,
+    screenshotsRecord: "Allowed by @mona on 12/20/2026",
+  },
 }
 
 const meta = {
   title: "Hub/Pages/Learnings/Evaluation settings",
-  component: EvaluationSettingsPrototype,
+  component: EvaluationSettingsPage,
   parameters: { layout: "fullscreen" },
-  args: { data: settings },
-  render: ({ data }) => (
+  args: { busy: false, data: settings, onChange: () => {} },
+  render: (args) => (
     <RepositoryWorkspace data={workspace}>
-      <EvaluationSettingsPrototype data={data} />
+      <EvaluationSettingsPage {...args} />
     </RepositoryWorkspace>
   ),
-} satisfies Meta<typeof EvaluationSettingsPrototype>
+} satisfies Meta<typeof EvaluationSettingsPage>
 
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const HubAndRepositoryAdmin: Story = {
+export const HubAndRepositoryAdmin: Story = {}
+export const RepositoryAdmin: Story = {
+  args: { data: { ...settings, budget: { ...settings.budget, editable: false } } },
+}
+export const HubAdmin: Story = {
   args: {
     data: {
       ...settings,
-      learningsPath: "/iframe.html?id=hub-pages-learnings-library--hub-admin&viewMode=story",
+      evaluations: {
+        editable: false,
+        enabled: false,
+        screenshotsAllowed: false,
+        screenshotsRecord: null,
+      },
     },
   },
-}
-export const RepositoryAdmin: Story = {
-  args: { data: { ...settings, canManageHubBudget: false } },
 }
 export const BudgetReached: Story = {
-  args: {
-    data: {
-      ...settings,
-      canManageHubBudget: false,
-      budgetLimitCredits: 100,
-      usedCredits: 100,
-      repositoryEnabled: true,
-    },
-  },
+  args: { data: { ...settings, budget: { ...settings.budget, usedCredits: "100" } } },
 }
 export const BudgetNotSet: Story = {
   args: {
     data: {
       ...settings,
-      canManageHubBudget: false,
-      budgetLimitCredits: 0,
-      usedCredits: 0,
-      repositoryEnabled: false,
+      budget: { limitCredits: "0", usedCredits: "0", editable: false },
+      evaluations: { ...settings.evaluations, enabled: false, screenshotsAllowed: false },
     },
   },
 }

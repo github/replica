@@ -12,6 +12,7 @@ export const repositoryProductRoutes: RouteConfigEntry[] = [
   route("analytics", "routes/settings-analytics/index.tsx"),
   route("learnings", "routes/settings-learnings/index.tsx"),
   route("learnings/agents", "routes/learning-agents/index.tsx"),
+  route("learnings/evaluations", "routes/learning-evaluations/index.tsx"),
 ]
 
 export const workspaceProductRoutes: RouteConfigEntry[] = [

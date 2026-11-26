@@ -338,6 +338,10 @@ export function settingsLearnings(
     agentsPath: workspace.repositories.find(({ id }) => id === repositoryId)?.capabilities?.local
       ? null
       : `/repositories/${repositoryId}/learnings/agents`,
+    evaluationsPath:
+      state.capabilities.administerHub || state.capabilities.administerRepository
+        ? `/repositories/${repositoryId}/learnings/evaluations`
+        : null,
     run: {
       path: `/repositories/${repositoryId}/learnings/runs`,
       available: state.permissions.requestRun && state.runAvailable,
