@@ -1,5 +1,5 @@
 import { createReadStream, existsSync } from "node:fs"
-import { lstat, mkdir, readFile, writeFile } from "node:fs/promises"
+import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 import { decodeUtf8, parseJson } from "./canonical-json.mjs"
@@ -1370,11 +1370,27 @@ async function reportUsage(session) {
 async function screenshotFile(directory, { file, ...rest }) {
   if (typeof file !== "string" || !file)
     throw new LearningError("invalid_input", "A screenshot names its PNG file.")
-  const target = path.resolve(directory, file)
+  // An agent writes the report, so a screenshot path must not reach other files on disk.
+  if (path.isAbsolute(file))
+    throw new LearningError(
+      "invalid_input",
+      `${file} must be a path inside the report's directory.`,
+    )
+  let target
   let info
   try {
+    const home = await realpath(directory)
+    const parent = await realpath(path.dirname(path.resolve(home, file)))
+    const inside = path.relative(home, parent)
+    if (inside.startsWith("..") || path.isAbsolute(inside))
+      throw new LearningError(
+        "invalid_input",
+        `${file} must be a path inside the report's directory.`,
+      )
+    target = path.join(parent, path.basename(file))
     info = await lstat(target)
   } catch (error) {
+    if (error instanceof LearningError) throw error
     throw new LearningError("not_found", `Cannot read ${file} (${error.code}).`)
   }
   if (!info.isFile()) throw new LearningError("invalid_input", `${file} must be a regular file.`)

@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   rmSync,
   symlinkSync,
@@ -1251,6 +1252,18 @@ describe("replica-learning CLI: guard rails", () => {
         ],
       }),
     )
+    mkdirSync(path.join(repo, "reports"))
+    writeFileSync(
+      path.join(repo, "reports", "outside.json"),
+      readFileSync(path.join(repo, "report.json"), "utf8").replace("after.png", "../after.png"),
+    )
+    const outside = await cli(repo, [
+      "report-usage",
+      "reports/outside.json",
+      "--actor",
+      "agent:copilot",
+    ])
+    assert.match(outside.stderr, /must be a path inside the report's directory/)
     const args = ["report-usage", "report.json", "--actor", "agent:copilot", "--json"]
     assert.equal((await ok(repo, args)).json().stored, true)
     assert.equal((await ok(repo, args)).json().stored, false)
