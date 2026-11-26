@@ -389,10 +389,10 @@ GEM
       form_props (~> 0.2)
       props_template (~> 0.37)
     thor (1.5.0)
-    thruster (0.1.27)
-    thruster (0.1.27-aarch64-linux)
-    thruster (0.1.27-arm64-darwin)
-    thruster (0.1.27-x86_64-linux)
+    thruster (0.1.28)
+    thruster (0.1.28-aarch64-linux)
+    thruster (0.1.28-arm64-darwin)
+    thruster (0.1.28-x86_64-linux)
     timeout (0.6.1)
     tsort (0.2.0)
     tzinfo (2.0.6)
@@ -613,10 +613,10 @@ CHECKSUMS
   sqlite3 (2.10.2-x86_64-linux-musl) sha256=b9f8fc62f3e0eb8966b41de251b492b4c8e9d1b23559beb6e150ad7f8d590941
   superglue (1.1.1) sha256=b600a4c5d2855474b504d7e8b1fb5b8fdd9da528a0470672cae1daa4532ceb31
   thor (1.5.0) sha256=e3a9e55fe857e44859ce104a84675ab6e8cd59c650a49106a05f55f136425e73
-  thruster (0.1.27) sha256=5fd3855192bb4e8d13db69ae5f70d39f2dfd88fe0394fa372104996edf0bb599
-  thruster (0.1.27-aarch64-linux) sha256=c50789f2dcd4dfa072c4719f99c38dea5d47ebb60ad0cc1fd1996b2266ecfd22
-  thruster (0.1.27-arm64-darwin) sha256=ece0ff0f2ec195008030fbca97067e5e867f4e1f66501fa8b8a3ec3f829bf2bf
-  thruster (0.1.27-x86_64-linux) sha256=7e0e6381011401810b047ff25506e0e38755b2430499ff5586f1a110086981c6
+  thruster (0.1.28) sha256=62672bb4588f49fa764f2e70db108a978818f8976f97ec3fd932d67c9e6b5e39
+  thruster (0.1.28-aarch64-linux) sha256=74cfaab322198dd31c30265e82f092c13f651f24c257025f9d4d89b3f1c7c477
+  thruster (0.1.28-arm64-darwin) sha256=3984853754e3ce3f41564e2ad72e117a77974429086e801ddab33a058bd1dd3f
+  thruster (0.1.28-x86_64-linux) sha256=309c22dca620dc4974bd5672d18afe3d2383899dc712acb1c1d902ad55f2eef4
   timeout (0.6.1) sha256=78f57368a7e7bbadec56971f78a3f5ecbcfb59b7fcbb0a3ed6ddc08a5094accb
   tsort (0.2.0) sha256=9650a793f6859a43b6641671278f79cfead60ac714148aabe4e3f0060480089f
   tzinfo (2.0.6) sha256=8daf828cc77bcf7d63b0e3bdb6caa47e2272dcfaf4fbfe46f8c3a9df087a829b
