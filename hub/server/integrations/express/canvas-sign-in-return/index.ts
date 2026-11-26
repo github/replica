@@ -4,7 +4,8 @@ import type { Request } from "express"
 import { readCookie } from "../read-cookie/index.ts"
 
 export const canvasSignInReturnCookie = "replica_canvas_sign_in_return"
-export const canvasSignInReturnPattern = /^\/canvas\/(?:pair\/[A-F0-9]{10}|connections)(?![\s\S])/
+export const canvasSignInReturnPattern =
+  /^\/(?:canvas\/(?:pair\/[A-F0-9]{10}|connections)|agents\/approve\/[0-9a-f-]{36})(?![\s\S])/
 
 function bindingDigest(browserBinding: string) {
   return createHash("sha256").update(browserBinding).digest("hex")

@@ -77,6 +77,8 @@ function actorFor(record: SecurityAuditListRecord) {
     case "canvas_connection.renew":
     case "canvas_connection.revoke":
     case "canvas_connection.activity":
+    case "agent_connection.approve":
+    case "agent_connection.revoke":
     case "analytics_destination.create":
     case "analytics_destination.update":
     case "analytics_destination.pause":

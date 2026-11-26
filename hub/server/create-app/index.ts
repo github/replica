@@ -11,6 +11,7 @@ import type { CreateAppOptions } from "./types.ts"
 
 /** Give every endpoint the same request logging and safe error responses. */
 export function createApp({
+  agentConnections,
   agentVisualCritic,
   authentication,
   broadcast,
@@ -35,8 +36,10 @@ export function createApp({
   app.use(
     [
       "/api/canvas",
+      "/api/agent-connections",
       "/api/auth",
       "/canvas/pair",
+      "/agents/approve",
       "/api/administrators",
       "/api/copilot-connection",
       "/api/session-revocation",
@@ -57,6 +60,7 @@ export function createApp({
   )
 
   routes(app, {
+    agentConnections,
     agentVisualCritic,
     authentication,
     broadcast,

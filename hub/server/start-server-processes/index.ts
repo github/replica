@@ -6,6 +6,7 @@ import type { AgentVisualCriticRouteDependencies } from "../routes/api/canvas/de
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
 import type { DecisionModelRouteDependencies } from "../routes/api/decision-model/types.ts"
 import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
+import type { AgentConnectionRouteDependencies } from "../routes/agent-connections/types.ts"
 import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import type { PublicSharingRouteDependencies } from "../routes/api/public-sharing/types.ts"
@@ -26,6 +27,7 @@ export async function startServerProcesses(options: {
   onDemandConcurrency: number
   scheduledConcurrency: number
   isStorageReady?: () => Promise<boolean>
+  agentConnections?: AgentConnectionRouteDependencies
   agentVisualCritic?: AgentVisualCriticRouteDependencies
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies

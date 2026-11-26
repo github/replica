@@ -12,8 +12,10 @@ import type { PrivatePreviewRouteDependencies } from "./private-preview/types.ts
 import type { GitHubSetupRouteDependencies } from "./api/settings/github/types.ts"
 import type { DecisionModelRouteDependencies } from "./api/decision-model/types.ts"
 import type { AgentVisualCriticRouteDependencies } from "./api/canvas/decision-model/types.ts"
+import type { AgentConnectionRouteDependencies } from "./agent-connections/types.ts"
 
 export interface RouteDependencies {
+  agentConnections?: AgentConnectionRouteDependencies
   agentVisualCritic?: AgentVisualCriticRouteDependencies
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies

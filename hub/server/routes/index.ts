@@ -80,11 +80,13 @@ import { post as handleDecisionTrainingCancelPost } from "./api/decision-model/t
 import { post as handleDecisionCandidatePromotionPost } from "./api/decision-model/candidates/promotion/post/index.ts"
 import { post as handleDecisionCandidateRejectionPost } from "./api/decision-model/candidates/rejection/post/index.ts"
 import { post as handleDecisionRollbackPost } from "./api/decision-model/rollback/post/index.ts"
+import { agentConnectionRoutes } from "./agent-connections/index.ts"
 import { post as handleDecisionBuildEvaluationPost } from "./api/decision-model/builds/evaluation/post/index.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
   const {
+    agentConnections,
     agentVisualCritic,
     authentication,
     copilotConnection,
@@ -143,6 +145,15 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/canvas",
         canvasRoutes(authentication.signOut.applicationOrigin, product, agentVisualCritic),
       )
+      if (agentConnections) {
+        app.use(
+          agentConnectionRoutes(
+            agentConnections,
+            product.getRepositoryPermission?.bind(product),
+            logger,
+          ),
+        )
+      }
       if (product.analytics)
         mountRepositoryAnalytics(
           app,

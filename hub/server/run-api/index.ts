@@ -9,6 +9,7 @@ import type { AgentVisualCriticRouteDependencies } from "../routes/api/canvas/de
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
 import type { DecisionModelRouteDependencies } from "../routes/api/decision-model/types.ts"
 import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
+import type { AgentConnectionRouteDependencies } from "../routes/agent-connections/types.ts"
 import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import type { PublicSharingRouteDependencies } from "../routes/api/public-sharing/types.ts"
@@ -26,6 +27,7 @@ import { shutdownServer } from "../shutdown-server/index.ts"
 export async function runApi({
   port,
   logger,
+  agentConnections,
   agentVisualCritic,
   authentication,
   githubSetup,
@@ -47,6 +49,7 @@ export async function runApi({
 }: {
   port: number
   logger: Logger
+  agentConnections?: AgentConnectionRouteDependencies
   agentVisualCritic?: AgentVisualCriticRouteDependencies
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies
@@ -92,6 +95,7 @@ export async function runApi({
     "request",
     createApp({
       logger,
+      agentConnections,
       agentVisualCritic,
       broadcast: realtime.broadcast,
       clientDirectory,

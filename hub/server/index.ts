@@ -34,6 +34,7 @@ import { startServerProcesses } from "./start-server-processes/index.ts"
 import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { getJobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
+import type { AgentConnectionRouteDependencies } from "./routes/agent-connections/types.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
 import type { AgentVisualCriticRouteDependencies } from "./routes/api/canvas/decision-model/types.ts"
 import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
@@ -79,6 +80,7 @@ try {
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
+    let agentConnections: AgentConnectionRouteDependencies | undefined
     let agentVisualCritic: AgentVisualCriticRouteDependencies | undefined
     let copilotConnection: CopilotConnectionRouteDependencies | undefined
     let decisionModels: DecisionModelRouteDependencies | undefined
@@ -184,6 +186,13 @@ try {
               { scopeGitHubMembers: authenticationConfiguration.githubConfigured },
             )
             learnings = learningDependencies
+            const agentApplicationOrigin = authenticationEnvironment.HUB_APPLICATION_ORIGIN
+            if (learningConfiguration && agentApplicationOrigin) {
+              agentConnections = {
+                applicationOrigin: agentApplicationOrigin,
+                learning: learningConfiguration,
+              }
+            }
             if (decisionRuntimeConfiguration) {
               const applicationOrigin = authenticationEnvironment.HUB_APPLICATION_ORIGIN
               if (!storage || !learningConfiguration || !applicationOrigin) {
@@ -369,6 +378,7 @@ try {
       await runApi({
         ...configuration,
         logger,
+        agentConnections,
         agentVisualCritic,
         isReady: isStorageReady,
         authentication,
@@ -391,6 +401,7 @@ try {
           ...configuration,
           databaseUrl,
           logger,
+          agentConnections,
           agentVisualCritic,
           isStorageReady,
           authentication,
