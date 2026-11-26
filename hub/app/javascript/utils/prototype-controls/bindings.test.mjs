@@ -353,6 +353,218 @@ it("uses settled API readback, surfaces clamping and failures, and cleans notifi
   assert.equal(cleanups, 1)
 })
 
+it("adopts visible app-owned API values, initializes hidden and ordinary defaults, and writes defaults on Reset", async (t) => {
+  const { window, install } = page(t)
+  let current = "/current"
+  let ordinary = "App value"
+  let hidden = "Hidden app value"
+  const appWrites = []
+  const ordinaryWrites = []
+  const hiddenWrites = []
+  window.initialState = {
+    read: () => Promise.resolve(current),
+    write(value) {
+      appWrites.push(value)
+      current = value
+    },
+    readOrdinary: () => ordinary,
+    writeOrdinary(value) {
+      ordinaryWrites.push(value)
+      ordinary = value
+    },
+    readHidden: () => hidden,
+    writeHidden(value) {
+      hiddenWrites.push(value)
+      hidden = value
+    },
+    subscribe: () => () => {},
+  }
+  const adapter = install({
+    version: 1,
+    scope: "initialState",
+    controls: [
+      {
+        id: "page",
+        label: "Page",
+        type: "text",
+        default: "/default",
+        binding: {
+          type: "api",
+          object: "initialState",
+          read: "read",
+          write: "write",
+          subscribe: "subscribe",
+          initial: "app",
+        },
+      },
+      {
+        id: "title",
+        label: "Title",
+        type: "text",
+        default: "Default",
+        binding: {
+          type: "api",
+          object: "initialState",
+          read: "readOrdinary",
+          write: "writeOrdinary",
+          subscribe: "subscribe",
+        },
+      },
+      {
+        id: "detail",
+        label: "Detail",
+        type: "text",
+        default: "Hidden default",
+        when: { control: "title", equals: "Show detail" },
+        binding: {
+          type: "api",
+          object: "initialState",
+          read: "readHidden",
+          write: "writeHidden",
+          subscribe: "subscribe",
+          initial: "app",
+        },
+      },
+    ],
+  })
+  await adapter.settled()
+  const controller = adapter.runtime.list()[0]
+  assert.equal(controller.getSnapshot().values.page, "/current")
+  assert.deepEqual(appWrites, [])
+  assert.equal(ordinary, "Default")
+  assert.deepEqual(ordinaryWrites, ["Default"])
+  assert.equal(controller.getSnapshot().visible.detail, false)
+  assert.equal(hidden, "Hidden default")
+  assert.deepEqual(hiddenWrites, ["Hidden default"])
+
+  await adapter.restore(controller, { page: "/legacy", title: "Saved title" })
+  assert.equal(current, "/current")
+  assert.equal(controller.getSnapshot().values.page, "/current")
+  assert.deepEqual(appWrites, [])
+  assert.equal(ordinary, "Saved title")
+  await adapter.update(controller, "page", "/next")
+  assert.equal(current, "/next")
+  assert.deepEqual(appWrites, ["/next"])
+  await adapter.reset()
+  assert.equal(current, "/default")
+  assert.equal(controller.getSnapshot().values.page, "/default")
+  assert.deepEqual(appWrites, ["/next", "/default"])
+  assert.deepEqual(ordinaryWrites, ["Default", "Saved title", "Default"])
+})
+
+for (const { defaultEnabled, appEnabled } of [
+  { defaultEnabled: false, appEnabled: true },
+  { defaultEnabled: true, appEnabled: false },
+]) {
+  it(`uses the app-owned condition value when the dependent control starts ${appEnabled ? "visible" : "hidden"}`, async (t) => {
+    const { window, install } = page(t)
+    let detail = "App detail"
+    const writes = []
+    const conditionWrites = []
+    window.conditionState = {
+      readEnabled: () => new Promise((resolve) => setTimeout(() => resolve(appEnabled), 20)),
+      writeEnabled: (value) => conditionWrites.push(value),
+      readDetail: () => detail,
+      writeDetail(value) {
+        writes.push(value)
+        detail = value
+      },
+      subscribe: () => () => {},
+    }
+    const adapter = install({
+      version: 1,
+      scope: "conditional",
+      controls: [
+        {
+          id: "enabled",
+          label: "Enabled",
+          type: "boolean",
+          default: defaultEnabled,
+          binding: {
+            type: "api",
+            object: "conditionState",
+            read: "readEnabled",
+            write: "writeEnabled",
+            subscribe: "subscribe",
+            initial: "app",
+          },
+        },
+        {
+          id: "detail",
+          label: "Detail",
+          type: "text",
+          default: "Default detail",
+          when: { control: "enabled", equals: true },
+          binding: {
+            type: "api",
+            object: "conditionState",
+            read: "readDetail",
+            write: "writeDetail",
+            subscribe: "subscribe",
+            initial: "app",
+          },
+        },
+      ],
+    })
+    await adapter.settled()
+    const snapshot = adapter.runtime.list()[0].getSnapshot()
+    assert.equal(snapshot.values.enabled, appEnabled)
+    assert.equal(snapshot.visible.detail, appEnabled)
+    assert.equal(detail, appEnabled ? "App detail" : "Default detail")
+    assert.equal(snapshot.values.detail, detail)
+    assert.deepEqual(conditionWrites, [])
+    assert.deepEqual(writes, appEnabled ? [] : ["Default detail"])
+  })
+}
+
+it("writes the app-owned default after Reset all while its container is inactive", async (t) => {
+  const { window, install } = page(t, '<main id="page"></main>')
+  let current = "App value"
+  const writes = []
+  window.pageState = {
+    read: () => current,
+    write(value) {
+      writes.push(value)
+      current = value
+    },
+    subscribe: () => () => {},
+  }
+  const adapter = install({
+    version: 1,
+    scope: "page",
+    container: "#page",
+    controls: [
+      {
+        id: "title",
+        label: "Title",
+        type: "text",
+        default: "Default",
+        binding: {
+          type: "api",
+          object: "pageState",
+          read: "read",
+          write: "write",
+          subscribe: "subscribe",
+          initial: "app",
+        },
+      },
+    ],
+  })
+  await adapter.settled()
+  const controller = adapter.runtime.list()[0]
+  assert.equal(controller.getSnapshot().values.title, "App value")
+  assert.deepEqual(writes, [])
+  window.document.body.innerHTML = "<main>Other page</main>"
+  await settled(() => controller.mountedCount === 0)
+  await adapter.reset()
+  assert.deepEqual(writes, [])
+  window.document.body.innerHTML = '<main id="page"></main>'
+  await settled(() => writes.length > 0)
+  assert.deepEqual(writes, ["Default"])
+  assert.equal(current, "Default")
+  assert.equal(controller.getSnapshot().values.title, "Default")
+})
+
 it("writes styles and app URL settings without replacing router state or rc settings", async (t) => {
   const { window, install } = page(t, '<main id="styled"></main>')
   window.history.replaceState(

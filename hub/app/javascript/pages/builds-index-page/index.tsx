@@ -1,6 +1,7 @@
 import { GitCommitIcon } from "@primer/octicons-react"
 import { InlineLink, Stack, Text } from "@primer/react-brand/esm"
 
+import { BuildStateLabel } from "@components/build-state-label"
 import { HubActivityTimeline } from "@components/hub-activity-timeline"
 import { HubContentPageHeader } from "@components/hub-content-page-header"
 import { HubEmptyState } from "@components/hub-empty-state"
@@ -77,9 +78,11 @@ export function BuildsIndexPage({
                       {build.commitLabel}
                     </Text>
 
-                    <Text size="100" className="build-history__state">
-                      {build.stateLabel}
-                    </Text>
+                    <BuildStateLabel
+                      state={build.state}
+                      label={build.stateLabel}
+                      appearance="soft"
+                    />
 
                     {build.author.url ? (
                       <InlineLink href={build.author.url} className="build-history__author">

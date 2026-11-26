@@ -56,6 +56,29 @@ it("blocks configured link actions when state is too large, without hiding the e
   expect(result.current.error).toBe("")
 })
 
+it("blocks unavailable settings only while including them", () => {
+  const unavailable = "Control settings cannot be verified."
+  const { result, rerender } = renderHook(
+    ({ error }) => useShareControlSettings("prototype-a", {}, undefined, error),
+    { initialProps: { error: unavailable } },
+  )
+  expect(result.current.included).toBe(false)
+  expect(result.current.blocked).toBe(false)
+  expect(result.current.error).toBe("")
+
+  act(() => result.current.onChange(true))
+  expect(result.current.blocked).toBe(true)
+  expect(result.current.error).toBe(unavailable)
+  rerender({ error: "" })
+  expect(result.current.blocked).toBe(false)
+  expect(result.current.error).toBe("")
+
+  rerender({ error: unavailable })
+  act(() => result.current.onChange(false))
+  expect(result.current.blocked).toBe(false)
+  expect(result.current.error).toBe("")
+})
+
 it("uses the canvas preference transport instead of the ephemeral browser origin", async () => {
   const read = vi.spyOn(Storage.prototype, "getItem")
   const write = vi.spyOn(Storage.prototype, "setItem")

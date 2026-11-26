@@ -133,6 +133,7 @@ Use an app API binding when a control should navigate between pages owned by the
           "binding": {
             "type": "api",
             "object": "pageNavigation",
+            "initial": "app",
             "read": "readPage",
             "write": "writePage",
             "subscribe": "subscribePage"
@@ -154,9 +155,11 @@ Do not bind a page selector directly to `hash` or `query` navigation. Those bind
 
 ### Startup and direct links
 
-With the current Controls runtime, a missing saved override uses the JSON `default`, and the adapter writes that value to the binding when the control initializes. If the current route differs from the default, the app API can navigate to the default page. For example, a direct link to Enterprise without a saved Enterprise override can open Organization when Organization is the default.
+`initial: "app"` reads the current app value on startup without writing the JSON default, so a direct link to Enterprise stays on Enterprise. Replica never saves this control in `rc.*` and ignores legacy saved overrides for it. Back/Forward adopts the current route without writing a value. Edits and Reset all still call the write method; Reset all navigates to the declared default. The read method must return a declared value.
 
-Make the API write idempotent so it does not navigate when the current route already matches the selected option. This prevents redundant navigation, but it does not preserve a direct link to a non-default route. Until the runtime supports using the app's current route as the initial control value, treat direct links to non-default pages as a known limitation; do not claim this recipe supports them.
+The option is only for API value bindings with a `read` method, not buttons. Ordinary API bindings keep their default-first behavior: a missing saved override writes the JSON `default` on initialization. Keep `writePage` idempotent either way.
+
+`initial: "app"` requires Copilot plugin 1.10.2 or a Hub/Build capture runtime containing this option. Older runtimes reject the definition and show a Controls error while the ordinary app keeps working. The definition and Controls protocol versions remain `1`.
 
 ## Defaults, URLs and reset
 
@@ -164,7 +167,7 @@ Canvas and Hub persist ordinary overrides in prototype URLs as `rc.<scope>.<cont
 
 Back/Forward restores the settings in that history entry. Invalid or duplicate overrides produce a visible notice; settings exceeding the 8 KB limit remain in memory with a saving error. Actions and results are never persisted. **Reset all controls** restores every set, including inactive sets, and removes overrides. Existing private Controls files are not read, migrated or deleted.
 
-For a page selector, test a direct link to both the default and a non-default page without any `rc` override, app Back/Forward, and Reset all. Record the direct-link limitation above if the runtime redirects a non-default route.
+For a page selector, test a direct link to both the default and a non-default page without any `rc` override, app Back/Forward, and Reset all. With `initial: "app"`, the non-default link stays on its page and Reset all navigates to the default.
 
 Definition edits need a page reload; there is no Replica file watcher or live schema replacement. After each edit, follow the skill's validate-and-reload loop, including worktree verification and runtime status. Missing definitions mean no Controls. Invalid/unsupported definitions show a local Controls error without breaking the ordinary app, and reject publication when present in the actual retained asset.
 

@@ -82,6 +82,22 @@ export const Multiple: Story = {
       builds: [
         {
           ...successfulBuild,
+          number: 5,
+          numberLabel: "build 5",
+          path: "/repositories/2001/prototypes/1/builds/5",
+          state: "queued",
+          stateLabel: "Queued",
+        },
+        {
+          ...successfulBuild,
+          number: 4,
+          numberLabel: "build 4",
+          path: "/repositories/2001/prototypes/1/builds/4",
+          state: "superseded",
+          stateLabel: "Superseded",
+        },
+        {
+          ...successfulBuild,
           number: 3,
           numberLabel: "build 3",
           path: "/repositories/2001/prototypes/1/builds/3",
@@ -100,6 +116,20 @@ export const Multiple: Story = {
       ],
       buildOptions: [
         {
+          number: 5,
+          label: "v5",
+          path: "/repositories/2001/prototypes/1/builds/5",
+          state: "queued",
+          stateLabel: "Queued",
+        },
+        {
+          number: 4,
+          label: "v4",
+          path: "/repositories/2001/prototypes/1/builds/4",
+          state: "superseded",
+          stateLabel: "Superseded",
+        },
+        {
           number: 3,
           label: "v3",
           path: "/repositories/2001/prototypes/1/builds/3",
@@ -115,7 +145,7 @@ export const Multiple: Story = {
         },
         ...data.buildOptions,
       ],
-      latestBuild: { number: 3, state: "running", stateLabel: "Running" },
+      latestBuild: { number: 5, state: "queued", stateLabel: "Queued" },
       nextPagePath:
         "/repositories/2001/prototypes/1/builds?before=1&before_at=2026-09-14T12%3A00%3A00.000000Z",
     },
