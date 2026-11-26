@@ -18,7 +18,7 @@ import { learningRunJob } from "../../../../domains/learning/jobs/learning-run.t
 import { redactReviewCommentJob } from "../../../../domains/learning/jobs/redact-review-comment.ts"
 import type { ReviewCommentLearningSource } from "../../../../domains/learning/review-comment-learning-source/types.ts"
 import { readLearningConfiguration } from "../../../../domains/learning/read-learning-configuration/index.ts"
-import { changeScreenshotConsent } from "../../../../domains/learning/change-screenshot-consent/index.ts"
+import { changeEvaluationConsent } from "../../../../domains/learning/change-evaluation-consent/index.ts"
 import { deleteAgentScreenshotsJob } from "../../../../domains/learning/jobs/delete-agent-screenshots.ts"
 import { getRepositoryEvaluationSetting } from "../../../../repositories/evaluation-settings/get-repository-evaluation-setting/index.ts"
 import { initializeEvaluationSetting } from "../../../../repositories/evaluation-settings/initialize-evaluation-setting/index.ts"
@@ -669,16 +669,15 @@ export async function createLearningsRouteDependencies(
                 "Turn on automated evaluations before allowing screenshots.",
               )
             }
-            if (enabled !== (setting?.enabled ?? false)) {
-              if (
-                !(await withAuthority((transaction) =>
-                  saveRepositoryEvaluationSetting(transaction, input.repositoryId, { enabled }),
-                ))
-              ) {
-                return deny()
-              }
+            const evaluationGrantId = setting?.evaluationGrantId ?? null
+            function saveEnabled(next: string | null) {
+              return withAuthority((transaction) =>
+                saveRepositoryEvaluationSetting(transaction, input.repositoryId, {
+                  enabled,
+                  evaluationGrantId: next,
+                }),
+              )
             }
-            if (allowed === Boolean(grantId)) return
             function saveGrant(screenshotGrantId: string | null) {
               return withAuthority((transaction) =>
                 saveRepositoryEvaluationSetting(transaction, input.repositoryId, {
@@ -688,11 +687,46 @@ export async function createLearningsRouteDependencies(
                 }),
               )
             }
+            // Scoring reads the review comments behind each learning, so the store must allow
+            // evaluation of them too. Turning off stops scoring first, but Hub keeps the grant
+            // until the store withdraws it, so saving again can retry a failed withdrawal.
+            if (enabled && !evaluationGrantId) {
+              const grantId = await changeEvaluationConsent({
+                ...configuration,
+                actor: input.actor,
+                allowed: true,
+                grantId: null,
+                repositoryId: input.repositoryId,
+                repositoryScope,
+                signal,
+                source: "hub_review_comments",
+              })
+              if (!(await saveEnabled(grantId))) return deny()
+            } else if (!enabled && evaluationGrantId) {
+              if (!(await saveEnabled(evaluationGrantId))) return deny()
+              // Screenshots are cleared first, so a failed withdrawal below can't leave
+              // agents uploading them.
+              if (grantId && !(await saveGrant(null))) return deny()
+              await changeEvaluationConsent({
+                ...configuration,
+                actor: input.actor,
+                allowed: false,
+                grantId: evaluationGrantId,
+                repositoryId: input.repositoryId,
+                repositoryScope,
+                signal,
+                source: "hub_review_comments",
+              })
+              if (!(await saveEnabled(null))) return deny()
+            } else if (enabled !== (setting?.enabled ?? false)) {
+              if (!(await saveEnabled(evaluationGrantId))) return deny()
+            }
+            if (allowed === Boolean(grantId)) return
             // Hub stops showing screenshots before the store grant is withdrawn, so a
             // failed withdrawal can't leave Hub serving them. The cleanup sweep still
             // deletes them, since their grant is no longer the active one.
             if (grantId && !allowed && !(await saveGrant(null))) return deny()
-            const nextGrantId = await changeScreenshotConsent({
+            const nextGrantId = await changeEvaluationConsent({
               ...configuration,
               actor: input.actor,
               allowed,
@@ -700,6 +734,7 @@ export async function createLearningsRouteDependencies(
               repositoryId: input.repositoryId,
               repositoryScope,
               signal,
+              source: "agent_screenshots",
             })
             if (allowed) {
               if (!(await saveGrant(nextGrantId))) return deny()

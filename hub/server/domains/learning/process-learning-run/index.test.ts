@@ -149,6 +149,35 @@ describe("processLearningRun()", () => {
     })
   })
 
+  it("starts the first run when the only grant is for evaluations", async () => {
+    const deps = dependencies()
+    const runCommand = deps.runCommand
+    deps.runCommand = vi.fn((arguments_: string[]) => {
+      if (arguments_[0] === "grants" && arguments_[1] === "list") {
+        return Promise.resolve([
+          {
+            grant: {
+              id: "evaluation-1",
+              sources: ["hub_review_comments"],
+              purposes: ["evaluation"],
+              grantedBy: { kind: "human", id: "github:mona" },
+            },
+            activePurposes: ["evaluation"],
+            expired: false,
+          },
+        ])
+      }
+      return runCommand(arguments_)
+    })
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(
+      deps.commands.find((arguments_) => arguments_[0] === "grants" && arguments_[1] === "add"),
+    ).toEqual(expect.arrayContaining(["--purpose", "review", "--purpose", "instruction"]))
+    expect(deps.finished[0]).toMatchObject({ input: { state: "SUCCEEDED" } })
+  })
+
   it("finishes visibly failed when the imported snapshot is incomplete", async () => {
     const deps = dependencies({
       runCommand: vi.fn((arguments_: string[]) => {

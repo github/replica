@@ -4,7 +4,7 @@ export function saveRepositoryEvaluationSetting(
   database: Prisma.TransactionClient,
   repositoryId: string,
   data:
-    | { enabled: boolean }
+    | { enabled: boolean; evaluationGrantId: string | null }
     | {
         screenshotGrantId: string | null
         screenshotsChangedAt: Date

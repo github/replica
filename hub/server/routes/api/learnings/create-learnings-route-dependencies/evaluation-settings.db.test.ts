@@ -1,14 +1,14 @@
 import pino from "pino"
 import { describe, expect, it, vi } from "vitest"
 
-import { changeScreenshotConsent } from "../../../../domains/learning/change-screenshot-consent"
+import { changeEvaluationConsent } from "../../../../domains/learning/change-evaluation-consent"
 import { enqueueJob } from "../../../../integrations/bullmq/enqueue-job"
 import { prisma } from "../../../../integrations/prisma"
 import { getDatabaseUrl } from "../../../../../test/database/get-database-url"
 import { createLearningsRouteDependencies } from "."
 
-vi.mock("../../../../domains/learning/change-screenshot-consent", () => ({
-  changeScreenshotConsent: vi.fn(),
+vi.mock("../../../../domains/learning/change-evaluation-consent", () => ({
+  changeEvaluationConsent: vi.fn(),
 }))
 vi.mock("../../../../integrations/bullmq/create-job-queue", () => ({
   createJobQueue: vi.fn(() => ({ close: vi.fn() })),
@@ -16,7 +16,7 @@ vi.mock("../../../../integrations/bullmq/create-job-queue", () => ({
 vi.mock("../../../../integrations/bullmq/enqueue-job", () => ({ enqueueJob: vi.fn() }))
 
 describe("evaluation settings", () => {
-  it("allows screenshots only while evaluations are on and removes them when evaluations stop", async () => {
+  it("grants evaluation consent while evaluations are on and withdraws it, with screenshots, when they stop", async () => {
     const provider = await prisma.authenticationProvider.create({
       data: { key: "github", enabled: false },
     })
@@ -65,15 +65,21 @@ describe("evaluation settings", () => {
         repositoryId: repository.id,
       },
     })
-    vi.mocked(changeScreenshotConsent).mockResolvedValueOnce("grant_1")
-    // Records what Hub showed at the moment the store grant was withdrawn.
+    // Records what Hub showed at the moment each store grant was withdrawn.
     let grantAtWithdrawal: string | null | undefined
-    vi.mocked(changeScreenshotConsent).mockImplementationOnce(async () => {
-      grantAtWithdrawal = (
-        await prisma.repositoryEvaluationSetting.findUnique({
-          where: { repositoryId: repository.id },
-        })
-      )?.screenshotGrantId
+    let evaluationAtWithdrawal: unknown
+    vi.mocked(changeEvaluationConsent).mockImplementation(async ({ allowed, source }) => {
+      if (allowed) return source === "agent_screenshots" ? "grant_1" : "evaluation_1"
+      const setting = await prisma.repositoryEvaluationSetting.findUnique({
+        where: { repositoryId: repository.id },
+      })
+      if (source === "agent_screenshots") grantAtWithdrawal = setting?.screenshotGrantId
+      else {
+        evaluationAtWithdrawal = {
+          enabled: setting?.enabled,
+          evaluationGrantId: setting?.evaluationGrantId,
+        }
+      }
       return null
     })
     const learnings = await createLearningsRouteDependencies(
@@ -102,11 +108,22 @@ describe("evaluation settings", () => {
       enabled: false,
       screenshots: { allowed: false },
     })
-    expect(vi.mocked(changeScreenshotConsent).mock.lastCall?.[0]).toMatchObject({
+    expect(vi.mocked(changeEvaluationConsent).mock.lastCall?.[0]).toMatchObject({
       allowed: false,
       grantId: "grant_1",
     })
     expect(grantAtWithdrawal).toBeNull()
+    expect(vi.mocked(changeEvaluationConsent)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowed: false,
+        grantId: "evaluation_1",
+        source: "hub_review_comments",
+      }),
+    )
+    expect(evaluationAtWithdrawal).toEqual({ enabled: false, evaluationGrantId: "evaluation_1" })
+    await expect(
+      prisma.repositoryEvaluationSetting.findUnique({ where: { repositoryId: repository.id } }),
+    ).resolves.toMatchObject({ evaluationGrantId: null })
     expect(vi.mocked(enqueueJob).mock.lastCall?.[2]).toEqual({
       repositoryId: repository.id,
       grantId: "grant_1",

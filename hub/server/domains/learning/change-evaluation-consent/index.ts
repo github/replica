@@ -6,12 +6,20 @@ import { prepareLearningStore } from "../prepare-learning-store/index.ts"
 
 const addedGrantSchema = z.object({ id: z.string().min(1).max(255) }).loose()
 
+const bases = {
+  agent_screenshots:
+    "A repository administrator allowed agents to take screenshots and Hub to analyze them.",
+  hub_review_comments:
+    "A repository administrator turned on automated evaluations of applied learnings.",
+}
+
 /**
- * Turns a repository's screenshot consent on or off in its learning store. The store keeps
- * the grant with who changed it, and refuses screenshots once the grant is withdrawn, so
- * Hub's own setting can never allow more than the store does. Returns the active grant.
+ * Turns one evaluation consent on or off in a repository's learning store: screenshots, or
+ * the review comments behind learnings an evaluator scores. The store keeps the grant with
+ * who changed it, and refuses evaluation once it is withdrawn, so Hub's own setting can
+ * never allow more than the store does. Returns the active grant.
  */
-export async function changeScreenshotConsent(input: {
+export async function changeEvaluationConsent(input: {
   actor: string
   allowed: boolean
   cliPath: string
@@ -22,6 +30,7 @@ export async function changeScreenshotConsent(input: {
   repositoryScope: string
   root: string
   signal?: AbortSignal
+  source: keyof typeof bases
   staticDirectories: string[]
 }): Promise<string | null> {
   const store = await prepareLearningStore({
@@ -47,9 +56,9 @@ export async function changeScreenshotConsent(input: {
           "--purpose",
           "evaluation",
           "--source",
-          "agent_screenshots",
+          input.source,
           "--basis",
-          "A repository administrator allowed agents to take screenshots and Hub to analyze them.",
+          bases[input.source],
           "--by",
           input.actor,
           ...common,

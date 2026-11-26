@@ -15,6 +15,7 @@ const grantListSchema = z.array(
         .object({
           id: z.string().min(1),
           sources: z.array(z.string()),
+          purposes: z.array(z.string()).default([]),
           grantedBy: z.object({ kind: z.string(), id: z.string().min(1) }).loose(),
         })
         .loose(),
@@ -209,7 +210,15 @@ export async function processLearningRun(
         )
         .map((entry) => entry.grant.id)
       if (grantIds.length === 0) {
-        if (humanSourceGrants.length > 0) {
+        // Turning on evaluations adds a grant for evaluation only, which says nothing
+        // about whether a person agreed to learning runs.
+        if (
+          humanSourceGrants.some((entry) =>
+            entry.grant.purposes.some(
+              (purpose) => purpose === "review" || purpose === "instruction",
+            ),
+          )
+        ) {
           throw new LearningCommandError(
             "grant_inactive",
             "Consent to use this repository's review comments ended.",
