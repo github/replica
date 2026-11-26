@@ -120,7 +120,7 @@ The configuration holds no credential. The first time the agent calls Hub, it ge
 The agent gets the same tools and instructions as `replica-learning mcp` in the [learning package](../../packages/learning/README.md#connect-an-agent), because Hub loads them from the installed package. Hub supplies the backend:
 
 - `get_guidance`, `list_learnings`, and `get_learning` read only the repository's own accepted instruction learnings. A proposed learning links to its Learnings page, where a person decides.
-- `report_usage` records which learnings the agent applied. It refuses screenshots for now.
+- `report_usage` records which learnings the agent applied. It accepts base64 screenshots only when the repository allows them, as described in [Automated evaluations](#automated-evaluations).
 - `submit_session` is refused, because Hub does not collect agent sessions yet.
 
 Every request acts for the person who approved the connection. Hub rechecks their sign-in, membership, provider, and repository access before and after each command, so ending the person's sessions or removing their access stops the agent too. Agent commands take the same lock as other learning work, so they run one at a time and an agent that arrives while Hub is busy is asked to try again. A connection works for any repository the person can read, which is why the list is kept per person. People review and revoke their agents on the same page, and an agent can give up its own access through `/revoke`. Approving and revoking write security audits.
@@ -135,6 +135,24 @@ The OAuth endpoints are `/.well-known/oauth-authorization-server`, `/.well-known
 - `DELETE /api/agent-connections/:connectionId`
 
 The MCP endpoint accepts `POST` only and needs `HUB_APPLICATION_ORIGIN` and the learning package. Local repositories are not supported, because learnings belong to GitHub repositories, so their Learnings page offers no agent setup.
+
+## Automated evaluations
+
+Hub can check whether a repository's learnings help and suggest updates. Someone who administers Hub or the repository opens it from **Automated evaluations** on the Learnings page. For example, a Hub administrator sets a shared budget of 100 credits per month, and an administrator of `github/checkout` turns on **Evaluate github/checkout**.
+
+- The budget is one monthly credit limit shared by every repository. Only Hub administrators change it, from 0 to 1,000,000 credits. Usage shows as 0 until evaluations run against Builds.
+- Each repository is off until one of its administrators turns it on. Hub and repository administration stay separate, so a Hub administrator alone cannot turn on a repository.
+- **Allow screenshots** lets agents send screenshots with `report_usage` and lets Hub analyze them. It needs evaluations on, and turning evaluations off turns it off too. The page shows who changed it last.
+
+Allowing screenshots adds a consent grant in the repository's learning store with who allowed it. Hub records the grant and passes it to every `report_usage` call, and the store refuses screenshots once the grant is withdrawn. Hub keeps a copy of each accepted image in artifact storage only while the grant is still the active one. Turning screenshots off withdraws the grant and queues a job that deletes the copies taken under it. The worker's recovery pass finds every withdrawn grant again, so a failed enqueue or a copy saved during the change is still deleted. Allowing screenshots again makes a new grant.
+
+Repository changes take the learning execution lock. While other learning work runs, they return `409` and the person tries again. Repository denials write security audits. The browser contracts are:
+
+- `GET /api/repositories/:repositoryId/learnings/evaluations`
+- `PATCH /api/repositories/:repositoryId/learnings/evaluations` with `{ "enabled": true }`, `{ "screenshots": true }`, or both
+- `PATCH /api/learnings/evaluation-budget` with `{ "monthlyBudgetCredits": "100" }`
+
+Agent requests that carry screenshots may be up to 32 MB.
 
 ## Configuration
 
