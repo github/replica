@@ -7,6 +7,7 @@ import { ReviewCommentError } from "../../../../domains/review-comments/errors.t
 import { executeLearningDecision } from "../../../../domains/learning/execute-learning-decision/index.ts"
 import { createReviewCommentLearningSource } from "../../../../domains/learning/create-review-comment-learning-source/index.ts"
 import { getLearningHistory } from "../../../../domains/learning/get-learning-history/index.ts"
+import { recordFinishedLearningRun } from "../../../../domains/learning/record-finished-learning-run/index.ts"
 import { getLearningOverview } from "../../../../domains/learning/get-learning-overview/index.ts"
 import { getLearningRepositoryScope } from "../../../../domains/learning/get-learning-repository-scope/index.ts"
 import { readShareableLearnings } from "../../../../domains/learning/read-shareable-learnings/index.ts"
@@ -25,6 +26,7 @@ import { getCopilotConnection } from "../../../../repositories/copilot-connectio
 import { createLearningRun } from "../../../../repositories/learning-runs/create-learning-run/index.ts"
 import { finishLearningRun } from "../../../../repositories/learning-runs/finish-learning-run/index.ts"
 import { listLearningRuns } from "../../../../repositories/learning-runs/list-learning-runs/index.ts"
+import { listLearningActivityDays } from "../../../../repositories/learning-activity-days/list-learning-activity-days/index.ts"
 import { createLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/create-learning-decision-operation/index.ts"
 import { deleteLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/delete-learning-decision-operation/index.ts"
 import { listLearningShares } from "../../../../repositories/learning-shares/list-learning-shares/index.ts"
@@ -265,6 +267,7 @@ export async function createLearningsRouteDependencies(
     },
     getCopilot,
     listRuns: (repositoryId) => listLearningRuns(prisma, repositoryId, new Date()),
+    listActivity: (repositoryId, from) => listLearningActivityDays(prisma, repositoryId, from),
     requestRun: async ({ actorMembershipId, repositoryId, requestedById, sessionDigest }) => {
       if (
         !(await runRepositoryAuthorityTransaction((transaction) =>
@@ -382,12 +385,14 @@ export async function createLearningsRouteDependencies(
         )
       } catch (error) {
         if (created || promoted) {
-          await finishLearningRun(prisma, run.id, {
-            state: "FAILED",
-            failureCode: "enqueue_failed",
-            failureSummary: "Hub could not queue this learning run.",
-            finishedAt: new Date(),
-          })
+          await recordFinishedLearningRun(prisma, run.id, (transaction) =>
+            finishLearningRun(transaction, run.id, {
+              state: "FAILED",
+              failureCode: "enqueue_failed",
+              failureSummary: "Hub could not queue this learning run.",
+              finishedAt: new Date(),
+            }),
+          )
           await createSecurityAudit(prisma, {
             id: randomUUID(),
             type: "learning_run",

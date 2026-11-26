@@ -39,6 +39,16 @@ export interface LearningRun {
   usage: { credits: string; requests: number } | null
 }
 
+export interface LearningActivityDay {
+  date: string
+  runState: "succeeded" | "failed"
+  startedAt: string
+  startedBy: LearningRun["startedBy"]
+  commentsAnalyzed: number
+  commentsTagged: number
+  suggestions: number
+}
+
 export interface LearningsRouteDependencies {
   applicationOrigin: string
   automaticRunsEnabled: boolean
@@ -84,6 +94,7 @@ export interface LearningsRouteDependencies {
     usageCredits: string
     active: { scheduled: boolean; state: "QUEUED" | "RUNNING" } | null
   }>
+  listActivity(repositoryId: string, from: Date): Promise<LearningActivityDay[]>
   requestRun?: (input: {
     actorMembershipId: string
     repositoryId: string

@@ -18,6 +18,7 @@ import { processReviewCommentRedaction } from "../process-review-comment-redacti
 import { redactLegacyReviewComment } from "../redact-legacy-review-comment/index.ts"
 import { recoverLearningRunJobs } from "../recover-learning-run-jobs/index.ts"
 import { reconcileLearningDecisionOperation } from "../reconcile-learning-decision-operation/index.ts"
+import { recordFinishedLearningRun } from "../record-finished-learning-run/index.ts"
 import { readAutomaticLearningRunsEnabled } from "../read-automatic-learning-runs-enabled/index.ts"
 import { readLearningConfiguration } from "../read-learning-configuration/index.ts"
 import { scheduleLearningRuns } from "../schedule-learning-runs/index.ts"
@@ -140,7 +141,10 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       claim: (id, startedAt, expectedScheduled) =>
         claimLearningRun(prisma, id, startedAt, expectedScheduled),
       capture: (repositoryId) => source.captureCompleteSnapshot({ repositoryId }),
-      finish: (id, input) => finishLearningRun(prisma, id, input),
+      finish: (id, input) =>
+        recordFinishedLearningRun(prisma, id, (transaction) =>
+          finishLearningRun(transaction, id, input),
+        ),
       getRun: (id) => getLearningRun(prisma, id),
       hasPendingUserRun: () => hasPendingUserLearningRun(prisma),
       isRepositoryAvailable: (repositoryId) =>
@@ -405,7 +409,9 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
             priority: automaticLearningRunPriority,
           }),
         fail: async (runId, error) => {
-          const failed = await failScheduledLearningRunEnqueue(prisma, runId, new Date())
+          const failed = await recordFinishedLearningRun(prisma, runId, (transaction) =>
+            failScheduledLearningRunEnqueue(transaction, runId, new Date()),
+          )
           if (failed.count === 0) return
           logger.error(
             {

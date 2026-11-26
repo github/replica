@@ -36,13 +36,16 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         repositoryId: repository.id,
       })
 
-      const [overview, copilot, runSummary] = await Promise.all([
+      // The activity grid shows the current UTC calendar year.
+      const today = new Date().toISOString().slice(0, 10)
+      const [overview, copilot, runSummary, activity] = await Promise.all([
         dependencies.getOverview({
           repositoryId: repository.id,
           viewer: `human:${initial.login}`,
         }),
         dependencies.getCopilot(),
         administrator ? dependencies.listRuns(repository.id) : null,
+        dependencies.listActivity(repository.id, new Date(`${today.slice(0, 4)}-01-01`)),
       ])
       const current = await readLearningSession(request, dependencies)
       if (!current || current.membershipId !== initial.membershipId) {
@@ -84,6 +87,8 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         runAvailable,
         ...overview,
         runs: stillAdministrator ? runSummary.runs : [],
+        activity,
+        today,
       })
     } catch (error) {
       if (!respondLearningError(response, error)) next(error)

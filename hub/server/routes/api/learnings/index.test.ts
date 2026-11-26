@@ -56,6 +56,7 @@ function dependencies(
     }),
     getCopilot: vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" }),
     listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: null }),
+    listActivity: vi.fn().mockResolvedValue([]),
     decide: vi.fn().mockResolvedValue({ notice: "Learning accepted." }),
     share: vi.fn().mockResolvedValue({ notice: "Shared across Hub." }),
     redactComment: vi.fn().mockResolvedValue(undefined),
@@ -121,8 +122,17 @@ describe("learning routes", () => {
     )
   })
 
-  it("lets a repository member read the library without deciding or seeing usage", async () => {
+  it("lets a repository member read the library and its activity without deciding or seeing usage", async () => {
     const listRuns = vi.fn()
+    const day = {
+      date: "2026-12-21",
+      runState: "succeeded",
+      startedAt: "2026-12-21T09:00:00.000Z",
+      startedBy: { type: "daily" },
+      commentsAnalyzed: 4,
+      commentsTagged: 3,
+      suggestions: 1,
+    }
     const deps = dependencies({
       authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
       getOverview: vi.fn().mockResolvedValue({
@@ -134,6 +144,7 @@ describe("learning routes", () => {
         recall: { text: "", count: 0 },
       }),
       listRuns,
+      listActivity: vi.fn().mockResolvedValue([day]),
     })
 
     await withRoute(
@@ -154,6 +165,7 @@ describe("learning routes", () => {
           usageCredits: null,
           runAvailable: false,
           runs: [],
+          activity: [day],
           rejected: [{ id: "mem_1", reason: "Too broad." }],
         })
         expect(listRuns).not.toHaveBeenCalled()
@@ -244,6 +256,8 @@ describe("learning routes", () => {
           learnings: [],
           recall: { text: "Approved team learnings", count: 0 },
           runs: [run],
+          activity: [],
+          today: new Date().toISOString().slice(0, 10),
         })
       },
     )
