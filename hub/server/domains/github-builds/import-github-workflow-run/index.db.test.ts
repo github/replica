@@ -173,6 +173,12 @@ async function createFixture() {
   }
 }
 
+async function createPrototypeFixture() {
+  const fixture = await createFixture()
+  fixture.run.headBranch = "proto/welcome"
+  return fixture
+}
+
 function privatePreviewPackage(basePath: string, asset = Buffer.from([0, 255, 9])) {
   return createZipArchive([
     { name: "dist/index.html", bytes: "<h1>Home</h1>" },
@@ -237,6 +243,7 @@ async function preparePrivatePreviewReplay(source: ArtifactStorage, destination:
   return async function replay(
     { repositoryId, runId, buildId }: { repositoryId: number; runId: number; buildId: string },
     enabledFor?: number,
+    prepareDistDigest?: string,
   ) {
     if (enabledFor === undefined) {
       delete process.env.HUB_PRIVATE_PREVIEW_WRITE_ENABLED
@@ -260,6 +267,7 @@ async function preparePrivatePreviewReplay(source: ArtifactStorage, destination:
         String(runId),
         "--build-id",
         buildId,
+        ...(prepareDistDigest === undefined ? [] : ["--prepare-dist-digest", prepareDistDigest]),
       ])
       return {
         exitCode: process.exitCode,
@@ -329,7 +337,7 @@ async function listenBehindProxy(origin: string, app: RequestListener) {
 describe("importGitHubWorkflowRun", () => {
   describe("private preview publishing", () => {
     it("serves the owning run's published Build only after a Hub handoff", async () => {
-      const fixture = await createFixture()
+      const fixture = await createPrototypeFixture()
       const { repositoryId, id } = fixture.run
       const address = privatePreviewAddress(String(repositoryId), String(id))!
       const { storage, writer } = createPrivatePreviewDestination(repositoryId)
@@ -628,6 +636,7 @@ describe("importGitHubWorkflowRun", () => {
       { condition: "a missing trailing slash", noTrailingSlash: true },
       { condition: "no marker", noMarker: true },
       { condition: "a local repository", local: true },
+      { condition: "a branch outside proto/", headBranch: "prototype/welcome" },
     ])(
       "does not publish for $condition",
       async ({
@@ -637,8 +646,10 @@ describe("importGitHubWorkflowRun", () => {
         noTrailingSlash,
         noMarker,
         local,
+        headBranch,
       }) => {
-        const fixture = await createFixture()
+        const fixture = await createPrototypeFixture()
+        if (headBranch) fixture.run.headBranch = headBranch
         const { repositoryId, id } = fixture.run
         const address = privatePreviewAddress(String(repositoryId), String(id))!
         const { writer } = createPrivatePreviewDestination(
@@ -669,7 +680,7 @@ describe("importGitHubWorkflowRun", () => {
     )
 
     it("keeps a partial publication private until the owner retries with the retained dist bytes", async () => {
-      const fixture = await createFixture()
+      const fixture = await createPrototypeFixture()
       const { repositoryId, id } = fixture.run
       const address = privatePreviewAddress(String(repositoryId), String(id))!
       const { storage, writer } = createPrivatePreviewDestination(repositoryId)
@@ -742,7 +753,7 @@ describe("importGitHubWorkflowRun", () => {
     })
 
     it("does not replace conflicting destination bytes or expose the Build", async () => {
-      const fixture = await createFixture()
+      const fixture = await createPrototypeFixture()
       const { repositoryId, id } = fixture.run
       const address = privatePreviewAddress(String(repositoryId), String(id))!
       const { storage, writer } = createPrivatePreviewDestination(repositoryId)
@@ -769,7 +780,7 @@ describe("importGitHubWorkflowRun", () => {
     })
 
     it("replays only the exact owning run after normal import recovery has stopped", async () => {
-      const fixture = await createFixture()
+      const fixture = await createPrototypeFixture()
       const { repositoryId, id: runId } = fixture.run
       const address = privatePreviewAddress(String(repositoryId), String(runId))!
       const { storage: destination, writer } = createPrivatePreviewDestination(repositoryId)
@@ -907,7 +918,7 @@ describe("importGitHubWorkflowRun", () => {
     })
 
     it("writes nothing when retained source bytes no longer match the imported dist digest", async () => {
-      const fixture = await createFixture()
+      const fixture = await createPrototypeFixture()
       const { repositoryId, id } = fixture.run
       const address = privatePreviewAddress(String(repositoryId), String(id))!
       const { writer } = createPrivatePreviewDestination(repositoryId)
@@ -931,7 +942,7 @@ describe("importGitHubWorkflowRun", () => {
     })
 
     it("does not backfill an earlier compatible Build when publishing is enabled", async () => {
-      const fixture = await createFixture()
+      const fixture = await createPrototypeFixture()
       const { repositoryId, id } = fixture.run
       const address = privatePreviewAddress(String(repositoryId), String(id))!
       fixture.packages.set(distArtifactName, privatePreviewPackage(address.mount))
@@ -955,6 +966,108 @@ describe("importGitHubWorkflowRun", () => {
       expect(denied).toMatchObject({ exitCode: 1, stdout: "", blobCalls: 0 })
       expect(denied.stderr).toMatch(/\S/)
       await expect(fixture.findBuild(build.id)).resolves.toEqual(build)
+    })
+
+    it("prepares a retained Build only for its exact enabled repository, owning run, Build, and digest", async () => {
+      const fixture = await createPrototypeFixture()
+      const { repositoryId, id: runId } = fixture.run
+      fixture.run.status = "completed"
+      fixture.run.conclusion = "success"
+      const address = privatePreviewAddress(String(repositoryId), String(runId))!
+      const asset = Buffer.from([8, 0, 5])
+      const archive = privatePreviewPackage(address.mount, asset)
+      const { distDigest } = extractDistPackage(archive)
+      fixture.packages.set(distArtifactName, archive)
+      await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
+
+      const before = await fixture.findBuild()
+      expect(before).toMatchObject({ state: "successful", privatePreviewState: null, distDigest })
+      const target = { repositoryId, runId, buildId: before.id }
+      const destination = createImmutableStorage()
+      const replay = await preparePrivatePreviewReplay(fixture.storage, destination)
+      fixture.packages.clear()
+      for (const [requested, enabledFor, digest] of [
+        [target, undefined, distDigest],
+        [target, repositoryId + 1, distDigest],
+        [{ ...target, repositoryId: repositoryId + 1 }, repositoryId, distDigest],
+        [{ ...target, runId: runId + 1 }, repositoryId, distDigest],
+        [{ ...target, buildId: randomUUID() }, repositoryId, distDigest],
+        [target, repositoryId, `sha256:${"f".repeat(64)}`],
+      ] as const) {
+        await expect(replay(requested, enabledFor, digest)).resolves.toMatchObject({
+          exitCode: 1,
+          stdout: "",
+          blobCalls: 0,
+        })
+        await expect(fixture.findBuild(before.id)).resolves.toEqual(before)
+      }
+
+      const write = destination.write.bind(destination)
+      vi.spyOn(destination, "write").mockImplementationOnce(async (key, bytes) => {
+        await expect(fixture.findBuild(before.id)).resolves.toMatchObject({
+          privatePreviewState: "pending",
+        })
+        await expectPrivatePreviewHidden(before, address)
+        return write(key, bytes)
+      })
+      const result = await replay(target, repositoryId, distDigest)
+      expect(result.exitCode).toBeUndefined()
+      expect(JSON.parse(result.stdout)).toEqual({
+        buildId: before.id,
+        runId: String(runId),
+        status: "ready",
+      })
+      const after = await fixture.findBuild(before.id)
+      expect(after).toEqual({ ...before, updatedAt: after.updatedAt, privatePreviewState: "ready" })
+      const file = before.artifacts.find(({ path }) => path === "dist/assets/app.bin")!
+      const copied = await destination.read(file.storageKey)
+      expect(copied.status).toBe("ok")
+      if (copied.status === "ok") expect(Buffer.from(copied.bytes)).toEqual(asset)
+      await expect(findPrivatePreviewTarget(prisma, address)).resolves.toMatchObject({
+        buildId: before.id,
+      })
+      await expect(replay(target, repositoryId, distDigest)).resolves.toEqual({
+        ...result,
+        stderr: "",
+        blobCalls: 0,
+      })
+    })
+
+    it("keeps a prepared Build pending without overwriting a conflicting preview object", async () => {
+      const fixture = await createPrototypeFixture()
+      const { repositoryId, id: runId } = fixture.run
+      const address = privatePreviewAddress(String(repositoryId), String(runId))!
+      const archive = privatePreviewPackage(address.mount)
+      const { distDigest } = extractDistPackage(archive)
+      fixture.packages.set(distArtifactName, archive)
+      await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
+      const before = await fixture.findBuild()
+      const { storageKey } = before.artifacts.find(({ path }) => path === "dist/assets/app.bin")!
+      const destination = createImmutableStorage()
+      const collision = Buffer.from([0, 80, 9])
+      await destination.write(storageKey, collision)
+      const replay = await preparePrivatePreviewReplay(fixture.storage, destination)
+
+      const failed = await replay(
+        { repositoryId, runId, buildId: before.id },
+        repositoryId,
+        distDigest,
+      )
+
+      expect(failed).toMatchObject({ exitCode: 1, stdout: "" })
+      const warning = failed.stderr.split("\n").find((line) => line.startsWith("{"))
+      expect(JSON.parse(warning ?? "null")).toMatchObject({
+        stage: "copy-files",
+        reason: "destination-conflict",
+      })
+      await expect(destination.read(storageKey)).resolves.toEqual({
+        status: "ok",
+        bytes: collision,
+      })
+      await expect(fixture.findBuild(before.id)).resolves.toMatchObject({
+        privatePreviewState: "pending",
+      })
+      await expectPrivatePreviewHidden(before, address)
     })
   })
 

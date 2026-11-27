@@ -53,7 +53,7 @@ export function createAzureBlobArtifactStorage(
         }
       }
     },
-    async write(key, bytes) {
+    async write(key, bytes, mode) {
       try {
         await container.getBlockBlobClient(key).uploadData(bytes, {
           conditions: { ifNoneMatch: "*" },
@@ -61,13 +61,14 @@ export function createAzureBlobArtifactStorage(
         })
         return { status: "ok" }
       } catch (error) {
-        const code = (error as { details?: { errorCode?: string } }).details?.errorCode
-        return {
-          status:
-            code === "BlobAlreadyExists" || code === "ConditionNotMet"
-              ? "already-exists"
-              : "unavailable",
-        }
+        const failure = error as { statusCode?: number; details?: { errorCode?: string } } | null
+        const code = failure?.details?.errorCode
+        // A create-only identity can receive a denied overwrite for a conditional duplicate.
+        const conflict =
+          mode === "verify-existing" && failure?.statusCode === 403
+            ? code === "UnauthorizedBlobOverwrite"
+            : code === "BlobAlreadyExists" || code === "ConditionNotMet"
+        return { status: conflict ? "already-exists" : "unavailable" }
       }
     },
     async delete(key) {

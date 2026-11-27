@@ -1,8 +1,12 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
-export function readPendingPrivatePreviewPackage(database: PrismaClient, buildId: string) {
+export function readPrivatePreviewPackage(
+  database: Pick<PrismaClient, "build">,
+  buildId: string,
+  publication: "pending" | null,
+) {
   return database.build.findUnique({
-    where: { id: buildId, state: "successful", privatePreviewState: "pending" },
+    where: { id: buildId, state: "successful", privatePreviewState: publication },
     select: {
       distDigest: true,
       artifacts: {

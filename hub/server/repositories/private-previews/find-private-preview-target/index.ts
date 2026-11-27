@@ -1,10 +1,18 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { PrivatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
 
+interface PrivatePreviewTargetFilter {
+  /** Require this recorded retained dist digest. */
+  distDigest?: string
+  /** Require the prototype branch to start with this prefix. */
+  branchPrefix?: string
+}
+
 export async function findPrivatePreviewTarget(
-  database: PrismaClient,
+  database: Pick<PrismaClient, "build">,
   address: PrivatePreviewAddress,
-  publication: "ready" | "pending" = "ready",
+  publication: "ready" | "pending" | null = "ready",
+  { distDigest, branchPrefix }: PrivatePreviewTargetFilter = {},
 ) {
   const matches = await database.build.findMany({
     where: {
@@ -16,6 +24,7 @@ export async function findPrivatePreviewTarget(
     take: 2,
     select: {
       id: true,
+      distDigest: true,
       state: true,
       privatePreviewState: true,
       artifacts: {
@@ -39,11 +48,13 @@ export async function findPrivatePreviewTarget(
     !build ||
     build.state !== "successful" ||
     build.privatePreviewState !== publication ||
+    (distDigest !== undefined && build.distDigest !== distDigest) ||
     build.artifacts.length !== 1
   )
     return null
   const { prototype } = build
   if (
+    (branchPrefix !== undefined && !prototype.branchName.startsWith(branchPrefix)) ||
     prototype.replica ||
     prototype.repository.removedAt ||
     prototype.repository.localPath ||

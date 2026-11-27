@@ -1,6 +1,8 @@
+import { Prisma } from "../../../generated/prisma/client.ts"
 import { findPrivatePreviewTarget } from "../../../repositories/private-previews/find-private-preview-target/index.ts"
+import { markPrivatePreviewPending } from "../../../repositories/private-previews/mark-private-preview-pending/index.ts"
 import { markPrivatePreviewReady } from "../../../repositories/private-previews/mark-private-preview-ready/index.ts"
-import { readPendingPrivatePreviewPackage } from "../../../repositories/private-previews/read-pending-private-preview-package/index.ts"
+import { readPrivatePreviewPackage } from "../../../repositories/private-previews/read-private-preview-package/index.ts"
 import type { PrivatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
 import {
   maximumDistBytes,
@@ -12,6 +14,7 @@ import { digestDistFiles } from "../../build-artifacts/digest-dist-files/index.t
 import { normalizeBuildArtifactPath } from "../../build-artifacts/normalize-build-artifact-path/index.ts"
 import { declaresPreviewMount } from "../../build-preview/declares-preview-mount/index.ts"
 import type { GitHubBuildImportDependencies } from "../../github-builds/types.ts"
+import { automaticPrototypeBranchPrefix } from "../../prototypes/constants.ts"
 import {
   maximumPrivatePreviewFileBytes,
   maximumPrivatePreviewManifestBytes,
@@ -60,13 +63,24 @@ export async function publishGitHubBuildPreview(
   { database, logger, storage, privatePreviewWriter }: GitHubBuildImportDependencies,
   buildId: string,
   address: PrivatePreviewAddress,
+  prepareDistDigest?: string,
 ) {
   if (privatePreviewWriter?.repositoryId !== address.repositoryId) return
-  let stage: "read-target" | "verify-source" | "copy-files" | "mark-ready" = "read-target"
+  const filter = { branchPrefix: automaticPrototypeBranchPrefix, distDigest: prepareDistDigest }
+  let stage: "read-target" | "verify-source" | "prepare" | "copy-files" | "mark-ready" =
+    "read-target"
   try {
-    const target = await findPrivatePreviewTarget(database, address, "pending")
-    if (target?.buildId !== buildId) return
-    const snapshot = await readPendingPrivatePreviewPackage(database, buildId)
+    const pending = await findPrivatePreviewTarget(database, address, "pending", filter)
+    // Only an operator-supplied retained digest can select a Build whose publication was never set.
+    const publication =
+      pending?.buildId === buildId
+        ? "pending"
+        : prepareDistDigest !== undefined &&
+            (await findPrivatePreviewTarget(database, address, null, filter))?.buildId === buildId
+          ? null
+          : undefined
+    if (publication === undefined) return
+    const snapshot = await readPrivatePreviewPackage(database, buildId, publication)
     if (!snapshot) return
 
     stage = "verify-source"
@@ -112,8 +126,28 @@ export async function publishGitHubBuildPreview(
         return { kind, path, storageKey, bytes: Buffer.from(source.bytes) }
       },
     )
-    if (digestDistFiles(files) !== snapshot.distDigest) {
+    if (
+      digestDistFiles(files) !== snapshot.distDigest ||
+      (prepareDistDigest !== undefined && snapshot.distDigest !== prepareDistDigest)
+    ) {
       throw new PublicationError("source-mismatch")
+    }
+
+    if (publication === null && prepareDistDigest !== undefined) {
+      stage = "prepare"
+      const prepared = await database.$transaction(
+        async (transaction) =>
+          (await findPrivatePreviewTarget(transaction, address, null, filter))?.buildId ===
+            buildId &&
+          (await markPrivatePreviewPending(
+            transaction,
+            buildId,
+            BigInt(address.runId),
+            prepareDistDigest,
+          )),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      )
+      if (!prepared) throw new PublicationError("database-error")
     }
 
     const destination = privatePreviewWriter.storage
@@ -121,7 +155,7 @@ export async function publishGitHubBuildPreview(
     await inBatches(
       files.filter(({ kind, path }) => kind === "dist" && path !== privatePreviewManifestPath),
       async ({ storageKey, bytes }) => {
-        const result = await destination.write(storageKey, bytes)
+        const result = await destination.write(storageKey, bytes, "verify-existing")
         if (result.status === "already-exists") {
           const existing = await destination.read(storageKey)
           if (existing.status !== "ok") throw new PublicationError("destination-unavailable")
@@ -132,7 +166,7 @@ export async function publishGitHubBuildPreview(
       },
     )
     stage = "mark-ready"
-    const current = await findPrivatePreviewTarget(database, address, "pending")
+    const current = await findPrivatePreviewTarget(database, address, "pending", filter)
     if (
       current?.buildId === buildId &&
       (await markPrivatePreviewReady(database, buildId, BigInt(address.runId)))

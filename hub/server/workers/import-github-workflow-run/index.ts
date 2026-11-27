@@ -22,13 +22,10 @@ export async function importGitHubWorkflowRunJob(
     import("../../domains/artifacts/create-artifact-storage/index.ts"),
     import("../../integrations/prisma/index.ts"),
   ])
-  const privatePreviewWriter =
-    preview?.repositoryId === String(job.githubRepositoryId)
-      ? {
-          repositoryId: preview.repositoryId,
-          storage: await createArtifactStorage(preview.storage),
-        }
-      : undefined
+  const repositoryId = String(job.githubRepositoryId)
+  const privatePreviewWriter = preview?.repositoryIds.includes(repositoryId)
+    ? { repositoryId, storage: await createArtifactStorage(preview.storage) }
+    : undefined
   return await importGitHubWorkflowRun(
     {
       database: prisma,

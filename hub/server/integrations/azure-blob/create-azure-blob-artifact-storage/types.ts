@@ -14,6 +14,7 @@ export interface AzureBlobArtifactStorage {
   write(
     key: string,
     bytes: Uint8Array,
+    mode?: "verify-existing",
   ): Promise<{ status: "ok" | "already-exists" | "unavailable" }>
   delete(key: string): Promise<{ status: "ok" | "not-found" | "unavailable" }>
 }
