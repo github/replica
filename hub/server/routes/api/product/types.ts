@@ -61,6 +61,8 @@ export interface ProductRouteDependencies {
   getVerifiedRepositoryPermission?(
     viewer: ProductViewer,
     repositoryId: string,
+    /** Skips the repository lookup when the caller already matched this immutable identity. */
+    knownGitHubRepositoryId?: bigint,
   ): Promise<RepositoryPermission | null>
   reviewComments?: ReviewCommentService
   searchReviewMentions?: ReviewRouteDependencies["searchReviewMentions"]

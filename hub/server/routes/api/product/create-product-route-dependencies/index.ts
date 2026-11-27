@@ -167,15 +167,19 @@ export function createProductRouteDependencies({
     viewer: ProductViewer,
     repositoryId: string,
     branchName?: string,
+    knownGitHubRepositoryId?: bigint,
   ): Promise<{ permission: RepositoryPermission | null; accessRevision: number | null }> {
     const denied = { permission: null, accessRevision: null }
     const { revision } = await readGitHubRepositoryAccessState(prisma)
-    const repository = await readScoped(viewer, (repositoryScope) =>
-      prisma.repository.findFirst({
-        where: { id: repositoryId, ...visibleRepositoryWhere(repositoryScope) },
-        select: { githubRepositoryId: true, localPath: true },
-      }),
-    )
+    const repository =
+      knownGitHubRepositoryId === undefined
+        ? await readScoped(viewer, (repositoryScope) =>
+            prisma.repository.findFirst({
+              where: { id: repositoryId, ...visibleRepositoryWhere(repositoryScope) },
+              select: { githubRepositoryId: true, localPath: true },
+            }),
+          )
+        : { githubRepositoryId: knownGitHubRepositoryId, localPath: null }
     if (!repository) return denied
     if (repository.localPath) {
       return viewer.sessionProvider === "local" && viewer.role === "ADMINISTRATOR"
@@ -301,9 +305,16 @@ export function createProductRouteDependencies({
   const mentions = createReviewMentionDirectory(prisma, githubReviewDirectory)
   return {
     getRepositoryPermission,
-    async getVerifiedRepositoryPermission(viewer, repositoryId) {
+    async getVerifiedRepositoryPermission(viewer, repositoryId, knownGitHubRepositoryId) {
       if (permissionOverride) return permissionOverride(viewer, repositoryId)
-      return (await getRepositoryPermissionEvidence(viewer, repositoryId)).permission
+      return (
+        await getRepositoryPermissionEvidence(
+          viewer,
+          repositoryId,
+          undefined,
+          knownGitHubRepositoryId,
+        )
+      ).permission
     },
     templates: {
       findBuild: (viewer, repositoryId, buildId) =>

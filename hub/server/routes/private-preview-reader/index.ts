@@ -363,16 +363,6 @@ export function createPrivatePreviewReader({
         if (stored.status === "not-found") return response.sendStatus(404)
         if (stored.status !== "ok" || stored.bytes.byteLength !== file.byteLength)
           return unavailable(response)
-        const current = await authorizeFile(access, address, path, allowEntryPointFallback)
-        if (closed) return
-        if (current === "session-ended") return renew() ?? response.sendStatus(404)
-        if (
-          !current ||
-          current.path !== file.path ||
-          current.byteLength !== file.byteLength ||
-          current.storageKey !== file.storageKey
-        )
-          return response.sendStatus(404)
         response.type(contentTypeForBuildPath(file.path))
         response.setHeader("Content-Length", file.byteLength)
         return response.end(request.method === "HEAD" ? undefined : stored.bytes)
