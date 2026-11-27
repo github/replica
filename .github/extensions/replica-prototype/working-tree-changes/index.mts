@@ -47,7 +47,7 @@ export async function readWorkingTreeChanges(
         resolve({
           state: "unavailable",
           error:
-            "Checking local changes took too long. Retry the check or publish the committed version only.",
+            "Checking local changes took too long. Retry the check or publish without committing.",
         })
       } else if (code !== 0) {
         resolve({

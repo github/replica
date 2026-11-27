@@ -1060,7 +1060,7 @@ async function routeRequest(
     if (preparation.workingTree === "unavailable" && input.mode !== "committed-only")
       throw httpError(
         409,
-        `Could not check local changes. Retry the check or choose Publish committed version only. ${"workingTreeError" in preparation ? preparation.workingTreeError : undefined}`,
+        `Could not check local changes. Retry the check or choose Publish without committing. ${"workingTreeError" in preparation ? preparation.workingTreeError : undefined}`,
       )
     if (input.workingTree === "clean" && preparation.workingTree === "changed")
       throw httpError(409, "Uncommitted changes appeared while preparing to publish. Try again.")

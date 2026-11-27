@@ -35,7 +35,7 @@ export const CheckFailed: Story = {
   args: {
     changes: undefined,
     checkError:
-      "Checking local changes took too long. Retry the check or publish the committed version only.",
+      "Checking local changes took too long. Retry the check or publish without committing.",
   },
 }
 export const Publishing: Story = { args: { busy: true } }
@@ -60,7 +60,16 @@ export const TruncatedChanges: Story = {
   args: {
     changes: {
       ...meta.args.changes,
-      files: { paths: ["src/App.tsx", "src/components/Header.tsx"], total: 28 },
+      files: {
+        paths: [
+          "src/App.tsx",
+          "src/components/Header.tsx",
+          "src/components/Navigation.tsx",
+          "src/routes/Issues.tsx",
+          "src/routes/Issues.test.tsx",
+        ],
+        total: 28,
+      },
     },
   },
 }

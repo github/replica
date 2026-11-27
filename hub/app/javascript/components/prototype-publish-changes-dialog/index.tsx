@@ -33,6 +33,9 @@ export function PublishChangesDialog({
   const [remember, setRemember] = useState(remembered)
   const descriptionId = useId()
   const checkboxId = useId()
+  const paths = changes?.files.paths.slice(0, 4) ?? []
+  const remaining = (changes?.files.total ?? 0) - paths.length
+  const fileSummary = [...paths, ...(remaining > 0 ? [copy.moreChanges(remaining)] : [])].join("\n")
   return (
     <CanvasDialog
       title={checkError ? copy.checkFailedTitle : copy.title}
@@ -49,23 +52,13 @@ export function PublishChangesDialog({
         {checkError ? <HubAlert title={checkError} variant="critical" layout="compact" /> : null}
         {changes?.files.total ? (
           <section aria-label={copy.changedFiles}>
-            <ul className="publish-changes-dialog__files">
-              {changes.files.paths.map((file) => (
-                <li key={file}>
-                  <code>{file}</code>
-                </li>
-              ))}
-              {changes.files.total > changes.files.paths.length ? (
-                <li>{copy.moreChanges(changes.files.total - changes.files.paths.length)}</li>
-              ) : null}
-            </ul>
+            <pre className="publish-changes-dialog__files">
+              <code>{fileSummary}</code>
+            </pre>
           </section>
         ) : null}
-        {!checkError ? (
-          <p>
-            {changes?.localSkills.total ? `${copy.localSkills(changes.localSkills.total)} ` : null}
-            {copy.selection}
-          </p>
+        {!checkError && changes?.localSkills.total ? (
+          <p>{copy.localSkills(changes.localSkills.total)}</p>
         ) : null}
         {!checkError ? (
           <FormControl id={checkboxId} fullWidth>
