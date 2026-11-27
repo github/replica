@@ -24,7 +24,7 @@ export async function findPrototypeDetail(
     prototypeId: string,
     buildNumber: number,
     target: "preview" | "desktop" | "narrow",
-  ) => string,
+  ) => string | null,
   privatePreviewHubOrigin?: string,
 ) {
   const detail = await database.$transaction(

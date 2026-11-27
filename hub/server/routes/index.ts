@@ -34,6 +34,7 @@ import { delete_ as handleReviewThreadResolutionDelete } from "./api/repositorie
 import { createCollaborationHandlers } from "./api/review-comments/collaboration-handlers/index.ts"
 import { createInboxHandlers } from "./api/notifications/index.ts"
 import { get as handleBuildPreviewAccessGet } from "./api/repositories/prototypes/builds/access/get/index.ts"
+import { get as handleBuildScreenshotGet } from "./api/repositories/prototypes/builds/screenshots/get/index.ts"
 import { get as handlePrototypeManagementGet } from "./api/repositories/prototype-management/get/index.ts"
 import { get as handleBuildPreviewAuthorizeGet } from "./build-preview/authorize/get/index.ts"
 import { get as handleBuildPreviewServeGet } from "./build-preview/serve/get/index.ts"
@@ -220,6 +221,16 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         app.get(
           "/api/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber/access",
           handleBuildPreviewAccessGet(authentication.currentSession, product, preview),
+        )
+      }
+      if (product.readBuildArtifact) {
+        app.get(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber/screenshots/:size",
+          handleBuildScreenshotGet(
+            authentication.currentSession,
+            product,
+            product.readBuildArtifact,
+          ),
         )
       }
       app.patch(

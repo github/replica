@@ -196,11 +196,13 @@ describe("real product index", () => {
     })
   })
 
-  it("pins the gallery screenshot to the newest eligible Build without returning Build history", async () => {
+  it("serves the gallery screenshot of the newest eligible Build from Hub without a preview origin", async () => {
     const applicationOrigin = "http://127.0.0.1:5173"
-    const previewBaseOrigin = "http://preview.localhost:3001"
     const { id: repositoryId } = await prisma.repository.create({
       data: { nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    const { id: otherRepositoryId } = await prisma.repository.create({
+      data: { nameWithOwner: "team/other", defaultBranch: "main" },
     })
     const registeredAt = new Date("2026-10-01")
     const entry = { kind: "dist", path: "dist/index.html" } as const
@@ -275,7 +277,23 @@ describe("real product index", () => {
       name: "Mona",
       role: "MEMBER",
     })
-    const product = createProductRouteDependencies({ applicationOrigin, previewBaseOrigin })
+    const desktopArtifact = await prisma.buildArtifact.findFirstOrThrow({
+      where: { buildId: reviewBuildId, path: desktop.path },
+    })
+    const screenshotBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const artifactStorage = {
+      isReady: vi.fn(),
+      read: vi.fn((key: string) =>
+        Promise.resolve(
+          key === desktopArtifact.storageKey
+            ? { status: "ok" as const, bytes: screenshotBytes }
+            : { status: "not-found" as const },
+        ),
+      ),
+      write: vi.fn(),
+      delete: vi.fn(),
+    }
+    const product = createProductRouteDependencies({ applicationOrigin, artifactStorage })
     await withServer(restore, product, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}`, {
         headers: { cookie: "hub_session=member-session" },
@@ -295,18 +313,180 @@ describe("real product index", () => {
       })
       const desktopScreenshotUrl = prototype?.reviewBuild?.desktopScreenshotUrl
       expect(desktopScreenshotUrl).toBeTypeOf("string")
+      expect(desktopScreenshotUrl).toBe(
+        `${applicationOrigin}/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/2/screenshots/desktop`,
+      )
       const screenshotUrl = new URL(desktopScreenshotUrl ?? "")
-      expect(screenshotUrl.origin).toBe(applicationOrigin)
-      expect(screenshotUrl.pathname).toBe(
-        `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/2/access`,
+      const screenshot = await fetch(`${baseUrl}${screenshotUrl.pathname}`, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+      expect(screenshot.status).toBe(200)
+      expect(new Uint8Array(await screenshot.arrayBuffer())).toEqual(screenshotBytes)
+
+      const otherRepository = await fetch(`${baseUrl}/api/repositories/${otherRepositoryId}`, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+      expect(otherRepository.status).toBe(200)
+      artifactStorage.read.mockClear()
+      const crossRepositoryScreenshot = await fetch(
+        `${baseUrl}/api/repositories/${otherRepositoryId}/prototypes/${prototypeId}/builds/2/screenshots/desktop`,
+        { headers: { cookie: "hub_session=member-session" } },
       )
-      expect(screenshotUrl.searchParams.get("target")).toBe("desktop")
-      expect([null, `http://${reviewBuildId}.preview.localhost:3001`]).toContain(
-        screenshotUrl.searchParams.get("preview_origin"),
+      expect(crossRepositoryScreenshot.status).toBe(404)
+      const crossPrototypeScreenshot = await fetch(
+        `${baseUrl}/api/repositories/${repositoryId}/prototypes/${previewOnlyPrototypeId}/builds/2/screenshots/desktop`,
+        { headers: { cookie: "hub_session=member-session" } },
       )
+      expect(crossPrototypeScreenshot.status).toBe(404)
+      expect(artifactStorage.read).not.toHaveBeenCalledWith(desktopArtifact.storageKey)
+
+      expect(index.prototypes.find(({ id }) => id === previewOnlyPrototypeId)).toMatchObject({
+        reviewBuild: null,
+        builds: [],
+      })
+    })
+  })
+
+  it("refuses Hub-origin screenshots beyond the shared preview allowance and releases finished reads", async () => {
+    const mebibyte = 1024 * 1024
+    const { id: repositoryId } = await prisma.repository.create({
+      data: { nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    const oversizedKey = randomUUID()
+    const largeKey = randomUUID()
+    const { id: prototypeId } = await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/welcome",
+        name: "Welcome",
+        registeredAt: new Date("2026-10-01"),
+        builds: {
+          create: [1, 2].map((number) => ({
+            number,
+            state: "successful" as const,
+            artifacts: {
+              create: {
+                kind: "screenshot" as const,
+                path: "screenshots/desktop.png",
+                storageKey: number === 1 ? oversizedKey : largeKey,
+                byteLength: number === 1 ? 100 * mebibyte + 1 : 60 * mebibyte,
+              },
+            },
+          })),
+        },
+      },
+    })
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER",
+    })
+    const artifactStorage = {
+      isReady: vi.fn(),
+      read: vi.fn(() =>
+        Promise.resolve({ status: "ok" as const, bytes: new Uint8Array([0x89, 0x50]) }),
+      ),
+      write: vi.fn(),
+      delete: vi.fn(),
+    }
+    const product = createProductRouteDependencies({
+      applicationOrigin: "http://127.0.0.1:5173",
+      artifactStorage,
+    })
+
+    await withServer(restore, product, async (baseUrl) => {
+      function screenshotUrl(buildNumber: number) {
+        return `${baseUrl}/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/${buildNumber}/screenshots/desktop`
+      }
+      const member = { headers: { cookie: "hub_session=member-session" } }
+
+      const oversized = await fetch(screenshotUrl(1), member)
+      expect(oversized.status).toBe(503)
+      expect(artifactStorage.read).not.toHaveBeenCalledWith(oversizedKey)
+
+      for (let request = 0; request < 2; request++) {
+        const large = await fetch(screenshotUrl(2), member)
+        expect(large.status).toBe(200)
+        await large.arrayBuffer()
+      }
+    })
+  })
+
+  it("keeps a screenshot-less Build reviewable when Hub can open its hosted preview", async () => {
+    const applicationOrigin = "http://127.0.0.1:5173"
+    const { id: repositoryId } = await prisma.repository.create({
+      data: { nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    function artifacts(...paths: string[]) {
+      return {
+        create: paths.map((path) => ({
+          kind: path.startsWith("dist/") ? ("dist" as const) : ("screenshot" as const),
+          path,
+          storageKey: randomUUID(),
+          byteLength: 80,
+        })),
+      }
+    }
+    const { id: screenshotPrototypeId } = await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/welcome",
+        name: "Welcome",
+        registeredAt: new Date("2026-10-01"),
+        builds: {
+          create: {
+            number: 2,
+            state: "successful",
+            artifacts: artifacts("dist/index.html", "screenshots/desktop.png"),
+          },
+        },
+      },
+    })
+    const { id: previewOnlyPrototypeId } = await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/preview-only",
+        name: "Preview only",
+        registeredAt: new Date("2026-10-01"),
+        builds: {
+          create: { number: 1, state: "successful", artifacts: artifacts("dist/index.html") },
+        },
+      },
+    })
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER",
+    })
+    const product = createProductRouteDependencies({
+      applicationOrigin,
+      previewBaseOrigin: "http://preview.localhost:3001",
+      artifactStorage: { isReady: vi.fn(), read: vi.fn(), write: vi.fn(), delete: vi.fn() },
+    })
+
+    await withServer(restore, product, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}`, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+
+      expect(response.status).toBe(200)
+      const index = (await response.json()) as { prototypes: { id: string }[] }
+      expect(index.prototypes.find(({ id }) => id === screenshotPrototypeId)).toMatchObject({
+        reviewBuild: {
+          number: 2,
+          desktopScreenshotUrl: `${applicationOrigin}/api/repositories/${repositoryId}/prototypes/${screenshotPrototypeId}/builds/2/screenshots/desktop`,
+        },
+      })
       expect(index.prototypes.find(({ id }) => id === previewOnlyPrototypeId)).toMatchObject({
         reviewBuild: { number: 1, desktopScreenshotUrl: null },
-        builds: [],
       })
     })
   })

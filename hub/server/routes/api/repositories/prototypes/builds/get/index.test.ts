@@ -23,6 +23,7 @@ type ProductMocks = {
       | "isPrototypeReviewable"
       | "searchReviewMentions"
       | "reviewInbox"
+      | "readBuildArtifact"
     >
   ]: Mock<ProductRouteDependencies[Key]>
 }
