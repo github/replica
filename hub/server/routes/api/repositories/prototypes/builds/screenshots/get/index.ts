@@ -2,6 +2,7 @@ import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import { reserveBuildPreviewBytes } from "../../../../../../../domains/build-preview/reserve-build-preview-bytes/index.ts"
+import { trackResponseReservations } from "../../../../../../../integrations/express/track-response-reservations/index.ts"
 import { readHubSessionCookie } from "../../../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../../auth/types.ts"
 import { readProductSession } from "../../../../../product/read-product-session/index.ts"
@@ -17,26 +18,9 @@ export function get(
   readBuildArtifact: NonNullable<ProductRouteDependencies["readBuildArtifact"]>,
 ): RequestHandler {
   return async (request, response, next) => {
-    // Hold the shared preview-byte reservation until the read settles and the response ends.
-    const reservations: (() => void)[] = []
-    let handlingRequest = true
-    let responseEnded = response.destroyed || response.writableFinished
-    function releaseReservations() {
-      if (handlingRequest || !responseEnded) return
-      response.off("finish", onResponseEnd)
-      response.off("close", onResponseEnd)
-      for (const release of reservations.splice(0)) release()
-    }
-    function onResponseEnd() {
-      responseEnded = true
-      releaseReservations()
-    }
-    response.once("finish", onResponseEnd)
-    response.once("close", onResponseEnd)
+    const reservations = trackResponseReservations(response, reserveBuildPreviewBytes)
     function reserveBytes(byteLength: number) {
-      const release = responseEnded ? null : reserveBuildPreviewBytes(byteLength)
-      if (release) reservations.push(release)
-      return Boolean(release)
+      return Boolean(reservations.reserve(byteLength))
     }
     try {
       const cookie = readHubSessionCookie(request)
@@ -80,10 +64,15 @@ export function get(
         response.status(503).json({ error: "The Build screenshot is temporarily unavailable." })
         return
       }
-      if (stored?.status !== "ok") {
+      // Access can be revoked while storage is read, without ending the session.
+      if (
+        stored?.status !== "ok" ||
+        !(await product.isRepositoryVisible(read.current, repositoryId.data))
+      ) {
         response.status(404).json({ error: "Build screenshot not found." })
         return
       }
+      if (response.destroyed) return
       response.setHeader("Cache-Control", "private, no-store")
       response.setHeader("Content-Security-Policy", "default-src 'none'; sandbox")
       response.setHeader(
@@ -98,8 +87,7 @@ export function get(
     } catch (error) {
       next(error)
     } finally {
-      handlingRequest = false
-      releaseReservations()
+      reservations.settle()
     }
   }
 }

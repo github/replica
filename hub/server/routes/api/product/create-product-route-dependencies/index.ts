@@ -608,7 +608,16 @@ export function createProductRouteDependencies({
             const artifact = await findBuildArtifact(prisma, buildId, path)
             if (!artifact) return { status: "not-found" as const }
             if (!reserveBytes(artifact.byteLength)) return { status: "unavailable" as const }
-            return artifactStorage.read(artifact.storageKey)
+            const stored = await artifactStorage.read(artifact.storageKey)
+            if (stored.status !== "ok") {
+              return {
+                status: stored.status === "not-found" ? "not-found" : "unavailable",
+              } as const
+            }
+            // A read larger than its reservation would exceed the shared allowance.
+            return stored.bytes.byteLength > artifact.byteLength
+              ? ({ status: "unavailable" } as const)
+              : stored
           },
         }
       : {}),

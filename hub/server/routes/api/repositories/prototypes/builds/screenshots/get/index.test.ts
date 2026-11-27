@@ -132,6 +132,23 @@ describe("get()", () => {
     })
   })
 
+  it("does not serve a screenshot when access is removed while storage is read", async () => {
+    const path = `/${randomUUID()}/${randomUUID()}/42/screenshots/desktop`
+    await withScreenshotRoute(path, async (url, product, readBuildArtifact) => {
+      vi.mocked(product.isRepositoryVisible)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValue(false)
+      readBuildArtifact.mockResolvedValue({ status: "ok", bytes: new Uint8Array([0x89]) })
+
+      const response = await fetch(url, member)
+
+      expect(response.status).toBe(404)
+      expect(response.headers.get("content-type")).not.toMatch(/^image\//)
+      expect(readBuildArtifact).toHaveBeenCalledOnce()
+    })
+  })
+
   it("reports temporarily unavailable storage separately from a missing screenshot", async () => {
     const path = `/${randomUUID()}/${randomUUID()}/42/screenshots/desktop`
     await withScreenshotRoute(path, async (url, _product, readBuildArtifact) => {

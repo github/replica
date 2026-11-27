@@ -416,6 +416,70 @@ describe("real product index", () => {
     })
   })
 
+  it("reports stored screenshots it cannot serve within their reservation as unavailable", async () => {
+    const { id: repositoryId } = await prisma.repository.create({
+      data: { nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    const { id: prototypeId } = await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/welcome",
+        name: "Welcome",
+        registeredAt: new Date("2026-10-01"),
+        builds: {
+          create: {
+            number: 1,
+            state: "successful",
+            artifacts: {
+              create: {
+                kind: "screenshot",
+                path: "screenshots/desktop.png",
+                storageKey: randomUUID(),
+                byteLength: 2,
+              },
+            },
+          },
+        },
+      },
+    })
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER",
+    })
+    const artifactStorage = {
+      isReady: vi.fn(),
+      read: vi
+        .fn()
+        .mockResolvedValueOnce({ status: "ok", bytes: new Uint8Array([0x89, 0x50, 0x4e]) })
+        .mockResolvedValueOnce({ status: "too-large" })
+        .mockResolvedValueOnce({ status: "invalid-key" }),
+      write: vi.fn(),
+      delete: vi.fn(),
+    }
+    const product = createProductRouteDependencies({
+      applicationOrigin: "http://127.0.0.1:5173",
+      artifactStorage,
+    })
+
+    await withServer(restore, product, async (baseUrl) => {
+      const screenshotUrl = `${baseUrl}/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/1/screenshots/desktop`
+      const member = { headers: { cookie: "hub_session=member-session" } }
+
+      const statuses = []
+      for (let request = 0; request < 3; request++) {
+        statuses.push((await fetch(screenshotUrl, member)).status)
+      }
+
+      expect(statuses).toEqual([503, 503, 503])
+      expect(artifactStorage.read).toHaveBeenCalledTimes(3)
+    })
+  })
+
   it("keeps a screenshot-less Build reviewable when Hub can open its hosted preview", async () => {
     const applicationOrigin = "http://127.0.0.1:5173"
     const { id: repositoryId } = await prisma.repository.create({
