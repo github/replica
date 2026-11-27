@@ -1,6 +1,33 @@
 import assert from "node:assert/strict"
 import { readFile, realpath } from "node:fs/promises"
+import { isAbsolute, relative, sep } from "node:path"
 import { it } from "node:test"
+
+it("ships the chosen logo within the plugin", async () => {
+  const manifest = JSON.parse(await readFile(new URL("plugin.json", import.meta.url)))
+  const logo = manifest.extensions?.["com.github.copilot"]?.logo
+  assert.equal(typeof logo, "string", "The plugin manifest declares a logo.")
+  assert.ok(logo && !isAbsolute(logo) && !logo.split(/[\\/]/).includes(".."))
+
+  const pluginDirectory = await realpath(new URL(".", import.meta.url))
+  const logoPath = await realpath(new URL(logo, import.meta.url))
+  const relativeLogoPath = relative(pluginDirectory, logoPath)
+  assert.ok(
+    relativeLogoPath &&
+      relativeLogoPath !== ".." &&
+      !relativeLogoPath.startsWith(`..${sep}`) &&
+      !isAbsolute(relativeLogoPath),
+    "The logo is included inside the plugin package.",
+  )
+  assert.equal(
+    await readFile(logoPath, "utf8"),
+    await readFile(
+      new URL("../../../docs/images/logo/replica-mark-squircle.svg", import.meta.url),
+      "utf8",
+    ),
+    "The packaged logo matches the Replica mark.",
+  )
+})
 
 it("resolves the marketplace's relative source to the shipped plugin", async () => {
   const root = new URL("../../../", import.meta.url)

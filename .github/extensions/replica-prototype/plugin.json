@@ -2,11 +2,16 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "replica-prototype",
   "description": "Wrap a running prototype with Replica publish controls and repository status.",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "author": {
     "name": "GitHub"
   },
   "repository": "https://github.com/github/replica",
   "license": "MIT",
-  "keywords": ["replica", "prototype", "copilot-canvas", "publishing"]
+  "keywords": ["replica", "prototype", "copilot-canvas", "publishing"],
+  "extensions": {
+    "com.github.copilot": {
+      "logo": "logo.svg"
+    }
+  }
 }
