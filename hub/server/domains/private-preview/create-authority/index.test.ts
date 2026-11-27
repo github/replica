@@ -44,6 +44,7 @@ function fixture() {
   const read = vi
     .fn<Dependencies["access"]["read"]>()
     .mockImplementation(() => Promise.resolve(readerSession(sessionDigest, target.buildId)))
+  const findDistFile = vi.fn<Dependencies["findDistFile"]>().mockResolvedValue(file)
   const authority = createPrivatePreviewAuthority({
     readerOrigin,
     restoreSession,
@@ -56,7 +57,7 @@ function fixture() {
       issue: vi.fn<Dependencies["access"]["issue"]>(),
       exchange: vi.fn<Dependencies["access"]["exchange"]>(),
     },
-    findDistFile: vi.fn<Dependencies["findDistFile"]>().mockResolvedValue(file),
+    findDistFile,
     storage: { read: vi.fn<Dependencies["storage"]["read"]>() },
   })
   return {
@@ -68,14 +69,16 @@ function fixture() {
     hasCurrentRepositoryAccess,
     findTarget,
     read,
-    requestFile: (requested = address) =>
-      authority.authorizeFile(randomBytes(32).toString("base64url"), requested, path, false),
+    findDistFile,
+    authority,
+    requestFile: (requested = address, token = randomBytes(32).toString("base64url")) =>
+      authority.authorizeFile(token, requested, path, false),
   }
 }
 
-function deferred() {
-  let resolve!: (allowed: boolean) => void
-  const promise = new Promise<boolean>((settle) => {
+function deferred<Value = boolean>() {
+  let resolve!: (value: Value) => void
+  const promise = new Promise<Value>((settle) => {
     resolve = settle
   })
   return { promise, resolve }
@@ -252,5 +255,158 @@ describe("createPrivatePreviewAuthority()", () => {
         expect(hasCurrentRepositoryAccess).toHaveBeenCalledTimes(2)
       },
     )
+
+    it("withholds a file whose allowed check was in use when a launch sees GitHub deny access", async () => {
+      const {
+        target,
+        sessionDigest,
+        hasCurrentRepositoryAccess,
+        findDistFile,
+        authority,
+        requestFile,
+      } = fixture()
+      const lookup = deferred<typeof file>()
+      findDistFile.mockImplementation((_, requested) =>
+        requested === path ? lookup.promise : Promise.resolve(null),
+      )
+
+      const waiting = requestFile()
+      await vi.waitFor(() => expect(findDistFile).toHaveBeenCalledWith(target.buildId, path))
+      hasCurrentRepositoryAccess.mockResolvedValueOnce(false)
+      await expect(authority.launch(sessionDigest, address, target.buildId)).resolves.toBe("denied")
+      lookup.resolve(file)
+
+      await expect(waiting).resolves.toBeNull()
+    })
+
+    it("withholds a file whose allowed check was in use when its renewal is denied", async () => {
+      vi.useFakeTimers({ toFake: ["performance"] })
+      const { target, hasCurrentRepositoryAccess, findDistFile, requestFile } = fixture()
+      const lookup = deferred<typeof file>()
+      findDistFile.mockReturnValueOnce(lookup.promise)
+
+      const waiting = requestFile()
+      await vi.waitFor(() => expect(findDistFile).toHaveBeenCalledWith(target.buildId, path))
+      vi.advanceTimersByTime(5 * 60_000)
+      hasCurrentRepositoryAccess.mockResolvedValueOnce(false)
+      await expect(requestFile()).resolves.toBeNull()
+      expect(hasCurrentRepositoryAccess).toHaveBeenCalledTimes(2)
+      lookup.resolve(file)
+
+      await expect(waiting).resolves.toBeNull()
+    })
+
+    it("withholds a file whose allowed check was evicted for capacity when a launch sees GitHub deny access", async () => {
+      const {
+        target,
+        sessionDigest,
+        read,
+        hasCurrentRepositoryAccess,
+        findDistFile,
+        authority,
+        requestFile,
+      } = fixture()
+      const lookup = deferred<typeof file>()
+      findDistFile.mockImplementation((_, requested) =>
+        Promise.resolve(requested === path ? file : null),
+      )
+      findDistFile.mockReturnValueOnce(lookup.promise)
+
+      const waiting = requestFile()
+      await vi.waitFor(() => expect(findDistFile).toHaveBeenCalledWith(target.buildId, path))
+      read.mockImplementation((tokenDigest) =>
+        Promise.resolve(readerSession(tokenDigest, target.buildId)),
+      )
+      await Promise.all(Array.from({ length: 1024 }, () => requestFile()))
+      hasCurrentRepositoryAccess.mockResolvedValueOnce(false)
+      await expect(authority.launch(sessionDigest, address, target.buildId)).resolves.toBe("denied")
+      lookup.resolve(file)
+
+      await expect(waiting).resolves.toBeNull()
+    })
+
+    it("withholds a file whose allowed check was in use when a launch sees GitHub deny access after a failed renewal", async () => {
+      vi.useFakeTimers({ toFake: ["performance"] })
+      const {
+        target,
+        sessionDigest,
+        hasCurrentRepositoryAccess,
+        findDistFile,
+        authority,
+        requestFile,
+      } = fixture()
+      const unavailable = new Error("Synthetic repository authority outage")
+      const lookup = deferred<typeof file>()
+      findDistFile.mockImplementation((_, requested) =>
+        Promise.resolve(requested === path ? file : null),
+      )
+      findDistFile.mockReturnValueOnce(lookup.promise)
+
+      const waiting = requestFile()
+      await vi.waitFor(() => expect(findDistFile).toHaveBeenCalledWith(target.buildId, path))
+      vi.advanceTimersByTime(5 * 60_000)
+      hasCurrentRepositoryAccess.mockRejectedValueOnce(unavailable)
+      await expect(requestFile()).rejects.toBe(unavailable)
+      hasCurrentRepositoryAccess.mockResolvedValueOnce(false)
+      await expect(authority.launch(sessionDigest, address, target.buildId)).resolves.toBe("denied")
+      lookup.resolve(file)
+
+      await expect(waiting).resolves.toBeNull()
+    })
+
+    it("checks GitHub again after a launch finds the repository no longer visible", async () => {
+      const {
+        target,
+        sessionDigest,
+        isRepositoryVisible,
+        hasCurrentRepositoryAccess,
+        authority,
+        requestFile,
+      } = fixture()
+      await expect(requestFile()).resolves.toEqual(allowedFile)
+
+      isRepositoryVisible.mockResolvedValueOnce(false)
+      await expect(authority.launch(sessionDigest, address, target.buildId)).resolves.toBe("denied")
+      expect(hasCurrentRepositoryAccess).toHaveBeenCalledOnce()
+
+      await expect(requestFile()).resolves.toEqual(allowedFile)
+      expect(hasCurrentRepositoryAccess).toHaveBeenCalledTimes(2)
+    })
+
+    it("makes room for another viewer by forgetting an old allowed check when 1,024 are remembered", async () => {
+      const { target, read, hasCurrentRepositoryAccess, requestFile } = fixture()
+      read.mockImplementation((tokenDigest) =>
+        Promise.resolve(readerSession(tokenDigest, target.buildId)),
+      )
+      const tokens = Array.from({ length: 1024 }, () => randomBytes(32).toString("base64url"))
+      await expect(
+        Promise.all(tokens.map((token) => requestFile(address, token))),
+      ).resolves.toEqual(tokens.map(() => allowedFile))
+
+      await expect(requestFile()).resolves.toEqual(allowedFile)
+      await expect(requestFile(address, tokens[1023])).resolves.toEqual(allowedFile)
+      expect(hasCurrentRepositoryAccess).toHaveBeenCalledTimes(1025)
+
+      await expect(requestFile(address, tokens[0])).resolves.toEqual(allowedFile)
+      expect(hasCurrentRepositoryAccess).toHaveBeenCalledTimes(1026)
+    })
+
+    it("rejects another viewer without checking GitHub while 1,024 checks are in flight", async () => {
+      const { target, read, hasCurrentRepositoryAccess, requestFile } = fixture()
+      read.mockImplementation((tokenDigest) =>
+        Promise.resolve(readerSession(tokenDigest, target.buildId)),
+      )
+      const check = deferred()
+      hasCurrentRepositoryAccess.mockReturnValue(check.promise)
+      const waiting = Array.from({ length: 1024 }, () => requestFile())
+      await vi.waitFor(() => expect(hasCurrentRepositoryAccess).toHaveBeenCalledTimes(1024))
+      hasCurrentRepositoryAccess.mockResolvedValue(true)
+
+      await expect(requestFile()).rejects.toThrow()
+      expect(hasCurrentRepositoryAccess).toHaveBeenCalledTimes(1024)
+
+      check.resolve(true)
+      await expect(Promise.all(waiting)).resolves.toEqual(waiting.map(() => allowedFile))
+    })
   })
 })

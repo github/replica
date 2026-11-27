@@ -72,15 +72,26 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
       pending: boolean
     }
   >()
+  // File requests still running, so a denial or lost scope seen elsewhere also cancels them.
+  const activeFileRequests = new Set<{
+    sessionDigest: string
+    githubRepositoryId: string
+    revoked: boolean
+  }>()
 
   // A failed check forgets only that repository, so it cannot deny another repository's load.
   function forgetFilePermissions(sessionDigest: string, address?: PrivatePreviewAddress) {
-    for (const [key, entry] of filePermissions) {
-      if (
+    function matches(entry: { sessionDigest: string; githubRepositoryId: string }) {
+      return (
         entry.sessionDigest === sessionDigest &&
         (!address || entry.githubRepositoryId === address.repositoryId)
       )
-        filePermissions.delete(key)
+    }
+    for (const [key, entry] of filePermissions) {
+      if (matches(entry)) filePermissions.delete(key)
+    }
+    for (const request of activeFileRequests) {
+      if (matches(request)) request.revoked = true
     }
   }
 
@@ -130,10 +141,8 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
     entry.allowed = checkRepositoryAccess(viewer, target, address).then(
       (allowed) => {
         entry.pending = false
-        // A session end or failed check while pending withholds the result from every waiter.
-        const current = filePermissions.get(key) === entry
         if (!allowed) forgetFilePermissions(sessionDigest, address)
-        return allowed && current
+        return allowed
       },
       (error: unknown) => {
         if (filePermissions.get(key) === entry) filePermissions.delete(key)
@@ -189,8 +198,10 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
       !target ||
       (expectedBuildId && target.buildId !== expectedBuildId) ||
       !(await isRepositoryVisible(viewer, target.repositoryId))
-    )
+    ) {
+      forgetFilePermissions(sessionDigest, address)
       return null
+    }
     const result = await read(target)
     if (!(await checkRepositoryAccess(viewer, target, address))) {
       forgetFilePermissions(sessionDigest, address)
@@ -287,41 +298,49 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
       const session = await access.read(hashAuthenticationValue(token), readerOrigin, null)
       if (!session) return "session-ended"
       const { sessionDigest } = session
-      const viewer = await restoreSession(sessionDigest)
-      if (!viewer) {
-        forgetFilePermissions(sessionDigest)
-        return "session-ended"
-      }
-      const target = await findTarget(address)
-      if (
-        !target ||
-        target.buildId !== session.buildId ||
-        !(await isRepositoryVisible(viewer, target.repositoryId))
-      ) {
-        forgetFilePermissions(sessionDigest, address)
-        return null
-      }
-      if (!(await filePermission(sessionDigest, viewer, address, target))) return null
+      const request = { sessionDigest, githubRepositoryId: address.repositoryId, revoked: false }
+      activeFileRequests.add(request)
+      try {
+        const viewer = await restoreSession(sessionDigest)
+        if (!viewer) {
+          forgetFilePermissions(sessionDigest)
+          return "session-ended"
+        }
+        const target = await findTarget(address)
+        if (
+          !target ||
+          target.buildId !== session.buildId ||
+          !(await isRepositoryVisible(viewer, target.repositoryId))
+        ) {
+          forgetFilePermissions(sessionDigest, address)
+          return null
+        }
+        if (!(await filePermission(sessionDigest, viewer, address, target))) return null
 
-      let selectedPath = path
-      let artifact = await findDistFile(target.buildId, selectedPath)
-      if (!artifact && allowEntryPointFallback && path !== "dist/index.html") {
-        selectedPath = "dist/index.html"
-        artifact = await findDistFile(target.buildId, selectedPath)
+        let selectedPath = path
+        let artifact = await findDistFile(target.buildId, selectedPath)
+        if (!artifact && allowEntryPointFallback && path !== "dist/index.html") {
+          selectedPath = "dist/index.html"
+          artifact = await findDistFile(target.buildId, selectedPath)
+        }
+        if (
+          !artifact ||
+          artifact.byteLength < 0 ||
+          artifact.byteLength > maximumPrivatePreviewFileBytes
+        )
+          return null
+        const current = await stillLocallyAuthorized(sessionDigest, viewer, address, target)
+        if (current === signedOut) return "session-ended"
+        if (!current) return null
+        // Advance the lookup's database time locally rather than querying the clock again.
+        const now = session.now.getTime() + (performance.now() - started)
+        if (session.expiresAt.getTime() <= now) return "session-ended"
+        // A denial or lost scope seen by a concurrent request cancels this one too.
+        if (request.revoked) return null
+        return { ...artifact, path: selectedPath }
+      } finally {
+        activeFileRequests.delete(request)
       }
-      if (
-        !artifact ||
-        artifact.byteLength < 0 ||
-        artifact.byteLength > maximumPrivatePreviewFileBytes
-      )
-        return null
-      const current = await stillLocallyAuthorized(sessionDigest, viewer, address, target)
-      if (current === signedOut) return "session-ended"
-      if (!current) return null
-      // Advance the lookup's database time locally rather than querying the clock again.
-      const now = session.now.getTime() + (performance.now() - started)
-      if (session.expiresAt.getTime() <= now) return "session-ended"
-      return { ...artifact, path: selectedPath }
     },
   }
 }
