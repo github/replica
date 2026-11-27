@@ -165,4 +165,6 @@ If a newer Build is queued, running, failed, or superseded, Hub keeps showing th
 
 The version selector lists every Build. Successful Builds open in the review shell; Builds without a preview open their details instead. A superseded Build is an older queued Build that Hub skipped after a newer commit reached the same branch.
 
+Build state labels use filled backgrounds throughout Hub. History places the state beside the Build name, with the commit and a 16px profile picture below. History profile links use the normal text color, with an underline only on hover or keyboard focus. History and Build details show the username or saved name without a "By" prefix.
+
 See [Build discovery](build-discovery.md), [Preview serving](preview-serving.md), and [Review collaboration](review-collaboration.md).

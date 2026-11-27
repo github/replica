@@ -317,6 +317,8 @@ en:
         body_too_long: "Comments must be %{count} UTF-8 bytes or fewer."
         create_error: The comment could not be saved. Review it and try again.
   builds:
+    author: "@%{login}"
+    author_name: "%{name}"
     index:
       page_title: "%{branch} builds"
       heading: History

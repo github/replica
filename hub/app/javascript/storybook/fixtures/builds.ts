@@ -61,7 +61,7 @@ export const welcomeNarrowFullPageScreenshot = `data:image/svg+xml,${encodeURICo
 export const successfulBuild: BuildsIndexPageData["builds"][number] = {
   author: {
     avatarUrl: octocat.avatarUrl,
-    label: "By @octocat",
+    label: "@octocat",
     url: "https://github.com/octocat",
   },
   commitLabel: "Commit aaaaaaa",
