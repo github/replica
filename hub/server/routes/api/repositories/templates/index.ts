@@ -11,8 +11,7 @@ import {
   templateReturnPath,
 } from "../../../../domains/build-preview/read-template-manifest/index.ts"
 import { templateScreenshotPath } from "../../../../domains/build-preview/template-screenshot-path/index.ts"
-import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../integrations/express/read-hub-session-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../../integrations/github/errors.ts"
 import type { BuildPreviewRouteDependencies } from "../../../build-preview/types.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
@@ -112,7 +111,7 @@ export function templateRoutes(
   ): RequestHandler {
     return async (request, response, next) => {
       try {
-        const cookie = readCookie(request, hubSessionCookieName)
+        const cookie = readHubSessionCookie(request)
         const initial = await readProductSession(cookie, session)
         if (!cookie || !initial) {
           response.status(401).json({ error: "Sign in to continue." })

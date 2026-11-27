@@ -139,7 +139,9 @@ describe("private preview Hub routes", () => {
       createApp({ logger: createLogger({ level: "silent" }), trustedProxyHops: 1 }),
     )
 
-    const launch = await request(address.launch, { cookie: "hub_session=synthetic" })
+    const launch = await request(address.launch, {
+      cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}`,
+    })
     const exchange = await request(readerExchangePath, { "content-type": "application/json" }, "{}")
 
     expect(launch.status).toBe(404)
@@ -152,7 +154,7 @@ describe("private preview Hub routes", () => {
     const session = randomBytes(32).toString("base64url")
     const sessionDigest = createHash("sha256").update(session).digest("hex")
     const challenge = randomBytes(32).toString("hex")
-    const headers = { cookie: `hub_session=${session}` }
+    const headers = { cookie: `__Host-hub_session=${session}` }
 
     const anonymous = await request(address.launch)
     expect(anonymous.status).toBe(401)
@@ -178,6 +180,18 @@ describe("private preview Hub routes", () => {
     expect(authority.issue).not.toHaveBeenCalled()
   })
 
+  it("rejects a legacy-only session before checking private launch authority", async () => {
+    const { request, authority } = await startHub()
+    const session = randomBytes(32).toString("base64url")
+
+    const launch = await request(address.launch, { cookie: `hub_session=${session}` })
+
+    expect(launch.status).toBe(401)
+    expect(launch.headers.location).toBeUndefined()
+    expect(authority.launch).not.toHaveBeenCalled()
+    expect(authority.issue).not.toHaveBeenCalled()
+  })
+
   it("sends the grant to the Reader only after a same-origin Hub confirmation", async () => {
     const { request, grant, authority } = await startHub()
     const session = randomBytes(32).toString("base64url")
@@ -187,7 +201,7 @@ describe("private preview Hub routes", () => {
     const handoff = await request(
       address.launch,
       {
-        cookie: `hub_session=${session}`,
+        cookie: `__Host-hub_session=${session}`,
         origin: hubOrigin,
         "content-type": "application/x-www-form-urlencoded",
       },
@@ -211,32 +225,39 @@ describe("private preview Hub routes", () => {
     {
       reason: "a different origin on the same site",
       origin: "https://other.example.com",
-      signedIn: true,
+      cookieName: "__Host-hub_session",
     },
-    { reason: "no origin", origin: undefined, signedIn: true },
-    { reason: "no Hub session", origin: hubOrigin, signedIn: false },
-  ])("rejects confirmation with $reason without issuing a grant", async ({ origin, signedIn }) => {
-    const { request, authority } = await startHub()
-    const challenge = randomBytes(32).toString("hex")
-    const headers: Record<string, string> = { "content-type": "application/x-www-form-urlencoded" }
-    if (origin) headers.origin = origin
-    if (signedIn) headers.cookie = `hub_session=${randomBytes(32).toString("base64url")}`
+    { reason: "no origin", origin: undefined, cookieName: "__Host-hub_session" },
+    { reason: "no Hub session", origin: hubOrigin, cookieName: undefined },
+    { reason: "only a legacy session", origin: hubOrigin, cookieName: "hub_session" },
+  ])(
+    "rejects confirmation with $reason without issuing a grant",
+    async ({ origin, cookieName }) => {
+      const { request, authority } = await startHub()
+      const challenge = randomBytes(32).toString("hex")
+      const headers: Record<string, string> = {
+        "content-type": "application/x-www-form-urlencoded",
+      }
+      if (origin) headers.origin = origin
+      if (cookieName) headers.cookie = `${cookieName}=${randomBytes(32).toString("base64url")}`
 
-    const confirmation = await request(
-      address.launch,
-      headers,
-      new URLSearchParams({ challenge }).toString(),
-    )
+      const confirmation = await request(
+        address.launch,
+        headers,
+        new URLSearchParams({ challenge }).toString(),
+      )
 
-    expect(confirmation.status).toBe(404)
-    expect(authority.issue).not.toHaveBeenCalled()
-  })
+      expect(confirmation.status).toBe(404)
+      expect(authority.launch).not.toHaveBeenCalled()
+      expect(authority.issue).not.toHaveBeenCalled()
+    },
+  )
 
   it("does not serve canonical preview files on the Hub origin", async () => {
     const { request, authority } = await startHub()
 
     const response = await request(`${address.mount}index.html`, {
-      cookie: "hub_session=synthetic",
+      cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}`,
       accept: "text/html",
     })
 
@@ -293,7 +314,7 @@ describe("private preview Hub routes", () => {
     expect(responses.map(({ status }) => status)).toEqual([200, 200])
     expect(responses.map(({ body }) => body)).toEqual([bytes.toString(), bytes.toString()])
 
-    const launchHeaders = { cookie: "hub_session=synthetic" }
+    const launchHeaders = { cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}` }
     expect((await request(address.launch, { ...launchHeaders, host })).status).toBe(404)
     expect(authority.launch).not.toHaveBeenCalled()
 
@@ -307,7 +328,7 @@ describe("private preview Hub routes", () => {
 
     const launch = await request(address.launch, {
       host: "unconfigured.example.com",
-      cookie: "hub_session=synthetic",
+      cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}`,
     })
 
     expect(launch.status).toBe(404)

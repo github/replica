@@ -4,8 +4,7 @@ import { z } from "zod"
 import { createBuildPreviewOrigin } from "../../../../../../../domains/build-preview/create-build-preview-origin/index.ts"
 import { createPreviewGrant } from "../../../../../../../domains/build-preview/create-preview-grant/index.ts"
 import { hashAuthenticationValue } from "../../../../../../../domains/authentication/hash-authentication-value/index.ts"
-import { hubSessionCookieName } from "../../../../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../../auth/types.ts"
 import { readProductSession } from "../../../../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../../../../product/read-product-with-current-authority/index.ts"
@@ -29,7 +28,7 @@ export function get(
 ): RequestHandler {
   return async (request, response, next) => {
     try {
-      const cookie = readCookie(request, hubSessionCookieName)
+      const cookie = readHubSessionCookie(request)
       const initial = await readProductSession(cookie, session)
       if (!cookie || !initial) {
         response.status(401).json({ error: "Sign in to continue." })

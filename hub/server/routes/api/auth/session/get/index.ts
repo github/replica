@@ -2,8 +2,8 @@ import type { RequestHandler } from "express"
 
 import { hashAuthenticationValue } from "../../../../../domains/authentication/hash-authentication-value/index.ts"
 import { githubRepositoryDenialCookieName } from "../../../../../integrations/express/github-repository-denial-cookie-name/index.ts"
-import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../types.ts"
 
 export function get(
@@ -23,7 +23,7 @@ export function get(
         return
       }
     }
-    const value = readCookie(request, hubSessionCookieName)
+    const value = readHubSessionCookie(request)
     if (!value) {
       response.status(401).json({ authenticated: false })
       return

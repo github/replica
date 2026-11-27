@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
@@ -195,10 +195,12 @@ describe("createApp()", () => {
       defaultBranch: "main",
       localPath: null,
     }
-    const restore = vi.fn().mockResolvedValue(viewer)
+    const restore = vi
+      .fn<AuthenticationRouteDependencies["currentSession"]["restore"]>()
+      .mockResolvedValue(viewer)
     const authentication: AuthenticationRouteDependencies = {
       currentSession: { restore },
-      signOut: { applicationOrigin: "https://hub.example.com", secureCookie: false, end: vi.fn() },
+      signOut: { applicationOrigin: "http://127.0.0.1:5173", secureCookie: false, end: vi.fn() },
     }
     const getRepositoryPermission = vi.fn().mockResolvedValue("admin")
     const hasUnread = vi.fn(lookup)
@@ -230,12 +232,20 @@ describe("createApp()", () => {
     )
     const { port } = server.address() as AddressInfo
     const base = `http://127.0.0.1:${port}/api/workspace`
-    const headers = { cookie: "hub_session=github-session" }
+    const protectedCookie = "__Host-hub_session=hosted-session"
+    const headers = { cookie: `${protectedCookie}; hub_session=github-session` }
 
     expect((await fetch(`${base}?view=navigation`)).status).toBe(401)
+    expect(
+      (await fetch(`${base}?view=navigation`, { headers: { cookie: protectedCookie } })).status,
+    ).toBe(401)
+    expect(restore).not.toHaveBeenCalled()
     const navigation = await fetch(`${base}?view=navigation`, { headers })
     expect(navigation.status).toBe(200)
     expect(restore).toHaveBeenCalled()
+    expect(new Set(restore.mock.calls.map(([digest]) => digest))).toEqual(
+      new Set([createHash("sha256").update("github-session").digest("hex")]),
+    )
     expect(getRepositoryPermission).not.toHaveBeenCalled()
     const workspace: unknown = await navigation.json()
     expect(workspace).toMatchObject({
@@ -396,11 +406,13 @@ describe("createApp()", () => {
       startPage: "/",
     })
     const readAvailableLink = vi.fn()
+    const hasUnread = vi.fn().mockResolvedValue(true)
     const authentication: AuthenticationRouteDependencies = {
       currentSession: { restore },
-      signOut: { applicationOrigin: "https://hub.example.com", secureCookie: false, end: vi.fn() },
+      signOut: { applicationOrigin: "https://hub.example.com", secureCookie: true, end: vi.fn() },
     }
     const product: ProductRouteDependencies = {
+      reviewInbox: { hasUnread, list: vi.fn(), find: vi.fn(), setRead: vi.fn() },
       reviewComments: {
         listPrototypeThreads,
         createThread: vi.fn(),
@@ -508,7 +520,7 @@ describe("createApp()", () => {
         ],
       })
 
-      restore.mockResolvedValue({
+      const hostedViewer = {
         membershipId: randomUUID(),
         userId: randomUUID(),
         provider: "github",
@@ -516,11 +528,16 @@ describe("createApp()", () => {
         login: "octocat",
         name: "The Octocat",
         role: "MEMBER",
+      }
+      restore.mockResolvedValue(hostedViewer)
+      const hostedSession = randomBytes(32).toString("base64url")
+      const hostedWorkspace = await fetch(`${base}/api/workspace?view=navigation`, {
+        headers: { cookie: `__Host-hub_session=${hostedSession}` },
       })
-      const hostedWorkspace = await fetch(`${base}/api/workspace`, {
-        headers: { cookie: "hub_session=github-session" },
-      })
+      expect(hostedWorkspace.status).toBe(200)
       expect(await hostedWorkspace.json()).toMatchObject({
+        viewer: { id: hostedViewer.userId },
+        inboxHasUnread: true,
         repositories: [
           {
             id: repositoryId,
@@ -532,6 +549,12 @@ describe("createApp()", () => {
           },
         ],
       })
+      expect(hasUnread).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          sessionDigest: createHash("sha256").update(hostedSession).digest("hex"),
+        }),
+        expect.arrayContaining([expect.objectContaining({ id: remoteRepositoryId })]),
+      )
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))

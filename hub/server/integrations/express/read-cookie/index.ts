@@ -1,17 +1,26 @@
 import type { Request } from "express"
 
-export function readCookie(request: Pick<Request, "headers">, name: string): string | null {
-  const header = request.headers.cookie
-  if (!header) return null
-  for (const pair of header.split(";")) {
+function findCookie(pairs: string[], name: string): string | undefined {
+  for (const pair of pairs) {
     const separator = pair.indexOf("=")
     if (separator < 0) continue
-    if (pair.slice(0, separator).trim() !== name) continue
-    try {
-      return decodeURIComponent(pair.slice(separator + 1).trim())
-    } catch {
-      return null
-    }
+    if (pair.slice(0, separator).trim() === name) return pair.slice(separator + 1).trim()
   }
-  return null
+}
+
+export function readCookie(
+  request: Pick<Request, "headers">,
+  name: string,
+  fallbackName?: string,
+): string | null {
+  const header = request.headers.cookie
+  if (!header) return null
+  const pairs = header.split(";")
+  const value =
+    findCookie(pairs, name) ?? (fallbackName ? findCookie(pairs, fallbackName) : undefined)
+  try {
+    return value === undefined ? null : decodeURIComponent(value)
+  } catch {
+    return null
+  }
 }

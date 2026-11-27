@@ -2,8 +2,7 @@ import { createHash } from "node:crypto"
 import type { Request, Response } from "express"
 
 import { hashAuthenticationValue } from "../../../../../domains/authentication/hash-authentication-value/index.ts"
-import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { GitHubSetupRouteDependencies } from "../types.ts"
 
 export const bootstrapSecretHeader = "x-hub-bootstrap-secret"
@@ -14,7 +13,7 @@ export async function authorizeGitHubSetup(
   response: Response,
   dependencies: GitHubSetupRouteDependencies,
 ) {
-  const sessionValue = readCookie(request, hubSessionCookieName)
+  const sessionValue = readHubSessionCookie(request)
   const bootstrapSecret = request.get(bootstrapSecretHeader)
   if (bootstrapSecret) {
     const subjectDigest = createHash("sha256")

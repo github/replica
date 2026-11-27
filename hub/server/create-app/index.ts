@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 
 import { authenticationSecurity } from "../integrations/express/authentication-security/index.ts"
 import { handleError } from "../integrations/express/handle-error/index.ts"
+import { secureHubSessionCookieSetting } from "../integrations/express/hub-session-cookie-name/index.ts"
 import { respondNotFound } from "../integrations/express/respond-not-found/index.ts"
 import { createRequestLogger } from "../integrations/pino/create-request-logger/index.ts"
 import { routes } from "../routes/index.ts"
@@ -31,6 +32,7 @@ export function createApp({
   const app = express()
   app.disable("x-powered-by")
   app.set("trust proxy", trustedProxyHops)
+  app.set(secureHubSessionCookieSetting, authentication?.signOut.secureCookie === true)
   app.use(createRequestLogger(logger))
   app.use(
     [

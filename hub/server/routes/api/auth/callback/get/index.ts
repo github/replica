@@ -17,8 +17,12 @@ import {
 import { clearAuthenticationCookie } from "../../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { createAuthenticationCookie } from "../../../../../integrations/express/create-authentication-cookie/index.ts"
 import { githubRepositoryDenialCookieName } from "../../../../../integrations/express/github-repository-denial-cookie-name/index.ts"
-import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
+import {
+  hubSessionCookieName,
+  secureHubSessionCookieName,
+} from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { AuthenticationCallbackDependencies } from "../../types.ts"
 
 const querySchema = z
@@ -31,12 +35,20 @@ const querySchema = z
   .strict()
 const browserBindingSchema = z.string().min(32).max(200)
 
-export function get(dependencies: AuthenticationCallbackDependencies): RequestHandler {
+export function get(
+  dependencies: AuthenticationCallbackDependencies,
+  applicationOrigin: string,
+): RequestHandler {
+  const host = new URL(applicationOrigin).host
+  const browserCookie = browserAuthenticationCookieName(dependencies.secureCookie)
   return async (request, response, next) => {
+    if (dependencies.secureCookie && (!request.secure || request.get("host") !== host)) {
+      response.sendStatus(404)
+      return
+    }
+
     const query = querySchema.safeParse(request.query)
-    const browserBinding = browserBindingSchema.safeParse(
-      readCookie(request, browserAuthenticationCookieName),
-    )
+    const browserBinding = browserBindingSchema.safeParse(readCookie(request, browserCookie))
     if (
       !query.success ||
       !browserBinding.success ||
@@ -44,7 +56,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
     ) {
       response.setHeader(
         "Set-Cookie",
-        clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+        clearAuthenticationCookie(browserCookie, dependencies.secureCookie),
       )
       response.redirect(303, "/?authentication=denied")
       return
@@ -64,7 +76,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       }
       githubLogin = completed.githubLogin
       if (completed.purpose === "ADMINISTRATOR_MANAGEMENT") {
-        const hubSessionValue = readCookie(request, hubSessionCookieName)
+        const hubSessionValue = readHubSessionCookie(request)
         if (
           !completed.sensitiveAuthorizationId ||
           !hubSessionValue ||
@@ -77,7 +89,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
         }
         response.setHeader(
           "Set-Cookie",
-          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+          clearAuthenticationCookie(browserCookie, dependencies.secureCookie),
         )
         const operation = await dependencies.verifyAdministratorAuthorization({
           authorizationAttemptId: completed.proof.authorizationAttemptId,
@@ -115,13 +127,16 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
           ? readCanvasSignInReturn(request, browserBinding.data)
           : null
       response.setHeader("Set-Cookie", [
-        clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+        clearAuthenticationCookie(browserCookie, dependencies.secureCookie),
         ...(returnTo
           ? [clearAuthenticationCookie(canvasSignInReturnCookie, dependencies.secureCookie)]
           : []),
+        ...(dependencies.secureCookie
+          ? [clearAuthenticationCookie(hubSessionCookieName, true)]
+          : []),
         createAuthenticationCookie({
           expiresAt: admitted.expiresAt,
-          name: hubSessionCookieName,
+          name: dependencies.secureCookie ? secureHubSessionCookieName : hubSessionCookieName,
           secure: dependencies.secureCookie,
           value: sessionValue,
         }),
@@ -131,14 +146,14 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       if (error instanceof AdmissionUnavailableError) {
         response.setHeader(
           "Set-Cookie",
-          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+          clearAuthenticationCookie(browserCookie, dependencies.secureCookie),
         )
         response.setHeader("Retry-After", "1")
         response
           .status(503)
           .type("text/plain")
           .send(
-            readCookie(request, hubSessionCookieName)
+            readHubSessionCookie(request)
               ? "Verification is temporarily unavailable. Return to Hub settings and start the administrator action again."
               : "Sign-in is temporarily unavailable. Return to Replica Hub and start sign-in again.",
           )
@@ -147,9 +162,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
         const noAccess =
           error instanceof AdmissionDeniedError && error.reason === "no_repository_access"
-        const cookies = [
-          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
-        ]
+        const cookies = [clearAuthenticationCookie(browserCookie, dependencies.secureCookie)]
         if (
           noAccess &&
           githubLogin &&

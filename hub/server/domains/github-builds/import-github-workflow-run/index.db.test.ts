@@ -6,7 +6,6 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
 import type { AzureBlobArtifactSettings } from "../../../integrations/azure-blob/create-azure-blob-artifact-storage/types"
-import { hubSessionCookieName } from "../../../integrations/express/hub-session-cookie-name"
 import type {
   GitHubWorkflowArtifact,
   GitHubWorkflowRun,
@@ -346,7 +345,7 @@ describe("importGitHubWorkflowRun", () => {
       const launch = `${settings.hubOrigin}/api/private-preview/launch/${repositoryId}/${id}`
       const session = randomBytes(32).toString("base64url")
       const sessionDigest = createHash("sha256").update(session).digest("hex")
-      const hubCookie = `${hubSessionCookieName}=${session}`
+      const hubCookie = `__Host-hub_session=${session}`
       const viewer = {
         userId: randomUUID(),
         membershipId: randomUUID(),

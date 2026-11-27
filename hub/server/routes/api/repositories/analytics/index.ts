@@ -8,10 +8,9 @@ import type { RepositoryAnalyticsProof } from "../../../../domains/analytics/hos
 import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { AuthenticationProofError } from "../../../../domains/authentication/errors.ts"
 import { AnalyticsEventName, AnalyticsProvider } from "../../../../generated/prisma/enums.ts"
-import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { createAuthenticationCookie } from "../../../../integrations/express/create-authentication-cookie/index.ts"
 import { rateLimit } from "../../../../integrations/express/authentication-rate-limit/index.ts"
-import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../integrations/express/read-hub-session-cookie/index.ts"
 import { requireOrigin } from "../../../../integrations/express/require-origin/index.ts"
 import { GitHubProviderRequestError } from "../../../../integrations/github/errors.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
@@ -55,7 +54,7 @@ export function mountRepositoryAnalytics(
           response.status(404).json({ error: "Repository or destination not found." })
           return
         }
-        const cookie = readCookie(request, hubSessionCookieName)
+        const cookie = readHubSessionCookie(request)
         const viewer = await readProductSession(cookie, session)
         if (!cookie || !viewer) {
           response.status(401).json({ error: "Sign in to continue." })
@@ -180,7 +179,7 @@ export function mountRepositoryAnalytics(
       try {
         const repositoryId = uuid.safeParse(request.params.repositoryId)
         const id = uuid.safeParse(request.params.authorizationId)
-        const cookie = readCookie(request, hubSessionCookieName)
+        const cookie = readHubSessionCookie(request)
         if (!repositoryId.success || !id.success || !cookie || !hostedAuthorization) {
           response.status(404).json({ error: "Analytics authorization is no longer available." })
           return

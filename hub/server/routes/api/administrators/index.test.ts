@@ -211,7 +211,11 @@ describe("administratorRoutes()", () => {
   })
 
   it("binds fresh authorization to the live session, identity, operation, and targets", async () => {
-    const { authentication, github } = routeDependencies()
+    const { administrators, authentication, github } = routeDependencies()
+    const origin = "https://hub.example.test"
+    administrators.applicationOrigin = origin
+    Object.assign(authentication.signOut, { applicationOrigin: origin, secureCookie: true })
+    Object.assign(github.dependencies, { applicationOrigin: origin, secureCookie: true })
     const targetMembershipIds = [randomUUID(), randomUUID()]
 
     await withServer(authentication, async (baseUrl) => {
@@ -219,7 +223,7 @@ describe("administratorRoutes()", () => {
         method: "POST",
         headers: sessionHeaders({
           "content-type": "application/json",
-          origin: applicationOrigin,
+          origin,
         }),
         body: JSON.stringify({
           operation: "DESIGNATE_ADMINISTRATORS",
@@ -235,6 +239,9 @@ describe("administratorRoutes()", () => {
         authorizationUrl: "https://github.com/login/oauth/authorize",
         expiresAt: "2030-01-01T00:00:00.000Z",
       })
+      expect(response.headers.getSetCookie()).toEqual([
+        expect.stringMatching(/^__Host-hub_auth_browser=browser-binding-with-required-length;/),
+      ])
       expect(github.start).toHaveBeenCalledWith({
         actorMembershipId: session.membershipId,
         externalIdentityId: session.externalIdentityId,

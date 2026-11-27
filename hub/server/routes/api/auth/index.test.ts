@@ -1,6 +1,6 @@
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
-import { createHash, randomUUID } from "node:crypto"
-import { createServer } from "node:http"
+import { createServer, request as httpRequest, type IncomingMessage } from "node:http"
 import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
@@ -21,7 +21,10 @@ import { createGitHubUserAuthenticationAdapter } from "../../../integrations/git
 import { createLogger } from "../../../integrations/pino/create-logger"
 import type { AuthenticationRouteDependencies } from "./types"
 
-function routeDependencies() {
+const httpsApplicationOrigin = "https://hub.example.test"
+
+function routeDependencies(applicationOrigin = "http://127.0.0.1:5173") {
+  const secureCookie = new URL(applicationOrigin).protocol === "https:"
   const encryptionKey = Buffer.alloc(32, 1)
   const checkRateLimit = vi.fn().mockResolvedValue({ allowed: true, auditFailed: false })
   const startSignIn = vi.fn()
@@ -35,15 +38,15 @@ function routeDependencies() {
   const dependencies: AuthenticationRouteDependencies = {
     github: {
       signIn: {
-        applicationOrigin: "http://127.0.0.1:5173",
+        applicationOrigin,
         checkRateLimit,
-        secureCookie: false,
+        secureCookie,
         start: startSignIn,
       },
       administratorEnrollment: {
-        applicationOrigin: "http://127.0.0.1:5173",
+        applicationOrigin,
         checkRateLimit,
-        secureCookie: false,
+        secureCookie,
         start: startEnrollment,
         verifyBootstrapSecret,
         writeBootstrapDenial: vi.fn().mockResolvedValue(undefined),
@@ -53,7 +56,7 @@ function routeDependencies() {
         checkRateLimit,
         createGitHubRepositoryDenialNotice: (login) =>
           createGitHubRepositoryDenialNotice(login, encryptionKey),
-        secureCookie: false,
+        secureCookie,
         complete: completeProof,
         verifyAdministratorAuthorization,
         admit: admitSession,
@@ -65,8 +68,8 @@ function routeDependencies() {
       restore: restoreSession,
     },
     signOut: {
-      applicationOrigin: "http://127.0.0.1:5173",
-      secureCookie: false,
+      applicationOrigin,
+      secureCookie,
       end: endSession,
     },
   }
@@ -100,6 +103,43 @@ async function withServer(
       server.close((error) => (error ? reject(error) : resolve()))
     })
   }
+}
+
+function requestThroughProxy(
+  url: string,
+  headers: Record<string, string>,
+  method: "GET" | "POST" = "GET",
+) {
+  return new Promise<IncomingMessage>((resolve, reject) => {
+    const request = httpRequest(
+      url,
+      {
+        method,
+        headers: {
+          host: new URL(httpsApplicationOrigin).host,
+          "x-forwarded-proto": "https",
+          ...headers,
+        },
+      },
+      (response) => {
+        response.on("error", reject)
+        response.on("end", () => resolve(response))
+        response.resume()
+      },
+    )
+    request.on("error", reject)
+    request.end()
+  })
+}
+
+function expectClearedSessionCookie(cookies: string[], name: string, secure = true) {
+  const matches = cookies.filter((cookie) => cookie.startsWith(`${name}=`))
+  expect(matches).toHaveLength(1)
+  const [pair, ...attributes] = matches[0]!.split(/;\s*/)
+  expect(pair).toBe(`${name}=`)
+  expect(attributes).toEqual(expect.arrayContaining(["Max-Age=0", "Path=/"]))
+  expect(attributes.includes("Secure")).toBe(secure)
+  expect(matches[0]).not.toMatch(/;\s*Domain=/i)
 }
 
 describe("authenticationRoutes()", () => {
@@ -185,7 +225,11 @@ describe("authenticationRoutes()", () => {
       const location = new URL(response.headers.get("location")!)
       expect(location.origin + location.pathname).toBe(publicConfiguration.authorizationEndpoint)
       expect(location.searchParams.get("prompt")).toBe(prompt)
-      expect(response.headers.get("set-cookie")).toContain("hub_auth_browser=")
+      const binding = response.headers
+        .getSetCookie()
+        .find((cookie) => cookie.startsWith("hub_auth_browser="))
+      expect(binding).toBeDefined()
+      expect(binding).not.toContain("Secure")
       expect(checkRateLimit).toHaveBeenCalledOnce()
     })
   })
@@ -362,6 +406,56 @@ describe("authenticationRoutes()", () => {
         })
         expect(verifyBootstrapSecret).toHaveBeenCalledWith("wrong-secret")
         expect(startEnrollment).not.toHaveBeenCalled()
+      })
+    },
+  )
+
+  it.each([
+    { provider: "github", path: "start", body: "" },
+    { provider: "entra", path: "start", body: "" },
+    { provider: "github", path: "admin-enrollment/start", body: "bootstrap_secret=test-secret" },
+    { provider: "entra", path: "admin-enrollment/start", body: "bootstrap_secret=test-secret" },
+  ])(
+    "issues a host-only HTTPS browser binding at $provider/$path",
+    async ({ provider, path, body }) => {
+      const { dependencies, startSignIn, startEnrollment, verifyBootstrapSecret } =
+        routeDependencies(httpsApplicationOrigin)
+      dependencies.entra = dependencies.github
+      const result = {
+        authorizationUrl: "https://provider.example.test/authorize",
+        browserBinding: "b".repeat(32),
+        expiresAt: new Date("2030-01-01T00:00:00Z"),
+      }
+      startSignIn.mockResolvedValue(result)
+      startEnrollment.mockResolvedValue(result)
+      verifyBootstrapSecret.mockReturnValue(true)
+
+      await withServer(dependencies, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/auth/${provider}/${path}`, {
+          method: "POST",
+          headers: {
+            origin: httpsApplicationOrigin,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body,
+          redirect: "manual",
+        })
+
+        expect(response.status).toBe(303)
+        expect(response.headers.get("location")).toBe(result.authorizationUrl)
+        const cookies = response.headers.getSetCookie()
+        const binding = cookies.find((cookie) => cookie.startsWith("__Host-hub_auth_browser="))
+        expect(binding?.split(/;\s*/)).toEqual(
+          expect.arrayContaining([
+            `__Host-hub_auth_browser=${result.browserBinding}`,
+            "Secure",
+            "HttpOnly",
+            "SameSite=Lax",
+            "Path=/",
+          ]),
+        )
+        expect(binding).not.toMatch(/;\s*Domain=/i)
+        expect(cookies.some((cookie) => cookie.startsWith("hub_auth_browser="))).toBe(false)
       })
     },
   )
@@ -641,6 +735,11 @@ describe("authenticationRoutes()", () => {
       })
 
       expect(response.headers.get("location")).toBe("/?authentication=success")
+      const cookies = response.headers.getSetCookie()
+      const sessionCookie = cookies.find((cookie) => cookie.startsWith("hub_session="))
+      expect(sessionCookie).toMatch(/^hub_session=[^;]+;/)
+      expect(sessionCookie).not.toMatch(/;\s*Secure(?:;|$)/i)
+      expect(cookies.some((cookie) => cookie.startsWith("__Host-hub_session="))).toBe(false)
       expect(completeProof).toHaveBeenCalledWith({
         browserBinding,
         code: "provider-code",
@@ -648,6 +747,142 @@ describe("authenticationRoutes()", () => {
       })
     })
   })
+
+  it.each(["github", "entra"] as const)(
+    "issues a fresh host-only session on the HTTPS %s callback without Origin",
+    async (provider) => {
+      const { dependencies, completeProof, admitSession } =
+        routeDependencies(httpsApplicationOrigin)
+      dependencies.entra = dependencies.github
+      const browserBinding = "b".repeat(32)
+      completeProof.mockResolvedValue({
+        purpose: "SIGN_IN",
+        proof: { authorizationAttemptId: "attempt-id", externalIdentityId: "identity-id" },
+      })
+      admitSession.mockResolvedValue({ expiresAt: new Date("2030-01-01T00:00:00Z") })
+      const legacy = randomBytes(32).toString("base64url")
+      const previous = randomBytes(32).toString("base64url")
+
+      await withServer(
+        dependencies,
+        async (baseUrl) => {
+          const response = await requestThroughProxy(
+            `${baseUrl}/api/auth/${provider}/callback?code=provider-code&state=${"s".repeat(32)}`,
+            {
+              cookie: `__Host-hub_auth_browser=${browserBinding}; hub_session=${legacy}; __Host-hub_session=${previous}`,
+            },
+          )
+
+          expect(response.statusCode).toBe(303)
+          expect(response.headers.location).toBe("/?authentication=success")
+          const cookies = response.headers["set-cookie"] ?? []
+          const protectedSessions = cookies.filter((cookie) =>
+            cookie.startsWith("__Host-hub_session="),
+          )
+          expect(protectedSessions).toHaveLength(1)
+          const [pair, ...attributes] = protectedSessions[0]!.split(/;\s*/)
+          const issued = pair?.match(/^__Host-hub_session=(.+)$/)?.[1]
+          expect(issued).toBeTruthy()
+          expect(issued).not.toBe(legacy)
+          expect(issued).not.toBe(previous)
+          expect(attributes).toEqual(
+            expect.arrayContaining(["Secure", "HttpOnly", "SameSite=Lax", "Path=/"]),
+          )
+          expect(protectedSessions[0]).not.toMatch(/;\s*Domain=/i)
+          expectClearedSessionCookie(cookies, "hub_session")
+          expectClearedSessionCookie(cookies, "__Host-hub_auth_browser")
+          expect(completeProof).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ browserBinding }),
+          )
+          const sessionDigest = createHash("sha256").update(issued!).digest("hex")
+          expect(admitSession).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ sessionDigest }),
+          )
+        },
+        { trustedProxyHops: 1 },
+      )
+    },
+  )
+
+  it("requires a fresh HTTPS sign-in when an in-flight callback has only the legacy binding", async () => {
+    const { dependencies, completeProof, admitSession } = routeDependencies(httpsApplicationOrigin)
+    completeProof.mockResolvedValue({
+      purpose: "SIGN_IN",
+      proof: { authorizationAttemptId: "attempt-id", externalIdentityId: "identity-id" },
+    })
+    admitSession.mockResolvedValue({ expiresAt: new Date("2030-01-01T00:00:00Z") })
+
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await requestThroughProxy(
+          `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+          { cookie: `hub_auth_browser=${"b".repeat(32)}` },
+        )
+
+        expect(response.statusCode).toBe(303)
+        expect(response.headers.location).toBe("/?authentication=denied")
+        const cookies = response.headers["set-cookie"] ?? []
+        expectClearedSessionCookie(cookies, "__Host-hub_auth_browser")
+        expect(cookies.some((cookie) => cookie.startsWith("__Host-hub_session="))).toBe(false)
+        expect(completeProof).not.toHaveBeenCalled()
+        expect(admitSession).not.toHaveBeenCalled()
+      },
+      { trustedProxyHops: 1 },
+    )
+  })
+
+  it.each([
+    {
+      reason: "a different Host port",
+      host: "hub.example.test:8443",
+      protocol: "https",
+      trustedProxyHops: 1,
+    },
+    {
+      reason: "insecure transport",
+      host: "hub.example.test",
+      protocol: "http",
+      trustedProxyHops: 1,
+    },
+    {
+      reason: "an untrusted HTTPS indication",
+      host: "hub.example.test",
+      protocol: "https",
+      trustedProxyHops: 0,
+    },
+  ])(
+    "rejects the HTTPS callback with $reason before sign-in",
+    async ({ host, protocol, trustedProxyHops }) => {
+      const { dependencies, completeProof, admitSession } =
+        routeDependencies(httpsApplicationOrigin)
+      completeProof.mockResolvedValue({
+        purpose: "SIGN_IN",
+        proof: { authorizationAttemptId: "attempt-id", externalIdentityId: "identity-id" },
+      })
+      admitSession.mockResolvedValue({ expiresAt: new Date("2030-01-01T00:00:00Z") })
+
+      await withServer(
+        dependencies,
+        async (baseUrl) => {
+          const response = await requestThroughProxy(
+            `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+            {
+              host,
+              "x-forwarded-proto": protocol,
+              cookie: `__Host-hub_auth_browser=${"b".repeat(32)}`,
+            },
+          )
+
+          expect(response.statusCode).toBe(404)
+          expect(completeProof).not.toHaveBeenCalled()
+          expect(admitSession).not.toHaveBeenCalled()
+          expect(response.headers["set-cookie"]).toBeUndefined()
+        },
+        { trustedProxyHops },
+      )
+    },
+  )
 
   it("redirects to a fresh sign-in state when admission authority is busy", async () => {
     const { dependencies, completeProof, admitSession } = routeDependencies()
@@ -683,8 +918,9 @@ describe("authenticationRoutes()", () => {
 
   it("continues fresh administrator authorization without issuing a new Hub session", async () => {
     const { admitSession, completeProof, dependencies, verifyAdministratorAuthorization } =
-      routeDependencies()
+      routeDependencies(httpsApplicationOrigin)
     const sensitiveAuthorizationId = "00000000-0000-4000-8000-000000000020"
+    const browserBinding = "b".repeat(32)
     completeProof.mockResolvedValue({
       purpose: "ADMINISTRATOR_MANAGEMENT",
       sensitiveAuthorizationId,
@@ -694,31 +930,37 @@ describe("authenticationRoutes()", () => {
       },
     })
 
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(
-        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
-        {
-          headers: {
-            cookie: `hub_auth_browser=${"b".repeat(32)}; hub_session=retained-session`,
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await requestThroughProxy(
+          `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+          {
+            cookie: `__Host-hub_auth_browser=${browserBinding}; __Host-hub_session=retained-session`,
           },
-          redirect: "manual",
-        },
-      )
+        )
 
-      expect(response.status).toBe(303)
-      expect(response.headers.get("location")).toBe(
-        `/settings/administrators/confirm?authorizationId=${sensitiveAuthorizationId}`,
-      )
-      expect(verifyAdministratorAuthorization).toHaveBeenCalledWith({
-        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
-        externalIdentityId: "00000000-0000-4000-8000-000000000012",
-        providerAssignment: undefined,
-        sessionDigest: createHash("sha256").update("retained-session").digest("hex"),
-        sensitiveAuthorizationId,
-      })
-      expect(admitSession).not.toHaveBeenCalled()
-      expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
-    })
+        expect(response.statusCode).toBe(303)
+        expect(response.headers.location).toBe(
+          `/settings/administrators/confirm?authorizationId=${sensitiveAuthorizationId}`,
+        )
+        expect(completeProof).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ browserBinding }),
+        )
+        expect(verifyAdministratorAuthorization).toHaveBeenCalledWith({
+          authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+          externalIdentityId: "00000000-0000-4000-8000-000000000012",
+          providerAssignment: undefined,
+          sessionDigest: createHash("sha256").update("retained-session").digest("hex"),
+          sensitiveAuthorizationId,
+        })
+        expect(admitSession).not.toHaveBeenCalled()
+        const cookies = response.headers["set-cookie"] ?? []
+        expectClearedSessionCookie(cookies, "__Host-hub_auth_browser")
+        expect(cookies.some((cookie) => /^(?:__Host-)?hub_session=/.test(cookie))).toBe(false)
+      },
+      { trustedProxyHops: 1 },
+    )
   })
 
   it("returns a busy administrator callback to the active session with retry guidance", async () => {
@@ -1027,6 +1269,135 @@ describe("authenticationRoutes()", () => {
     })
   })
 
+  it("restores only the legacy session for HTTP configuration even over a trusted HTTPS proxy", async () => {
+    const { dependencies, restoreSession } = routeDependencies()
+    restoreSession.mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "local",
+      sessionProvider: "local",
+      login: "local-test",
+      name: "Local developer",
+      role: "ADMINISTRATOR",
+    })
+
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const protectedOnly = await requestThroughProxy(`${baseUrl}/api/auth/session`, {
+          cookie: "__Host-hub_session=protected-session",
+        })
+        expect(protectedOnly.statusCode).toBe(401)
+        expect(restoreSession).not.toHaveBeenCalled()
+
+        const both = await requestThroughProxy(`${baseUrl}/api/auth/session`, {
+          cookie: "__Host-hub_session=protected-session; hub_session=local-session",
+        })
+        expect(both.statusCode).toBe(200)
+        expect(restoreSession).toHaveBeenCalledExactlyOnceWith(
+          createHash("sha256").update("local-session").digest("hex"),
+        )
+      },
+      { trustedProxyHops: 1 },
+    )
+  })
+
+  it.each([
+    { scenario: "legacy when protected is absent", order: ["legacy"], selected: "legacy" },
+    { scenario: "protected after legacy", order: ["legacy", "protected"], selected: "protected" },
+    { scenario: "protected before legacy", order: ["protected", "legacy"], selected: "protected" },
+  ] as const)("restores $scenario without reissuing a cookie", async ({ order, selected }) => {
+    const { dependencies, restoreSession } = routeDependencies(httpsApplicationOrigin)
+    const sessions = {
+      legacy: randomBytes(32).toString("base64url"),
+      protected: randomBytes(32).toString("base64url"),
+    }
+    const pairs = {
+      legacy: `hub_session=${sessions.legacy}`,
+      protected: `__Host-hub_session=${sessions.protected}`,
+    }
+    restoreSession.mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      login: "member",
+      name: null,
+      role: "MEMBER",
+    })
+
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await requestThroughProxy(`${baseUrl}/api/auth/session`, {
+          cookie: order.map((name) => pairs[name]).join("; "),
+        })
+
+        expect(response.statusCode).toBe(200)
+        expect(response.headers["set-cookie"]).toBeUndefined()
+        expect(restoreSession).toHaveBeenCalledExactlyOnceWith(
+          createHash("sha256").update(sessions[selected]).digest("hex"),
+        )
+      },
+      { trustedProxyHops: 1 },
+    )
+  })
+
+  it.each([
+    { reason: "empty", value: "" },
+    { reason: "malformed", value: "%" },
+  ])("does not fall back when the protected session cookie is $reason", async ({ value }) => {
+    const { dependencies, restoreSession } = routeDependencies(httpsApplicationOrigin)
+    const legacy = randomBytes(32).toString("base64url")
+
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await requestThroughProxy(`${baseUrl}/api/auth/session`, {
+          cookie: `__Host-hub_session=${value}; hub_session=${legacy}`,
+        })
+
+        expect(response.statusCode).toBe(401)
+        expect(restoreSession).not.toHaveBeenCalled()
+        expect(response.headers["set-cookie"]).toBeUndefined()
+      },
+      { trustedProxyHops: 1 },
+    )
+  })
+
+  it("does not fall back when the protected session is unrecognized and legacy is current", async () => {
+    const { dependencies, restoreSession } = routeDependencies(httpsApplicationOrigin)
+    const legacy = randomBytes(32).toString("base64url")
+    const legacyDigest = createHash("sha256").update(legacy).digest("hex")
+    const unknown = randomBytes(32).toString("base64url")
+    const viewer = {
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      login: "member",
+      name: null,
+      role: "MEMBER",
+    }
+    restoreSession.mockImplementation((digest: string) =>
+      Promise.resolve(digest === legacyDigest ? viewer : null),
+    )
+
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await requestThroughProxy(`${baseUrl}/api/auth/session`, {
+          cookie: `__Host-hub_session=${unknown}; hub_session=${legacy}`,
+        })
+
+        expect(response.statusCode).toBe(401)
+        expect(response.headers["set-cookie"]).toBeUndefined()
+        expect(restoreSession).toHaveBeenCalledExactlyOnceWith(
+          createHash("sha256").update(unknown).digest("hex"),
+        )
+      },
+      { trustedProxyHops: 1 },
+    )
+  })
+
   it.each(["octocat", null])(
     "reports a revoked GitHub session without changing its cookie (login: %s)",
     async (login) => {
@@ -1112,7 +1483,7 @@ describe("authenticationRoutes()", () => {
         method: "POST",
         headers: {
           accept: "text/html,application/xhtml+xml",
-          cookie: "hub_session=session-value",
+          cookie: "__Host-hub_session=protected-session; hub_session=session-value",
           origin: dependencies.signOut.applicationOrigin,
         },
         redirect: "manual",
@@ -1120,8 +1491,10 @@ describe("authenticationRoutes()", () => {
 
       expect(response.status).toBe(303)
       expect(response.headers.get("location")).toBe("/")
-      expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
-      expect(endSession).toHaveBeenCalledWith(
+      const cookies = response.headers.getSetCookie()
+      expect(cookies).toHaveLength(1)
+      expectClearedSessionCookie(cookies, "hub_session", false)
+      expect(endSession).toHaveBeenCalledExactlyOnceWith(
         createHash("sha256").update("session-value").digest("hex"),
       )
     })
@@ -1143,20 +1516,85 @@ describe("authenticationRoutes()", () => {
     })
   })
 
-  it("keeps the session cookie when sign-out authority is busy", async () => {
-    const { dependencies, endSession } = routeDependencies()
-    endSession.mockRejectedValue(new SessionTerminationConflictError())
+  it.each([
+    { scenario: "distinct", legacy: "legacy-session", protectedSession: "protected-session" },
+    { scenario: "the same", legacy: "current-session", protectedSession: "current-session" },
+  ])(
+    "ends $scenario presented sessions and clears both cookie names on HTTPS sign-out",
+    async ({ legacy, protectedSession }) => {
+      const { dependencies, endSession } = routeDependencies(httpsApplicationOrigin)
+      endSession.mockResolvedValue(true)
+
+      await withServer(
+        dependencies,
+        async (baseUrl) => {
+          const response = await requestThroughProxy(
+            `${baseUrl}/api/auth/session/sign-out`,
+            {
+              cookie: `hub_session=${legacy}; __Host-hub_session=${protectedSession}`,
+              origin: httpsApplicationOrigin,
+            },
+            "POST",
+          )
+
+          expect(response.statusCode).toBe(204)
+          const presented = [...new Set([legacy, protectedSession])]
+          expect(endSession).toHaveBeenCalledTimes(presented.length)
+          for (const value of presented) {
+            expect(endSession).toHaveBeenCalledWith(
+              createHash("sha256").update(value).digest("hex"),
+            )
+          }
+          const cookies = response.headers["set-cookie"] ?? []
+          expectClearedSessionCookie(cookies, "__Host-hub_session")
+          expectClearedSessionCookie(cookies, "hub_session")
+        },
+        { trustedProxyHops: 1 },
+      )
+    },
+  )
+
+  it.each([
+    { reason: "a different Origin", origin: "https://other.example.test" },
+    { reason: "no Origin", origin: undefined },
+  ])("rejects HTTPS sign-out with $reason", async ({ origin }) => {
+    const { dependencies, endSession } = routeDependencies(httpsApplicationOrigin)
+    const protectedSession = randomBytes(32).toString("base64url")
+
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await requestThroughProxy(
+          `${baseUrl}/api/auth/session/sign-out`,
+          { cookie: `__Host-hub_session=${protectedSession}`, ...(origin ? { origin } : {}) },
+          "POST",
+        )
+
+        expect(response.statusCode).toBe(403)
+        expect(endSession).not.toHaveBeenCalled()
+        expect(response.headers["set-cookie"]).toBeUndefined()
+      },
+      { trustedProxyHops: 1 },
+    )
+  })
+
+  it("keeps both HTTPS cookies when ending one of two sessions succeeds and the other is busy", async () => {
+    const { dependencies, endSession } = routeDependencies(httpsApplicationOrigin)
+    endSession
+      .mockResolvedValueOnce(true)
+      .mockRejectedValueOnce(new SessionTerminationConflictError())
     await withServer(dependencies, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/session/sign-out`, {
         method: "POST",
         headers: {
           accept: "application/json",
-          cookie: "hub_session=session-value",
+          cookie: "__Host-hub_session=protected-session; hub_session=legacy-session",
           origin: dependencies.signOut.applicationOrigin,
         },
       })
 
       expect(response.status).toBe(503)
+      expect(endSession).toHaveBeenCalledTimes(2)
       expect(response.headers.get("retry-after")).toBe("1")
       expect(response.headers.get("set-cookie")).toBeNull()
       expect(await response.json()).toEqual({
@@ -1166,20 +1604,26 @@ describe("authenticationRoutes()", () => {
   })
 
   it("returns a busy native sign-out to the active session with retry guidance", async () => {
-    const { dependencies, endSession } = routeDependencies()
-    endSession.mockRejectedValue(new SessionTerminationConflictError())
+    const { dependencies, endSession } = routeDependencies(httpsApplicationOrigin)
+    const legacyDigest = createHash("sha256").update("legacy-session").digest("hex")
+    endSession.mockImplementation((digest: string) =>
+      digest === legacyDigest
+        ? Promise.reject(new SessionTerminationConflictError())
+        : Promise.resolve(true),
+    )
     await withServer(dependencies, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/session/sign-out`, {
         method: "POST",
         headers: {
           accept: "text/html",
-          cookie: "hub_session=session-value",
+          cookie: "__Host-hub_session=protected-session; hub_session=legacy-session",
           origin: dependencies.signOut.applicationOrigin,
         },
         redirect: "manual",
       })
 
       expect(response.status).toBe(503)
+      expect(endSession).toHaveBeenCalledExactlyOnceWith(legacyDigest)
       expect(response.headers.get("content-type")).toContain("text/plain")
       expect(response.headers.get("retry-after")).toBe("1")
       expect(response.headers.get("set-cookie")).toBeNull()

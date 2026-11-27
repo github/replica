@@ -459,13 +459,13 @@ export async function configurePostSetup(
     }
     next.runtime_environment_variables.HUB_TRUSTED_PROXY_HOPS = await field(
       "proxyHops",
-      "Verified protected proxy hop count (0-10). Enter the actual ingress chain; post-setup does not guess it.",
+      "Verified protected proxy hop count (1-10). Enter the actual ingress chain; post-setup does not guess it.",
       inputs.runtime_environment_variables?.HUB_TRUSTED_PROXY_HOPS ??
         deployment.environment.HUB_TRUSTED_PROXY_HOPS ??
         "",
       (value) => {
-        if (!/^(?:[0-9]|10)$/.test(value))
-          throw new InputValidationError("Enter the verified proxy hop count from 0 to 10.")
+        if (!/^(?:[1-9]|10)$/.test(value))
+          throw new InputValidationError("Enter the verified proxy hop count from 1 to 10.")
         return value
       },
     )

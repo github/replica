@@ -1448,6 +1448,7 @@ describe("real product index", () => {
     }
     for (const [key, value] of Object.entries(entra)) vi.stubEnv(key, value)
     vi.stubEnv("RUNTIME_MODE", "api")
+    vi.stubEnv("HUB_TRUSTED_PROXY_HOPS", "1")
     vi.stubEnv("OTEL_SDK_DISABLED", "true")
     vi.stubEnv("REPLICA_LEARNING_ROOT", "storage/learning")
     vi.stubGlobal(

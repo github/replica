@@ -156,13 +156,24 @@ describe("sessionRevocationRoutes()", () => {
     async (_label, providerKey, dependencyKey) => {
       const dependencies = routeDependencies(providerKey)
       const provider = dependencies[dependencyKey as "github" | "local"]
+      const secureCookie = providerKey === "github"
+      const origin = secureCookie ? "https://hub.example.test" : applicationOrigin
+      Object.assign(dependencies.authentication.signOut, {
+        applicationOrigin: origin,
+        secureCookie,
+      })
+      Object.assign(dependencies.authentication.sessionRevocation!, {
+        applicationOrigin: origin,
+        secureCookie,
+      })
+      Object.assign(provider.dependencies, { applicationOrigin: origin, secureCookie })
 
       await withServer(dependencies.authentication, async (baseUrl) => {
         const unconfirmed = await fetch(`${baseUrl}/api/session-revocation/authorizations/start`, {
           method: "POST",
           headers: sessionHeaders({
             "content-type": "application/json",
-            origin: applicationOrigin,
+            origin,
           }),
           body: JSON.stringify({ confirmed: false }),
         })
@@ -173,11 +184,15 @@ describe("sessionRevocationRoutes()", () => {
           method: "POST",
           headers: sessionHeaders({
             "content-type": "application/json",
-            origin: applicationOrigin,
+            origin,
           }),
           body: JSON.stringify({ confirmed: true }),
         })
         expect(confirmed.status).toBe(200)
+        const name = secureCookie ? "__Host-hub_auth_browser" : "hub_auth_browser"
+        expect(confirmed.headers.getSetCookie()).toEqual([
+          expect.stringMatching(new RegExp(`^${name}=browser-binding-with-required-length;`)),
+        ])
         expect(provider.start).toHaveBeenCalledWith({
           actorMembershipId: session.membershipId,
           externalIdentityId: session.externalIdentityId,

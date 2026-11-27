@@ -2,20 +2,26 @@ import type { RequestHandler } from "express"
 
 import { SessionTerminationConflictError } from "../../../../../../domains/admission/errors.ts"
 import { hashAuthenticationValue } from "../../../../../../domains/authentication/hash-authentication-value/index.ts"
-import { clearAuthenticationCookie } from "../../../../../../integrations/express/clear-authentication-cookie/index.ts"
-import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
+import { clearHubSessionCookies } from "../../../../../../integrations/express/clear-hub-session-cookies/index.ts"
+import {
+  hubSessionCookieName,
+  secureHubSessionCookieName,
+} from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
 import type { SignOutDependencies } from "../../../types.ts"
 
 export function post(dependencies: SignOutDependencies): RequestHandler {
   return async (request, response, next) => {
-    const value = readCookie(request, hubSessionCookieName)
+    // Keep the protected session usable for a retry if ending the legacy session fails.
+    const values = new Set([
+      readCookie(request, hubSessionCookieName),
+      dependencies.secureCookie ? readCookie(request, secureHubSessionCookieName) : null,
+    ])
     try {
-      if (value) await dependencies.end(hashAuthenticationValue(value))
-      response.setHeader(
-        "Set-Cookie",
-        clearAuthenticationCookie(hubSessionCookieName, dependencies.secureCookie),
-      )
+      for (const value of values) {
+        if (value) await dependencies.end(hashAuthenticationValue(value))
+      }
+      response.setHeader("Set-Cookie", clearHubSessionCookies(dependencies.secureCookie))
       if ((request.get("accept") ?? "").includes("text/html")) {
         response.redirect(303, "/")
         return

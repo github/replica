@@ -4,8 +4,8 @@ import { z } from "zod"
 import type { RepositoryAnalyticsProof } from "../../../../../domains/analytics/hosted-authorization/types.ts"
 import { hashAuthenticationValue } from "../../../../../domains/authentication/hash-authentication-value/index.ts"
 import { clearAuthenticationCookie } from "../../../../../integrations/express/clear-authentication-cookie/index.ts"
-import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { AnalyticsRouteDependencies } from "../types.ts"
 
 export const analyticsBrowserCookie = "hub_analytics_auth_browser"
@@ -34,7 +34,7 @@ export function repositoryAnalyticsCallback(
       (query.data.iss !== undefined && query.data.iss !== proof.callbackIssuer)
     )
       return next()
-    const cookie = readCookie(request, hubSessionCookieName)
+    const cookie = readHubSessionCookie(request)
     const result = await authorization.complete(proof, {
       browserBinding: binding.data,
       state: query.data.state,

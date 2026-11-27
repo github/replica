@@ -452,7 +452,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
           authentication.github.repositoryAnalyticsProof,
           product?.analytics?.hostedAuthorization,
         ),
-        handleAuthenticationCallbackGet(authentication.github.callback),
+        handleAuthenticationCallbackGet(
+          authentication.github.callback,
+          authentication.github.signIn.applicationOrigin,
+        ),
       )
     }
     if (authentication.entra) {
@@ -473,7 +476,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       app.get(
         "/api/auth/entra/callback",
         rateLimit(authentication.entra.callback, "callback"),
-        handleAuthenticationCallbackGet(authentication.entra.callback),
+        handleAuthenticationCallbackGet(
+          authentication.entra.callback,
+          authentication.entra.signIn.applicationOrigin,
+        ),
       )
     }
     if (authentication.local) {
@@ -487,7 +493,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       app.get(
         "/api/auth/local/callback",
         rateLimit(authentication.local.callback, "callback"),
-        handleAuthenticationCallbackGet(authentication.local.callback),
+        handleAuthenticationCallbackGet(
+          authentication.local.callback,
+          authentication.local.signIn.applicationOrigin,
+        ),
       )
     }
     app.get(

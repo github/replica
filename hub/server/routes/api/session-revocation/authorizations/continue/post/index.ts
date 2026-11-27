@@ -5,8 +5,7 @@ import {
   SessionRevocationDeniedError,
   SessionRevocationUnavailableError,
 } from "../../../../../../domains/session-revocation/errors.ts"
-import { clearAuthenticationCookie } from "../../../../../../integrations/express/clear-authentication-cookie/index.ts"
-import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
+import { clearHubSessionCookies } from "../../../../../../integrations/express/clear-hub-session-cookies/index.ts"
 import type { SessionRevocationRouteDependencies } from "../../../../auth/types.ts"
 import { readAdministratorSession } from "../../../../administrators/read-administrator-session/index.ts"
 
@@ -30,10 +29,7 @@ export function post(dependencies: SessionRevocationRouteDependencies): RequestH
         authorizationId: body.data.authorizationId,
         hubSessionId: session.id,
       })
-      response.setHeader(
-        "Set-Cookie",
-        clearAuthenticationCookie(hubSessionCookieName, dependencies.secureCookie),
-      )
+      response.setHeader("Set-Cookie", clearHubSessionCookies(dependencies.secureCookie))
       response.json({ result })
     } catch (error) {
       if (error instanceof SessionRevocationUnavailableError) {
