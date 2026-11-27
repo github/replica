@@ -23,6 +23,7 @@ module LearningTestHelpers
     setup do
       @previous_learning_root = Rails.configuration.x.learning_root
       @previous_copilot_token = Rails.configuration.x.copilot_token
+      @previous_copilot_billing = Rails.configuration.x.copilot_billing
       @previous_learning_cli = ENV["REPLICA_LEARNING_CLI"]
       @previous_learning_environment = Learning::Command.instance_method(:environment)
       @learning_test_root = Dir.mktmpdir("replica-learning-")
@@ -41,6 +42,7 @@ module LearningTestHelpers
       ensure
         Rails.configuration.x.learning_root = @previous_learning_root if @learning_test_root
         Rails.configuration.x.copilot_token = @previous_copilot_token if defined?(@previous_copilot_token)
+        Rails.configuration.x.copilot_billing = @previous_copilot_billing if defined?(@previous_copilot_billing)
         ENV["REPLICA_LEARNING_CLI"] = @previous_learning_cli if defined?(@previous_learning_cli)
         if @previous_learning_environment
           Learning::Command.define_method(:environment, @previous_learning_environment)
@@ -56,6 +58,18 @@ module LearningTestHelpers
   def connect_copilot(user, token: "copilot-user-token", verified_at: 1.day.ago)
     Rails.configuration.x.copilot_token = token
     CopilotConnection.create!(user:, token_digest: CopilotConnection.digest(token), verified_at:)
+  end
+
+  # Connects Copilot for the current installation of Hub's GitHub App, replacing any connection, as a
+  # Hub administrator does with organization billing, which confirms that Copilot bills the
+  # organization. That App needs an active organization installation.
+  def connect_copilot_for_organization(user, verified_at: 1.day.ago)
+    Rails.configuration.x.copilot_billing = "organization"
+    CopilotConnection.where(singleton_key: 1).delete_all
+    CopilotConnection.create! \
+      user:,
+      token_digest: CopilotConnection.digest(CopilotConnection.credential),
+      verified_at:
   end
 
   def use_test_labeler(repository)

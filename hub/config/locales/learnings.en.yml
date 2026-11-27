@@ -10,6 +10,11 @@ en:
       queued: Hub will look for learnings shortly.
       running: Hub is looking for learnings now.
       usage: "Copilot used %{credits} AI credits for this repository in the last 30 days."
+    organization:
+      status:
+        refused: "Copilot refused Hub's GitHub App on %{date}, so Hub stopped looking for learnings until a Hub administrator checks Copilot again on the Copilot page. You can still decide on suggestions, and agents still get accepted learnings."
+        no_token: Organization billing needs Hub's GitHub App installed on an organization, so Hub stopped looking for learnings. You can still decide on suggestions, and agents still get accepted learnings.
+        unconfirmed: Hub stopped looking for learnings until a Hub administrator connects Copilot again on the Copilot page to confirm organization billing. You can still decide on suggestions, and agents still get accepted learnings.
     run:
       label: Find learnings now
     runs:
