@@ -137,6 +137,30 @@ run "bind_a_custom_hostname_with_a_managed_certificate" {
   }
 }
 
+run "keep_the_generated_origin_until_the_custom_hostname_is_bound" {
+  command = plan
+
+  variables {
+    reader                 = "enabled"
+    hub_application_origin = "https://replica.example.com"
+    trusted_proxy_hops     = 1
+    custom_hostname        = "preview.replica.example.com"
+    reader_secret = {
+      key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/test-hub-foundation/providers/Microsoft.KeyVault/vaults/replica-test"
+      secret_id    = "https://replica-test.vault.azure.net/secrets/private-preview-reader-secret"
+    }
+  }
+
+  assert {
+    condition = (
+      length(azurerm_container_app_custom_domain.reader) == 0 &&
+      output.reader.origin == "https://test-hub-preview.calm-1234.eastus2.azurecontainerapps.io" &&
+      output.reader.custom_domain_verification_id == "VERIFICATIONID"
+    )
+    error_message = "Before DNS is ready, the reader keeps its generated origin and reports the verification ID."
+  }
+}
+
 run "reject_inline_without_an_enabled_reader" {
   command = plan
 

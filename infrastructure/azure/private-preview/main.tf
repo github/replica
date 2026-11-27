@@ -133,14 +133,15 @@ variable "writer_principal_id" {
 }
 
 locals {
-  reader_name   = "${var.name}-preview"
-  enabled       = var.reader == "enabled"
-  present       = var.reader != "absent"
-  writer        = var.writer_principal_id != null
-  hub_group_id  = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
-  container_id  = "${var.storage_account_id}/blobServices/default/containers/${azurerm_storage_container.reader.name}"
-  blob_action   = "Microsoft.Storage/storageAccounts/blobServices/containers/blobs"
-  reader_origin = var.custom_hostname == null ? "https://${local.reader_name}.${azurerm_container_app_environment.reader.default_domain}" : "https://${var.custom_hostname}"
+  reader_name  = "${var.name}-preview"
+  enabled      = var.reader == "enabled"
+  present      = var.reader != "absent"
+  writer       = var.writer_principal_id != null
+  hub_group_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
+  container_id = "${var.storage_account_id}/blobServices/default/containers/${azurerm_storage_container.reader.name}"
+  blob_action  = "Microsoft.Storage/storageAccounts/blobServices/containers/blobs"
+  # A custom hostname becomes the origin only once it is bound.
+  reader_origin = var.bind_custom_hostname ? "https://${var.custom_hostname}" : "https://${local.reader_name}.${azurerm_container_app_environment.reader.default_domain}"
   # Exact text the wizard compares with Azure before accepting or replacing a grant.
   without_listing = trimspace(<<-EOT
     (

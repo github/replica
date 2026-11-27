@@ -29,6 +29,8 @@ interface Variables {
   bind_custom_hostname: boolean
   writer_principal_id: string | null
   reader_secret: unknown
+  hub_application_origin: string | null
+  trusted_proxy_hops: number | null
 }
 
 // What the private-preview Terraform state records before this run.
@@ -38,6 +40,9 @@ interface Current {
   inline?: boolean
   writer?: boolean
   boundHostname?: string
+  // The Hub settings an enabled reader was started with; defaults to generatedHub's.
+  hubOrigin?: string
+  hops?: number
 }
 
 const subscriptionId = "00000000-0000-0000-0000-000000000001"
@@ -90,7 +95,19 @@ function stateSnapshot(current: Current | undefined) {
       values: {
         name: "sample-hub-preview",
         ingress: current.reader === "enabled" ? [{ external_enabled: true }] : [],
-        template: [{ container: [{ env: [{ name: "HUB_PRIVATE_PREVIEW_INLINE_ENABLED", value: String(Boolean(current.inline)) }] }] }],
+        template: [{
+          container: [{
+            env: [
+              { name: "HUB_PRIVATE_PREVIEW_INLINE_ENABLED", value: String(Boolean(current.inline)) },
+              ...(current.reader === "enabled"
+                ? [
+                    { name: "HUB_APPLICATION_ORIGIN", value: current.hubOrigin ?? generatedHub.hub_application_origin },
+                    { name: "PRIVATE_PREVIEW_TRUSTED_PROXY_HOPS", value: String(current.hops ?? 1) },
+                  ]
+                : []),
+            ],
+          }],
+        }],
       },
     })
   if (current.boundHostname)
@@ -143,6 +160,7 @@ async function fixture({
     // Earlier wizard versions granted the reader without the listing-denied condition.
     unconditioned: Boolean(current?.uncounted),
     hostname: current?.boundHostname ?? null,
+    bound: Boolean(current?.boundHostname),
     bindings: new Map<string, string>(current?.boundHostname ? [[current.boundHostname, "SniEnabled"]] : []),
   }
   const applied: Variables[] = []
@@ -157,7 +175,7 @@ async function fixture({
     async output() {
       const present = live.reader !== "absent"
       return {
-        origin: live.reader === "enabled" ? `https://${live.hostname ?? generated}` : null,
+        origin: live.reader === "enabled" ? `https://${live.bound && live.hostname ? live.hostname : generated}` : null,
         generated_hostname: present ? generated : null,
         custom_domain_verification_id: present ? "VERIFY123" : null,
       }
@@ -171,6 +189,7 @@ async function fixture({
       live.writer = variables.writer_principal_id !== null
       live.secret = variables.reader === "enabled" && variables.reader_secret !== null
       live.hostname = variables.reader === "enabled" ? variables.custom_hostname : null
+      live.bound = Boolean(live.hostname && variables.bind_custom_hostname)
       for (const name of live.bindings.keys())
         if (name !== live.hostname || !variables.bind_custom_hostname) live.bindings.delete(name)
       if (live.hostname && variables.bind_custom_hostname && !live.bindings.has(live.hostname))
@@ -251,7 +270,7 @@ async function fixture({
       },
     )
   const uploads = () => azure.mock.calls.filter((call) => call.slice(0, 3).join(" ") === "storage blob upload")
-  return { prepare, applied, inits, leases, uploads }
+  return { prepare, applied, inits, leases, uploads, azure }
 }
 
 describe("preparePrivatePreview", () => {
@@ -401,17 +420,77 @@ describe("preparePrivatePreview", () => {
     expect(notes).toMatch(new RegExp(`TXT\\s+asuid\\.${hostname}\\b.*VERIFY123`))
   })
 
-  it("binds the custom hostname once DNS is ready and turns on Hub playback with it", async () => {
+  it("binds a hostname before the release and turns on playback in one run when Hub does not use the reader yet", async () => {
     const hostname = "preview.replica.coreai.design"
     const { prepare, applied } = await fixture({ choice: on({ hostname }), current: { reader: "enabled" } })
 
     const prepared = await prepare(customHub, dnsReady)
+    await prepared.finish()
 
     expect(applied).toEqual([expect.objectContaining({ custom_hostname: hostname, bind_custom_hostname: true })])
     expect(prepared.inputs.runtime_environment_variables).toMatchObject({
       HUB_PRIVATE_PREVIEW_ENABLED: "true",
       HUB_PRIVATE_PREVIEW_ORIGIN: `https://${hostname}`,
     })
+  })
+
+  it("keeps the generated reader origin Hub uses and binds a new hostname only after the release", async () => {
+    const hostname = "preview.replica.coreai.design"
+    const { prepare, applied, azure } = await fixture({
+      choice: on({ hostname }),
+      current: { reader: "enabled", hubOrigin: customHub.hub_application_origin },
+    })
+    const inputs = {
+      ...customHub,
+      runtime_environment_variables: {
+        HUB_TRUSTED_PROXY_HOPS: "1",
+        HUB_PRIVATE_PREVIEW_ENABLED: "true",
+        HUB_PRIVATE_PREVIEW_ORIGIN: `https://${generated}`,
+        HUB_PRIVATE_PREVIEW_INLINE_ENABLED: "false",
+      },
+      runtime_secret_references: { HUB_PRIVATE_PREVIEW_READER_SECRET: readerSecret },
+    }
+    const binds = () => azure.mock.calls.filter((call) => call.slice(0, 3).join(" ") === "containerapp hostname bind")
+
+    const prepared = await prepare(inputs, dnsReady)
+
+    expect(applied).toEqual([expect.objectContaining({ custom_hostname: null, bind_custom_hostname: false })])
+    expect(binds()).toEqual([])
+    expect(prepared.inputs).toEqual({
+      ...customHub,
+      runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_PRIVATE_PREVIEW_ENABLED: "false" },
+      runtime_secret_references: { HUB_PRIVATE_PREVIEW_READER_SECRET: readerSecret },
+    })
+
+    const notes = (await prepared.finish()).join("\n")
+
+    expect(applied[1]).toMatchObject({ custom_hostname: hostname, bind_custom_hostname: true })
+    expect(binds()).toHaveLength(1)
+    expect(notes).toContain(`moves to https://${hostname}`)
+  })
+
+  it("keeps the Hub settings the reader was started with until the release, then applies Hub's saved ones", async () => {
+    const { prepare, applied } = await fixture({
+      choice: on({ inline: true }),
+      current: { reader: "enabled", inline: true, hubOrigin: "https://earlier-hub.example.eastus2.azurecontainerapps.io", hops: 2 },
+    })
+
+    const prepared = await prepare(playingHub)
+
+    expect(applied).toEqual([expect.objectContaining({
+      hub_application_origin: "https://earlier-hub.example.eastus2.azurecontainerapps.io",
+      trusted_proxy_hops: 2,
+    })])
+    expect(prepared.inputs.runtime_environment_variables).toEqual({
+      HUB_TRUSTED_PROXY_HOPS: "1",
+      HUB_PRIVATE_PREVIEW_ENABLED: "false",
+    })
+
+    const notes = (await prepared.finish()).join("\n")
+
+    expect(applied[1]).toMatchObject({ hub_application_origin: playingHub.hub_application_origin, trusted_proxy_hops: 1 })
+    expect(applied).toHaveLength(2)
+    expect(notes).toMatch(/Hub playback stays off; run Update again/)
   })
 
   it("blocks before any apply when the reader has a grant the wizard does not manage", async () => {

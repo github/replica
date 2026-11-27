@@ -162,7 +162,13 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       : undefined
   const dnsReady = knownRecords ? await dnsRecordsReady(knownRecords, resolver) : false
   const target = targetVariables(choice, current, { dnsReady })
-  const expand = expandVariables(current, target)
+  const hubUsesReader = inputs.runtime_environment_variables?.HUB_PRIVATE_PREVIEW_ENABLED === "true"
+  const expand = expandVariables(current, target, { hubUsesReader })
+  // The running Hub keeps calling the reader with the settings it was released with.
+  const expandHub =
+    hubUsesReader && current.reader === "enabled" && current.hubOrigin && current.hops
+      ? { origin: current.hubOrigin, hops: current.hops }
+      : { origin, hops }
 
   let secret: SecretReference | undefined
   const variablesFile = join(directory, "private-preview.tfvars.json")
@@ -207,7 +213,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     const id = await read("identity", "show", "--ids", readerIdentityId, "--query", "principalId")
     return typeof id === "string" && guid.test(id) ? id : block("the reader identity could not be verified.")
   }
-  const applyVariables = async (variables: PreviewVariables) => {
+  const applyVariables = async (variables: PreviewVariables, hub = { origin, hops }) => {
     if (variables.reader === "enabled") secret ??= await readerSecret()
     await writePrivateFile(variablesFile, JSON.stringify({
       subscription_id: subscriptionId,
@@ -221,8 +227,8 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       image,
       reader: variables.reader,
       inline_enabled: variables.inline_enabled,
-      hub_application_origin: variables.reader === "enabled" ? origin : null,
-      trusted_proxy_hops: variables.reader === "enabled" ? hops : null,
+      hub_application_origin: variables.reader === "enabled" ? hub.origin : null,
+      trusted_proxy_hops: variables.reader === "enabled" ? hub.hops : null,
       custom_hostname: variables.custom_hostname,
       bind_custom_hostname: variables.bind_custom_hostname,
       reader_secret: variables.reader === "enabled" ? secret : null,
@@ -257,7 +263,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     )
     if (problems.length) block(`${problems.join("\n")}\nRemove or review that access before retrying. No changes were made.`)
   }
-  const { bound } = await applyVariables(expand)
+  const { bound } = await applyVariables(expand, expandHub)
   const notes: string[] = []
   let playback: { origin: string; inline: boolean } | undefined
   if (target.reader === "enabled") {
@@ -269,10 +275,19 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       "--query", "{latest:properties.latestRevisionName,ready:properties.latestReadyRevisionName}",
     )) as { latest?: unknown; ready?: unknown }
     const ready = typeof status.latest === "string" && status.latest === status.ready
-    if (choice.hostname && !bound && records) {
+    const boundNow = bound || current.boundHostname === choice.hostname
+    const targetOrigin = choice.hostname ? `https://${choice.hostname}` : `https://${reader.generated_hostname}`
+    if (choice.hostname && !boundNow && !target.bind_custom_hostname && records) {
       const message = `Add these DNS records for ${choice.hostname}, then run Update again. Hub playback stays off until Azure binds the certificate.\n${formatDnsRecords(records)}`
       notes.push(message)
       ui.notice?.("warning", message)
+    } else if (
+      readerOrigin !== targetOrigin || (choice.hostname && !boundNow) ||
+      expandHub.origin !== origin || expandHub.hops !== hops
+    ) {
+      notes.push(
+        `The reader moves to ${targetOrigin} after this release. Hub playback stays off; run Update again to turn it on.`,
+      )
     } else if (!ready) {
       notes.push("The reader revision is not ready yet. Hub playback stays off; run Update again to recheck.")
     } else {
@@ -287,7 +302,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       writerRepositoryIds: target.writer ? choice.writerRepositoryIds : [],
     }),
     async finish() {
-      if (!sameVariables(expand, target)) {
+      if (!sameVariables(expand, target) || expandHub.origin !== origin || expandHub.hops !== hops) {
         ui.status("Removing private prototype service access that Hub no longer uses")
         await applyVariables(target)
       }

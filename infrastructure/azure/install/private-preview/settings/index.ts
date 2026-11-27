@@ -8,6 +8,9 @@ export interface PreviewState {
   inline: boolean
   writer: boolean
   boundHostname?: string
+  // The Hub settings an enabled reader was started with.
+  hubOrigin?: string
+  hops?: number
 }
 
 export interface PreviewVariables {
@@ -51,16 +54,25 @@ export function targetVariables(
 }
 
 // Before Hub changes, keep everything Hub may still use; afterwards, apply the target.
-export function expandVariables(current: PreviewState, target: PreviewVariables): PreviewVariables {
+export function expandVariables(
+  current: PreviewState,
+  target: PreviewVariables,
+  { hubUsesReader }: { hubUsesReader: boolean },
+): PreviewVariables {
   const reader = rank[current.reader] > rank[target.reader] ? current.reader : target.reader
   const enabled = reader === "enabled"
-  const hostname = target.custom_hostname ?? (enabled ? (current.boundHostname ?? null) : null)
+  // A reader that Hub already uses keeps its origin until the new Hub is released.
+  const pinned = hubUsesReader && current.reader === "enabled"
+  const hostname = pinned
+    ? (current.boundHostname ?? null)
+    : target.custom_hostname ?? (enabled ? (current.boundHostname ?? null) : null)
   return {
     reader,
     inline_enabled: enabled && (target.inline_enabled || current.inline),
     custom_hostname: hostname,
     bind_custom_hostname:
-      hostname !== null && (target.bind_custom_hostname || current.boundHostname === hostname),
+      hostname !== null &&
+      (current.boundHostname === hostname || (!pinned && target.bind_custom_hostname)),
     writer: target.writer || current.writer,
   }
 }
@@ -98,7 +110,12 @@ export function readPreviewState(snapshot: unknown): PreviewState {
   const app = find("azurerm_container_app.reader", "azurerm_container_app.reader[0]")
   const domain = find("azurerm_container_app_custom_domain.reader[0]")?.values?.name
   const env = app?.values?.template?.[0]?.container?.[0]?.env ?? []
+  const setting = (key: string) => env.find(({ name }) => name === key)?.value
+  const hubOrigin = setting("HUB_APPLICATION_ORIGIN")
+  const hops = Number(setting("PRIVATE_PREVIEW_TRUSTED_PROXY_HOPS"))
   return {
+    ...(typeof hubOrigin === "string" ? { hubOrigin } : {}),
+    ...(Number.isInteger(hops) && hops > 0 ? { hops } : {}),
     reader: !app ? "absent" : app.values?.ingress?.length ? "enabled" : "disabled",
     inline: env.some(({ name, value }) => name === "HUB_PRIVATE_PREVIEW_INLINE_ENABLED" && value === "true"),
     writer: Boolean(find("azurerm_role_assignment.writer[0]")),

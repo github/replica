@@ -326,6 +326,33 @@ it("validates the authoritative origin and explicit proxy hops while preserving 
   expect(await otherFiles(test.context.directory)).toEqual([])
 })
 
+it.each([
+  ["origin", "https://bound.example.com", "2"],
+  ["proxy hop count", "https://sample-hub.eastus2.azurecontainerapps.io", "3"],
+])("blocks changing the %s while the private prototype service serves Hub", async (_, origin, hops) => {
+  const test = await scenario()
+  await configuredGithub(test)
+  Object.assign(test.inputs.runtime_environment_variables!, {
+    HUB_TRUSTED_PROXY_HOPS: "2",
+    HUB_PRIVATE_PREVIEW_ENABLED: "true",
+  })
+  const original = structuredClone(test.inputs)
+  const files = await otherFiles(test.context.directory)
+  vi.mocked(test.ui.text).mockImplementation(async (label) =>
+    label.startsWith("Public HTTPS origin") ? origin : hops,
+  )
+
+  await expect(
+    configurePostSetup(test.context, "sign-in", test.inputs, test.deployment),
+  ).rejects.toThrow(PostSetupExit)
+
+  expect(test.inputs).toEqual(original)
+  expect(test.run.mock.calls.filter(([, args]) => args[2] === "set")).toEqual([])
+  expect(await otherFiles(test.context.directory)).toEqual(files)
+  expect(test.provider.allowReactivation).not.toHaveBeenCalled()
+  expect(test.provider.verifications).toBe(0)
+})
+
 it("rejects a bound hostname with an unbound port and accepts its canonical HTTPS origin", async () => {
   const test = await scenario()
   test.deployment.customHosts = ["BoUnD.ExAmPlE.CoM"]

@@ -23,6 +23,8 @@ const enabledState: PreviewState = {
   inline: true,
   writer: true,
   boundHostname: "preview.replica.example.com",
+  hubOrigin: "https://replica.example.com",
+  hops: 2,
 }
 
 describe("private preview settings", () => {
@@ -97,7 +99,7 @@ describe("private preview settings", () => {
     ["removing the reader", { reader: "removed", inline: false, writerRepositoryIds: [] } as PrivatePreviewChoice],
   ])("keeps everything Hub may still use before %s, then applies the target", (_, choice) => {
     const target = targetVariables(choice, enabledState, { dnsReady: false })
-    const expand = expandVariables(enabledState, target)
+    const expand = expandVariables(enabledState, target, { hubUsesReader: true })
 
     expect(expand).toEqual({
       reader: "enabled",
@@ -112,24 +114,31 @@ describe("private preview settings", () => {
   })
 
   it.each([
-    ["an unchanged enabled reader", enabledState, on({ inline: true, hostname: "preview.replica.example.com", writerRepositoryIds: ["123"] })],
-    ["an unchanged disabled reader", { reader: "disabled", inline: false, writer: false } as PreviewState, offChoice],
-    ["no reader", noPreviewState, offChoice],
-  ])("re-running with %s needs no contract step", (_, current, choice) => {
+    { hubUsesReader: true, current: enabledState, choice: on({ inline: true, hostname: "preview.replica.example.com", writerRepositoryIds: ["123"] }) },
+    { hubUsesReader: false, current: { reader: "disabled", inline: false, writer: false } as PreviewState, choice: offChoice },
+    { hubUsesReader: false, current: noPreviewState, choice: offChoice },
+  ])("re-running unchanged needs no contract step for a $current.reader reader", ({ hubUsesReader, current, choice }) => {
     const target = targetVariables(choice, current, { dnsReady: false })
 
-    expect(sameVariables(expandVariables(current, target), target)).toBe(true)
+    expect(sameVariables(expandVariables(current, target, { hubUsesReader }), target)).toBe(true)
+  })
+
+  it.each([
+    { hubUsesReader: true, expected: { custom_hostname: null, bind_custom_hostname: false } },
+    { hubUsesReader: false, expected: { custom_hostname: "preview.replica.example.com", bind_custom_hostname: true } },
+  ])("binds a new hostname before the release only if Hub does not use the reader yet ($hubUsesReader)", ({ hubUsesReader, expected }) => {
+    const current: PreviewState = { reader: "enabled", inline: false, writer: false }
+    const target = targetVariables(on({ hostname: "preview.replica.example.com" }), current, { dnsReady: true })
+
+    expect(target).toMatchObject({ custom_hostname: "preview.replica.example.com", bind_custom_hostname: true })
+    expect(expandVariables(current, target, { hubUsesReader })).toMatchObject(expected)
   })
 })
 
 describe("readPreviewState", () => {
-  const app = (address: string, { ingress = [] as unknown[], inline = "false" } = {}) => ({
+  const app = (address: string, { ingress = [] as unknown[], env = [] as { name: string; value: string }[] } = {}) => ({
     address,
-    values: {
-      name: "sample-preview",
-      ingress,
-      template: [{ container: [{ env: [{ name: "HUB_PRIVATE_PREVIEW_INLINE_ENABLED", value: inline }] }] }],
-    },
+    values: { name: "sample-preview", ingress, template: [{ container: [{ env }] }] },
   })
   const snapshot = (resources: unknown[]) => ({
     format_version: "1.0",
@@ -144,9 +153,14 @@ describe("readPreviewState", () => {
     })
   })
 
-  it("reads an enabled reader, inline playback, writer, and bound hostname", () => {
+  it("reads an enabled reader's Hub settings, inline playback, writer, and bound hostname", () => {
+    const env = [
+      { name: "HUB_PRIVATE_PREVIEW_INLINE_ENABLED", value: "true" },
+      { name: "HUB_APPLICATION_ORIGIN", value: "https://replica.example.com" },
+      { name: "PRIVATE_PREVIEW_TRUSTED_PROXY_HOPS", value: "2" },
+    ]
     const state = snapshot([
-      app("azurerm_container_app.reader[0]", { ingress: [{ external_enabled: true }], inline: "true" }),
+      app("azurerm_container_app.reader[0]", { ingress: [{ external_enabled: true }], env }),
       { address: "azurerm_container_app_custom_domain.reader[0]", values: { name: "preview.replica.example.com" } },
       { address: "azurerm_role_assignment.writer[0]", values: {} },
     ])

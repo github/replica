@@ -409,6 +409,13 @@ export async function configurePostSetup(
     )
     const originChanged =
       origin !== (deployment.environment.HUB_APPLICATION_ORIGIN ?? referencedOrigin)
+    // The reader repeats Hub's origin and hop count, so only Update may change them while it serves.
+    const previewServing = inputs.runtime_environment_variables?.HUB_PRIVATE_PREVIEW_ENABLED === "true"
+    const previewBlocked = () =>
+      new PostSetupExit(
+        "The private prototype service uses Hub's origin and proxy hop count. Turn it off with setup Update, change these settings, then turn it on again. Existing settings were preserved.",
+      )
+    if (previewServing && originChanged) throw previewBlocked()
     if (
       originChanged &&
       [
@@ -469,6 +476,12 @@ export async function configurePostSetup(
         return value
       },
     )
+    if (
+      previewServing &&
+      next.runtime_environment_variables.HUB_TRUSTED_PROXY_HOPS !==
+        inputs.runtime_environment_variables?.HUB_TRUSTED_PROXY_HOPS
+    )
+      throw previewBlocked()
     const known: unknown = JSON.parse(
       await secret("list", "--vault-name", names.vault, "--query", "[].name"),
     )
