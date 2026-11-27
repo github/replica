@@ -23,6 +23,7 @@ class GithubAppDualBarrierConcurrencyTest < ActiveSupport::TestCase
     FreshAuthorization.where(user_id: @actor.id).delete_all
     HubAdminEnrollment.delete_all
     Session.where(user_id: [ @actor.id, @candidate&.id ]).delete_all
+    Analytics::Event.where(repository: @repository).delete_all
     Repository.where(id: @repository.id).destroy_all
     User.where(id: [ @actor.id, @candidate&.id ]).delete_all
     GithubAppConfiguration.where(id: @configuration.id).delete_all

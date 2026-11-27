@@ -48,6 +48,7 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
     assert_equal I18n.t("learnings.runs.requested"), flash[:notice]
     run = Learning::Run.sole
     assert_equal [ "octocat", false ], [ run.requested_by.login, run.scheduled ]
+    assert_learning_event @repository.analytics_events.where(name: "learning_run_requested").sole
     run.find_learnings!
 
     get @path, as: :json
@@ -73,6 +74,9 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
       params: { decision: "accept", digest: suggestion.fetch("digest"), content: "Label every form field visibly." }
     assert_redirected_to @path
     assert_equal I18n.t("learnings.decisions.done.accept"), flash[:notice]
+    decisions = @repository.analytics_events.where(name: "learning_decision_recorded")
+    accepted = decisions.sole
+    assert_learning_event accepted
     get @path, as: :json
     assert_empty data.fetch("suggestions")
     learning = data.fetch("learnings").sole
@@ -82,6 +86,7 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
 
     post learning.fetch("decisionPath"), params: { decision: "retire", reason: "Our design system labels fields." }
     assert_equal I18n.t("learnings.decisions.done.retire"), flash[:notice]
+    assert_learning_event decisions.where.not(id: accepted.id).sole
     get @path, as: :json
     assert_empty data.fetch("learnings")
     assert_equal 0, data.dig("recall", "count")
@@ -93,6 +98,8 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
   test "a repository administrator can ask for the daily run that still waits, which moves it ahead" do
     Learning::Run.schedule_all!
     daily = Learning::Run.sole
+    events = @repository.analytics_events.where(name: "learning_run_requested")
+    assert_empty events
 
     get @path, as: :json
     assert_equal I18n.t("learnings.status.queued"), data.dig("status", "activity")
@@ -101,6 +108,13 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
     post repository_learnings_runs_path(@repository.route_id)
     assert_equal I18n.t("learnings.runs.requested"), flash[:notice]
     assert_equal [ false, "octocat" ], [ daily.reload.scheduled, daily.requested_by.login ]
+    event = events.sole
+    assert_learning_event event
+
+    post repository_learnings_runs_path(@repository.route_id)
+    assert_redirected_to @path
+    assert_equal daily, Learning::Run.sole
+    assert_equal event, events.sole
     get @path, as: :json
     assert_equal false, data.dig("run", "available")
   end
@@ -118,12 +132,15 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
     assert_equal I18n.t("learnings.decisions.invalid"), flash[:alert]
     post path, params: { decision: "accept", digest: "sha256:#{"0" * 64}" }
     assert_match(/\AHub could not record that decision: /, flash[:alert])
+    decisions = @repository.analytics_events.where(name: "learning_decision_recorded")
+    assert_empty decisions
     get @path, as: :json
     assert_nil data.fetch("loadError")
     assert_equal suggestion.fetch("id"), data.fetch("suggestions").sole.fetch("id")
 
     post path, params: { decision: "reject", digest: suggestion.fetch("digest"), reason: "We label fields already." }
     assert_equal I18n.t("learnings.decisions.done.reject"), flash[:notice]
+    assert_learning_event decisions.sole
     get @path, as: :json
     assert_empty data.fetch("suggestions")
     assert_empty data.fetch("learnings")
@@ -138,6 +155,7 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
     end
 
     assert_empty Learning::Run.all
+    assert_empty @repository.analytics_events.where(name: "learning_run_requested")
     assert_no_enqueued_jobs only: Learning::Run::FindLearningsJob
   end
 
@@ -170,6 +188,7 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
     record = Learning::Store.new(@repository).call("memories").sole.fetch("record")
     assert_equal "accepted", record.fetch("state")
     assert_equal Learning.person_for(User.find_by!(github_id: 1001)), record.dig("accepted", "by", "id")
+    assert_empty @repository.analytics_events.where(name: "learning_decision_recorded")
   end
 
   test "says when a run left comments for the next run" do
@@ -399,6 +418,11 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
 
   def data
     JSON.parse(response.body).fetch("data")
+  end
+
+  def assert_learning_event(event)
+    assert_equal Analytics.actor_id(user: User.find_by!(github_id: 1001)), event.actor_id
+    assert_equal({ "repository_id" => @repository.id }, event.properties)
   end
 
   # Makes saving the given security audit action fail, the way a full or locked database does.

@@ -26,7 +26,7 @@
 #
 # Check Constraints
 #
-#  analytics_events_name        (name IN ('prototype_registered', 'prototype_first_published', 'build_published', 'review_comment_created', 'review_reply_added', 'review_thread_resolved', 'review_thread_reopened'))
+#  analytics_events_name        (name IN ('prototype_registered', 'prototype_first_published', 'build_published', 'review_comment_created', 'review_reply_added', 'review_thread_resolved', 'review_thread_reopened', 'share_link_created', 'shared_preview_opened', 'template_previewed', 'canvas_pairing_approved', 'review_reaction_added', 'review_mention_added', 'notification_opened', 'learning_run_requested', 'learning_decision_recorded'))
 #  analytics_events_properties  (json_valid(properties) AND json_type(properties) = 'object')
 #
 # Retains immutable Hub-observed facts, independent of external destinations.
@@ -34,6 +34,9 @@ class Analytics::Event < ApplicationRecord
   TYPES = %w[
     prototype_registered prototype_first_published build_published
     review_comment_created review_reply_added review_thread_resolved review_thread_reopened
+    share_link_created shared_preview_opened template_previewed canvas_pairing_approved
+    review_reaction_added review_mention_added notification_opened
+    learning_run_requested learning_decision_recorded
   ].freeze
   PROPERTY_KEYS = %w[repository_id prototype_id build_id thread_id comment_id].freeze
 
@@ -60,6 +63,13 @@ class Analytics::Event < ApplicationRecord
         event.uuid = SecureRandom.uuid
         event.properties = properties.merge(repository_id: repository.id)
       end
+    end
+  end
+
+  # Reports failed page-view writes without interrupting the response.
+  def self.record_page_view(&block)
+    Rails.error.handle(ActiveRecord::ActiveRecordError, source: "replica.analytics") do
+      transaction(requires_new: true, &block)
     end
   end
 

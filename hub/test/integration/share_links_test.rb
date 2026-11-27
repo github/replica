@@ -62,6 +62,7 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     assert_no_difference [ "ShareLink.count", "FreshAuthorization.count" ] do
       post @path, params: { share_link: { build_number: @build.number, label: "Blocked", expiration: "never" } }
     end
+    assert_empty @repository.analytics_events.where(name: "share_link_created")
     assert_response :see_other
     assert_equal I18n.t("share_links.disabled"), flash[:alert]
     assert_equal "denied", SecurityAuditEvent.where(action: "share_link.create").last.outcome
@@ -138,6 +139,10 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
       assert_equal @build, share_link.build
       assert_equal @user, share_link.created_by
       assert_equal 7.days.from_now, share_link.expires_at
+      event = @repository.analytics_events.where(name: "share_link_created").sole
+      assert_equal Analytics.actor_id(user: @user), event.actor_id
+      expected = { "repository_id" => @repository.id, "prototype_id" => @prototype.id, "build_id" => @build.id }
+      assert_equal expected, event.properties
 
       follow_redirect!
       assert_includes response.body, shared_build_path(share_link.public_id)

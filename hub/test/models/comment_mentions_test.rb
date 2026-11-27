@@ -37,10 +37,13 @@ class CommentMentionsTest < ActiveSupport::TestCase
     eligible("mona", 1002)
     @root.thread.edit_body!("Hello @mona", actor: @author)
     notification = Notification.sole
+    events = @build.prototype.repository.analytics_events.where(name: "review_mention_added")
+    first_event = events.sole
     notification.update!(read_at: Time.current)
     @root.thread.edit_body!("Updated message for @mona", actor: @author)
     assert_equal notification.id, Notification.sole.id
     assert_not_nil Notification.sole.read_at
+    assert_equal first_event, events.sole
 
     @root.thread.edit_body!("No longer mentioning anyone", actor: @author)
     assert_empty CommentMention.all
@@ -50,6 +53,7 @@ class CommentMentionsTest < ActiveSupport::TestCase
     @root.thread.edit_body!("Hello again @mona", actor: @author)
     assert_not_equal notification.id, Notification.sole.id
     assert_nil Notification.sole.read_at
+    assert_equal 2, events.count
   end
 
   test "self mentions and emails do not notify" do
@@ -115,6 +119,13 @@ class CommentMentionsTest < ActiveSupport::TestCase
     reply = comment.thread.create_reply!(user: @author, body:)
     assert_equal 10, reply.comment_mentions.count
     assert_equal 20, Notification.count
+    repository = @build.prototype.repository
+    events = repository.analytics_events.where(name: "review_mention_added")
+    assert_equal [ Analytics.actor_id(user: @author) ], events.distinct.pluck(:actor_id)
+    ids = { "repository_id" => repository.id, "prototype_id" => @build.prototype.id,
+      "build_id" => @build.id, "thread_id" => comment.id }
+    expected = { ids.merge("comment_id" => comment.id) => 10, ids.merge("comment_id" => reply.id) => 10 }
+    assert_equal expected, events.pluck(:properties).tally
 
     assert_raises(ReviewComment::TooManyMentions) do
       reply.thread.edit_body!("#{body} @eleventh", actor: @author)

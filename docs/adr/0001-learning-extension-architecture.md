@@ -16,7 +16,7 @@ Before any code, we checked the repository at `7652d73`:
 6. Nothing implements or tracks the persistent, reviewed learning step.
 7. Starter's `.gitignore` already ignores `.replica/`, and prototype repositories receive only tracked starter files.
 8. No identity can read Hub comments on a schedule. Canvas access comes from interactive pairing for one user and one repository. Access tokens last 7 days, and a renewable connection lapses after 30 days without activity.
-9. Hub records seven analytics events for 90 days: `prototype_registered`, `prototype_first_published`, `build_published`, `review_comment_created`, `review_reply_added`, `review_thread_resolved`, and `review_thread_reopened`. They carry IDs, not content.
+9. At that revision, Hub recorded seven publication and review events for 90 days. The [Hub analytics guide](../../hub/docs/analytics.md#recorded-activity) lists the current events. They carry IDs, not content.
 10. Anything in `dist` can become public through a share link, which gives anyone with its URL access to one Build until it expires.
 11. Starter can use a provider registry without a new runtime dependency, because the reference code needs only Node built-ins.
 12. The smallest proof of provider swapping is one conformance suite run unchanged against two independent providers.

@@ -77,6 +77,12 @@ class CanvasPairing < ApplicationRecord
       SecurityAuditEvent.record! \
         action: "canvas_pairing.approve", outcome: "succeeded", repository:, actor: user,
         context: (Current.security_audit_context || {}).merge(canvas_pairing_id: id)
+      Analytics::Event.record! \
+        repository:,
+        name: "canvas_pairing_approved",
+        source_key: "canvas_pairing/#{id}/approved",
+        actor_id: Analytics.actor_id(user:),
+        properties: {}
     end
   end
 

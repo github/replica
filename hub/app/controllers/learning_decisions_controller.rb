@@ -27,23 +27,30 @@ class LearningDecisionsController < SuperglueController
 
   private
 
-  # Records the decision in the learning store, then its audit event. The store lives outside Hub's
-  # database, so its command runs outside any transaction, like Hub's other filesystem work. If Hub
-  # cannot save the event after the store recorded the decision, the request fails, and the store's
-  # own record of the decision still names the person who made it.
+  # The store commits outside Hub's database. Save the Hub audit and analytics events together
+  # only after the store returns the new version.
   def record_decision(store)
-    case decision
+    result = case decision
     when "accept" then accept(store)
     when "reject"
       store.call("reject", params[:memory_id], "--digest=#{params[:digest]}", "--by", person, "--reason=#{reason}")
     when "retire"
       store.call("retire", params[:memory_id], "--by", person, "--reason=#{reason}")
     end
-    record_security_audit(outcome: "succeeded")
+    memory_key = Digest::SHA256.hexdigest(result.fetch("id"))
+    Analytics::Event.transaction do
+      record_security_audit(outcome: "succeeded")
+      Analytics::Event.record! \
+        repository: @repository,
+        name: "learning_decision_recorded",
+        source_key: "learning_decision/#{@repository.id}/#{memory_key}/#{result.fetch("version")}",
+        actor_id: Analytics.actor_id(user: Current.user),
+        properties: {}
+    end
   rescue ActiveRecord::ActiveRecordError
     Rails.logger.error \
       "The learning store recorded #{security_audit_action} on #{params[:memory_id]} in " \
-      "repository #{@repository.id}, but Hub could not save its security audit event"
+      "repository #{@repository.id}, but Hub could not save its audit and analytics events"
     raise
   end
 

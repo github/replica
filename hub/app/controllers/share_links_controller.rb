@@ -21,7 +21,14 @@ class ShareLinksController < SuperglueController
   # Creates one public link for a successful Build.
   # @route POST /repositories/:repository_github_id/prototypes/:prototype_id/share_links (repository_prototype_share_links)
   def create
-    share_link = create_share_link
+    create_share_link do |link|
+      Analytics::Event.record! \
+        repository: @repository,
+        name: "share_link_created",
+        source_key: "share_link/#{link.id}/created",
+        actor_id: Analytics.actor_id(user: link.created_by),
+        properties: { prototype_id: link.prototype_id, build_id: link.build_id }
+    end
     return if performed?
 
     redirect_to management_path, status: :see_other

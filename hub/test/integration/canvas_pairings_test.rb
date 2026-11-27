@@ -39,9 +39,23 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
     assert_includes approval.fetch("permissions"), "add the learnings"
     assert_equal CanvasPairing::LEARNINGS_CONSENT_VERSION, approval.fetch("learningsConsentVersion")
 
-    post approve_canvas_pairing_path(pairing.fetch("userCode")),
+    repository = Repository.find_by!(github_id: 2001)
+    payload = repository_payload(repository.github_id, repository.name_with_owner)
+    events = repository.analytics_events.where(name: "canvas_pairing_approved")
+    stub_github_permissions([ payload ], { 2001 => nil })
+    post approval.fetch("approvePath")
+    assert_response :not_found
+    assert_empty events
+    stub_github_permissions([ payload ], { 2001 => "admin" })
+    post approval.fetch("approvePath"),
       params: { learnings_consent_version: approval.fetch("learningsConsentVersion") }
     assert_redirected_to canvas_connections_path
+    event = events.sole
+    assert_equal Analytics.actor_id(user: User.find_by!(github_id: 1001)), event.actor_id
+    assert_equal({ "repository_id" => repository.id }, event.properties)
+
+    post approval.fetch("approvePath")
+    assert_response :gone
 
     get canvas_connections_path, as: :json
     assert_response :success
@@ -67,6 +81,7 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
 
     post canvas_api_pairing_token_path, params: { device_code: pairing.fetch("deviceCode") }, as: :json
     assert_equal "expired", JSON.parse(response.body).fetch("status")
+    assert_equal event, events.sole
 
     delete canvas_connection_path(CanvasGrant.first)
     assert_redirected_to canvas_connections_path

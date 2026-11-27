@@ -53,7 +53,7 @@ module HasShareLinkContext
     end
   end
 
-  def create_share_link
+  def create_share_link(&on_create)
     raise SharingSetting::Disabled if !SharingSetting.enabled?
 
     attributes = share_link_params
@@ -75,7 +75,8 @@ module HasShareLinkContext
       label: attributes[:label],
       expiration: attributes[:expiration],
       authorization_proof: @repository.authorization.share_link_creation_proof,
-      sharing_revision: @sharing_revision
+      sharing_revision: @sharing_revision,
+      &on_create
   end
 
   def share_link_params

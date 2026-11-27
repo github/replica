@@ -28,6 +28,7 @@ class SessionRevocationConcurrencyTest < ActiveSupport::TestCase
     Session.where(user_id: @actor.id).delete_all
     Build.where(prototype_id: Prototype.where(repository_id: @repository.id).select(:id)).delete_all
     Prototype.where(repository_id: @repository.id).destroy_all
+    Analytics::Event.where(repository: @repository).delete_all
     Repository.where(id: @repository.id).delete_all
     User.where(id: @actor.id).delete_all
     GithubAppConfiguration.where(id: @configuration.id).delete_all

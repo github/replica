@@ -4,6 +4,7 @@
 # Database name: primary
 #
 #  id                 :integer          not null, primary key
+#  analytics_opened   :boolean          default(FALSE), not null
 #  kind               :string           not null
 #  lock_version       :integer          default(0), not null
 #  read_at            :datetime
@@ -73,6 +74,27 @@ class Notification < ApplicationRecord
       repository.reviewable_prototypes.ids
     end
     relation.where(prototypes: { id: prototype_ids })
+  end
+
+  # Counts an authorized recipient's first open even if the event later expires.
+  def record_opened_by(user)
+    return if analytics_opened?
+
+    Analytics::Event.record_page_view do
+      # An analytics write must not invalidate an inbox read/unread update.
+      claimed = self.class.where(id:, analytics_opened: false).update_all \
+        analytics_opened: true,
+        lock_version: self.class.arel_table[:lock_version]
+      next if claimed.zero?
+
+      comment = review_comment
+      Analytics::Event.record! \
+        repository: comment.prototype.repository,
+        name: "notification_opened",
+        source_key: "notification/#{id}/opened",
+        actor_id: Analytics.actor_id(user:),
+        properties: comment.analytics_properties
+    end
   end
 
   # Creates a mention notification and its primary and context resources atomically.

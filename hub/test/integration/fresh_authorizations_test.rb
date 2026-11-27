@@ -73,9 +73,12 @@ class FreshAuthorizationsTest < ActionDispatch::IntegrationTest
     form = verify_pending_action(challenge, path: @analytics_path, method: "post")
     assert_not_includes response.body, "submitted-secret"
     assert_empty @repository.analytics_destinations
-    continue_pending_action(form, destination: analytics_configuration.merge(credentials: { write_key: "injected" }))
+    continue_pending_action(form, destination: analytics_configuration.merge(
+      credentials: { write_key: "injected" }, event_types: [ "prototype_registered" ]
+    ))
     destination = @repository.analytics_destinations.sole
     assert_equal "submitted-secret", destination.credentials.fetch("write_key")
+    assert_equal Analytics::Event::TYPES, destination.event_types
     assert_nil challenge.reload.pending_action
     assert_no_difference("Analytics::Destination.count") do
       continue_pending_action(form)

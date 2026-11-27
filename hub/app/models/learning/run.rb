@@ -110,7 +110,19 @@ class Learning::Run < ApplicationRecord
     # one already waiting or running for that repository. A daily run still waiting becomes the
     # request, so it moves ahead too.
     def request!(repository:, user:)
-      promote!(start!(repository:, requested_by: user), user).tap { dispatch! }
+      transaction do
+        run = start!(repository:, requested_by: user)
+        if run.previously_new_record? || promote!(run, user)
+          Analytics::Event.record! \
+            repository:,
+            name: "learning_run_requested",
+            source_key: "learning_run/#{run.id}/requested",
+            actor_id: Analytics.actor_id(user:),
+            properties: {}
+        end
+        dispatch!
+        run
+      end
     end
 
     # Ends runs that a restart stopped, starts the next waiting run, and removes finished runs older
@@ -152,7 +164,7 @@ class Learning::Run < ApplicationRecord
     def promote!(run, user)
       promoted = where(id: run.id, state: "queued", scheduled: true)
         .update_all(scheduled: false, requested_by_id: user.id, updated_at: Time.current)
-      promoted.zero? ? run : run.reload
+      run.reload if promoted.positive?
     end
 
     def due?(repository)

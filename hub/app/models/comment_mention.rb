@@ -33,4 +33,18 @@ class CommentMention < ApplicationRecord
 
   validates :login, presence: true
   validates :github_identity_id, uniqueness: { scope: :review_comment_id }
+
+  after_create :record_analytics_creation
+
+  private
+
+  # Attributes the mention to the message's author, not the recipient.
+  def record_analytics_creation
+    Analytics::Event.record! \
+      repository: review_comment.prototype.repository,
+      name: "review_mention_added",
+      source_key: "mention/#{id}/added",
+      actor_id: Analytics.actor_id(user: review_comment.user),
+      properties: review_comment.analytics_properties
+  end
 end

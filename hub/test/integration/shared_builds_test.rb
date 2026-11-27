@@ -151,6 +151,10 @@ class SharedBuildsTest < ActionDispatch::IntegrationTest
       HubContentSecurityPolicy.build(development: false).build(Object.new, nonce, %w[script-src]),
       response.headers["Content-Security-Policy"]
     assert_select "script[nonce]", text: /SUPERGLUE_INITIAL_PAGE_STATE=/
+
+    get shared_build_path(@share_link.public_id), headers: { "User-Agent" => "PreviewBot/1.0" }
+    assert_response :success
+    assert_empty @repository.analytics_events.where(name: "shared_preview_opened")
   end
 
   test "anonymous share pages and preview files do not observe creator permission loss" do
@@ -216,6 +220,10 @@ class SharedBuildsTest < ActionDispatch::IntegrationTest
     get share_preview_authorization_path(@share_link.public_id)
 
     assert_response :redirect
+    event = @repository.analytics_events.where(name: "shared_preview_opened").sole
+    assert_nil event.actor_id
+    expected = { "repository_id" => @repository.id, "prototype_id" => @prototype.id, "build_id" => @build.id }
+    assert_equal expected, event.properties
     grant = Rack::Utils.parse_query(URI(response.location).query).fetch("grant")
     assert_equal \
       "s#{@build.id}.preview.replica.localhost",
@@ -330,14 +338,19 @@ class SharedBuildsTest < ActionDispatch::IntegrationTest
 
   test "starts public previews on the saved route and preserves explicit destinations" do
     @prototype.update!(start_page: "/settings?tab=profile#details")
+    events = @repository.analytics_events.where(name: "shared_preview_opened")
     [ [ nil, "/settings?tab=profile#details" ], [ "/specific?q=1#comment", "/specific?q=1#comment" ],
-      [ "/", "/" ] ].each do |return_path, expected|
+      [ "/", "/" ], [ nil, "/settings?tab=profile#details" ] ].each do |return_path, expected|
       host! "replica.localhost:19500"
-      get share_preview_authorization_path(@share_link.public_id), params: { return_path: }
+      assert_difference -> { events.count }, 1 do
+        get share_preview_authorization_path(@share_link.public_id), params: { return_path: }
+      end
       assert_response :redirect
       grant = Rack::Utils.parse_query(URI(response.location).query).fetch("grant")
       host! "s#{@build.id}.preview.replica.localhost:19500"
-      get "/__replica/authorize", params: { grant: }
+      assert_no_difference -> { events.count } do
+        get "/__replica/authorize", params: { grant: }
+      end
       assert_redirected_to expected
     end
   end
@@ -350,6 +363,27 @@ class SharedBuildsTest < ActionDispatch::IntegrationTest
 
     get share_preview_authorization_path(@share_link.public_id, return_path: "//example.com")
     assert_response :not_found
+    assert_empty @repository.analytics_events.where(name: "shared_preview_opened")
+  end
+
+  test "issues a usable public preview grant even if its analytics write fails" do
+    original = Analytics::Event.method(:record!)
+    attempted = false
+    Analytics::Event.define_singleton_method(:record!) do |**attributes|
+      if attributes[:name] == "shared_preview_opened"
+        attempted = true
+        raise ActiveRecord::StatementInvalid, "database is locked"
+      end
+
+      original.call(**attributes)
+    end
+
+    authorize_share_preview
+    assert attempted
+    get "/"
+    assert_response :success
+  ensure
+    Analytics::Event.define_singleton_method(:record!, original) if original
   end
 
   test "rejects control characters and whitespace forwarded through public shells" do

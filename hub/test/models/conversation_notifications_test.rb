@@ -141,20 +141,31 @@ class ConversationNotificationsTest < ActiveSupport::TestCase
     assert_no_difference [ "Notification.count", "ReviewCommentReaction.count" ] do
       @root.thread.add_reaction!(user: @participant, content: "+1", activity_version: @root.activity_version)
     end
+    assert_equal 1, @build.prototype.repository.analytics_events.where(name: "review_reaction_added").count
     assert_no_difference "Notification.count" do
       @root.thread.add_reaction!(user: @author, content: "heart", activity_version: @root.activity_version)
     end
   end
 
   test "removing a reaction withdraws its notification and readding creates new unread activity" do
-    reaction = @root.thread.add_reaction!(user: @participant, content: "+1", activity_version: @root.activity_version)
+    reply = @root.replies.sole
+    repository = @build.prototype.repository
+    events = repository.analytics_events.where(name: "review_reaction_added")
+    reaction = reply.thread.add_reaction!(user: @actor, content: "+1", activity_version: @root.activity_version)
     notification = Notification.find_by!(source_key: "reaction/#{reaction.id}")
+    event = events.sole
+    assert_equal Analytics.actor_id(user: @actor), event.actor_id
+    expected = { "repository_id" => repository.id, "prototype_id" => @build.prototype.id, "build_id" => @build.id,
+      "thread_id" => @root.id, "comment_id" => reply.id }
+    assert_equal expected, event.properties
     notification.update!(read_at: Time.current)
-    @root.thread.remove_reaction!(user: @participant, content: "+1", activity_version: @root.activity_version)
+    reply.thread.remove_reaction!(user: @actor, content: "+1", activity_version: @root.activity_version)
     assert_not Notification.exists?(notification.id)
     assert_not NotificationResource.exists?(notification_id: notification.id)
-    added = @root.thread.add_reaction!(user: @participant, content: "+1", activity_version: @root.activity_version)
+    assert_equal event, events.sole
+    added = reply.thread.add_reaction!(user: @actor, content: "+1", activity_version: @root.activity_version)
     assert_nil Notification.find_by!(source_key: "reaction/#{added.id}").read_at
+    assert_equal 2, events.count
   end
 
   test "resolution transitions notify participants once per actual transition" do
