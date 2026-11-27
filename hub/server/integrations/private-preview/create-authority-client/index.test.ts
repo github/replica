@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer, type RequestListener } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -29,7 +29,11 @@ function exchangeInput() {
 
 describe("createAuthorityClient()", () => {
   it("uses authenticated POSTs and returns valid exchange and file replies", async () => {
-    const exchanged = { access: randomBytes(32).toString("base64url"), startPage: "/" }
+    const exchanged = {
+      access: randomBytes(32).toString("base64url"),
+      startPage: "/",
+      buildId: randomUUID(),
+    }
     const file = { storageKey: "sample-artifact", byteLength: 12, path: "dist/index.html" }
     const requests: {
       path: string | undefined
@@ -97,6 +101,27 @@ describe("createAuthorityClient()", () => {
 
     if (status === 404) await expect(result).resolves.toBeNull()
     else await expect(result).rejects.toThrow("Private preview authority is unavailable.")
+  })
+
+  it("reports an ended reader session only when Hub marks the file denial", async () => {
+    const fileInput = {
+      repositoryId: "901",
+      runId: "1201",
+      access: randomBytes(32).toString("base64url"),
+      path: "dist/index.html",
+      allowEntryPointFallback: true,
+    }
+    for (const [headers, expected] of [
+      [{ "x-replica-preview-session-ended": "1" }, "session-ended"],
+      [{}, null],
+    ] as const) {
+      const { client } = await startAuthority((_request, response) => {
+        response.writeHead(404, headers)
+        response.end()
+      })
+
+      await expect(client.authorizeFile("/file", fileInput)).resolves.toBe(expected)
+    }
   })
 
   it("does not follow a redirect from the configured authority", async () => {

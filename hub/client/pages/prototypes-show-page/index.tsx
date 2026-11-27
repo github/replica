@@ -142,33 +142,36 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
     address = viewerUrl ?? address
     externalAddress = viewerUrl ?? externalAddress
   }
-  const privatePreviewActions = data.privatePreviewUrl ? (
-    <div className="review-shell__address-bar">
-      {data.privateReviewLink === null ? (
-        <span role="status">This exact review location cannot be copied.</span>
-      ) : (
-        <CopyableTextInput
-          compact
-          value={data.privateReviewLink ?? data.privatePreviewUrl}
-          label={data.privatePreviewLinkLabel}
-          copyLabel={data.copyPrivatePreviewLinkLabel}
-          copiedLabel={data.copiedPrivatePreviewLinkLabel}
-          copyErrorLabel={data.copyPreviewUrlErrorLabel}
-        />
-      )}
-      <HubIconButton
-        as="a"
-        href={data.privatePreviewUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        icon={LinkExternalIcon}
-        aria-label={data.openPrivatePreviewInNewTabLabel}
-        description={data.openPrivatePreviewInNewTabLabel}
-        variant="invisible"
-        size="small"
-      />
-    </div>
-  ) : null
+  const privatePreviewActions =
+    data.privatePreviewUrl && data.privatePreviewBuildId ? (
+      <div className="review-shell__address-bar">
+        {data.privateReviewLink ? (
+          <CopyableTextInput
+            compact
+            value={data.privateReviewLink}
+            label={data.privatePreviewLinkLabel}
+            copyLabel={data.copyPrivatePreviewLinkLabel}
+            copiedLabel={data.copiedPrivatePreviewLinkLabel}
+            copyErrorLabel={data.copyPreviewUrlErrorLabel}
+          />
+        ) : (
+          <span role="status">This exact review location cannot be copied.</span>
+        )}
+        {/* One same-origin POST opens the exact Build in a new tab without a confirmation page. */}
+        <form method="post" action={data.privatePreviewUrl} target="_blank" rel="noopener">
+          <input type="hidden" name="start" value="one-click" />
+          <input type="hidden" name="buildId" value={data.privatePreviewBuildId} />
+          <HubIconButton
+            type="submit"
+            icon={LinkExternalIcon}
+            aria-label={data.openPrivatePreviewInNewTabLabel}
+            description={data.openPrivatePreviewInNewTabLabel}
+            variant="invisible"
+            size="small"
+          />
+        </form>
+      </div>
+    ) : null
 
   function branchFromHere() {
     setInfoMode(null)

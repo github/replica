@@ -57,6 +57,7 @@ export const buildSchema = z.object({
   finishedAt: timestamp.nullable(),
   previewUrl: httpUrl.nullable(),
   privatePreviewUrl: httpUrl.optional(),
+  privatePreviewBuildId: z.uuid().optional(),
   desktopScreenshotUrl: httpUrl.nullable(),
   narrowScreenshotUrl: httpUrl.nullable(),
   failureSummary: z.string().nullable(),

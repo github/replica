@@ -5,7 +5,11 @@ export const privatePreviewManifestPath = "dist/replica-preview-base.json"
 export const maximumPrivatePreviewManifestBytes = 256
 export const maximumPrivatePreviewFileBytes = maximumDistFileBytes
 export const grantLifetime = 30_000
-export const sessionLifetime = 15 * 60_000
+export const sessionLifetime = 8 * 60 * 60_000
+export const buildMarkerLifetime = 24 * 60 * 60_000
+export const resumeTokenPattern = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/
+export const maximumResumeTokenLength = 3500
+export const previewSessionEndedHeader = "X-Replica-Preview-Session-Ended"
 export const readerExchangePath = "/api/private-preview/reader/exchange"
 export const readerAuthorizePath = "/api/private-preview/reader/file"
 
@@ -25,25 +29,34 @@ export interface PrivatePreviewFile {
   path: string
 }
 
+export interface PrivatePreviewIntent {
+  id: string
+  buildId: string
+  expiresAt: Date
+}
+
 export interface PrivatePreviewAuthority {
+  launchDeadline(): Promise<Date>
   launch(
     session: string,
     address: PrivatePreviewAddress,
+    buildId: string,
   ): Promise<"allowed" | "denied" | "incompatible">
   issue(
     session: string,
     address: PrivatePreviewAddress,
     challengeDigest: string,
+    intent: PrivatePreviewIntent,
   ): Promise<string | null>
   exchange(
     grant: string,
     address: PrivatePreviewAddress,
     challengeDigest: string,
-  ): Promise<{ access: string; startPage: string } | null>
+  ): Promise<{ access: string; startPage: string; buildId: string } | null>
   authorizeFile(
     access: string,
     address: PrivatePreviewAddress,
     path: string,
     allowEntryPointFallback: boolean,
-  ): Promise<PrivatePreviewFile | null>
+  ): Promise<PrivatePreviewFile | "session-ended" | null>
 }

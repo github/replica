@@ -12,7 +12,6 @@ import {
   maximumPrivatePreviewFileBytes,
   maximumPrivatePreviewManifestBytes,
   privatePreviewManifestPath,
-  sessionLifetime,
   type PrivatePreviewAuthority,
   type PrivatePreviewTarget,
 } from "../types.ts"
@@ -44,6 +43,12 @@ interface Dependencies<CurrentViewer extends Viewer> {
   ): Promise<{ storageKey: string; byteLength: number } | null>
 }
 
+const signedOut = Symbol("signed out")
+
+function granted<Result>(value: Result | null | typeof signedOut) {
+  return value === signedOut ? null : value
+}
+
 export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
   readerOrigin,
   storage,
@@ -59,9 +64,9 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
     address: PrivatePreviewAddress,
     read: (target: PrivatePreviewTarget) => Result | Promise<Result>,
     expectedBuildId?: string,
-  ): Promise<Result | null> {
+  ): Promise<Result | null | typeof signedOut> {
     const viewer = await restoreSession(sessionDigest)
-    if (!viewer) return null
+    if (!viewer) return signedOut
     const target = await findTarget(address)
     if (
       !target ||
@@ -74,8 +79,8 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
     const currentTarget = await findTarget(address)
     if (currentTarget?.buildId !== target.buildId) return null
     const current = await restoreSession(sessionDigest)
+    if (!current) return signedOut
     if (
-      !current ||
       current.userId !== viewer.userId ||
       current.membershipId !== viewer.membershipId ||
       current.externalIdentityId !== viewer.externalIdentityId ||
@@ -102,38 +107,55 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
   }
 
   return {
-    async launch(sessionDigest, address) {
+    async launchDeadline() {
+      return new Date((await access.clock()).getTime() + grantLifetime)
+    },
+    async launch(sessionDigest, address, buildId) {
       return (
-        (await withAccess(sessionDigest, address, async (target) =>
-          (await isCompatible(target, address)) ? "allowed" : "incompatible",
-        )) ?? "denied"
+        granted(
+          await withAccess(
+            sessionDigest,
+            address,
+            async (target) => ((await isCompatible(target, address)) ? "allowed" : "incompatible"),
+            buildId,
+          ),
+        ) ?? "denied"
       )
     },
-    async issue(sessionDigest, address, challengeDigest) {
-      const target = await withAccess(sessionDigest, address, async (candidate) =>
-        (await isCompatible(candidate, address)) ? candidate : null,
+    async issue(sessionDigest, address, challengeDigest, intent) {
+      if (intent.expiresAt <= (await access.clock())) return null
+      const target = granted(
+        await withAccess(
+          sessionDigest,
+          address,
+          async (candidate) => ((await isCompatible(candidate, address)) ? candidate : null),
+          intent.buildId,
+        ),
       )
       if (!target) return null
       const grant = randomBytes(32).toString("base64url")
-      await access.issue({
+      const issued = await access.issue({
+        id: intent.id,
         tokenDigest: hashAuthenticationValue(grant),
         sessionDigest,
         buildId: target.buildId,
         readerOrigin,
         challengeDigest,
-        expiresAt: new Date(Date.now() + grantLifetime),
+        expiresAt: intent.expiresAt,
       })
-      return grant
+      return issued ? grant : null
     },
     async exchange(grant, address, challengeDigest) {
       const grantDigest = hashAuthenticationValue(grant)
       const handoff = await access.read(grantDigest, readerOrigin, challengeDigest)
       if (!handoff) return null
-      const startPage = await withAccess(
-        handoff.sessionDigest,
-        address,
-        (target) => normalizeStartPage(target.startPage),
-        handoff.buildId,
+      const startPage = granted(
+        await withAccess(
+          handoff.sessionDigest,
+          address,
+          (target) => normalizeStartPage(target.startPage),
+          handoff.buildId,
+        ),
       )
       if (!startPage) return null
       const token = randomBytes(32).toString("base64url")
@@ -142,10 +164,8 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
         tokenDigest: hashAuthenticationValue(token),
         readerOrigin,
         challengeDigest,
-        grantExpiresAt: handoff.expiresAt,
-        expiresAt: new Date(Date.now() + sessionLifetime),
       })
-      return exchanged ? { access: token, startPage } : null
+      return exchanged ? { access: token, startPage, buildId: handoff.buildId } : null
     },
     async authorizeFile(token, address, path, allowEntryPointFallback) {
       if (
@@ -154,8 +174,9 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
         path === privatePreviewManifestPath
       )
         return null
+      // An ended reader or Hub session lets the reader renew a prototype navigation through Hub.
       const session = await access.read(hashAuthenticationValue(token), readerOrigin, null)
-      if (!session) return null
+      if (!session) return "session-ended"
       const file = await withAccess(
         session.sessionDigest,
         address,
@@ -176,7 +197,9 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
         },
         session.buildId,
       )
-      return session.expiresAt.getTime() > Date.now() ? file : null
+      if (file === signedOut) return "session-ended"
+      if (!file) return null
+      return session.expiresAt > (await access.clock()) ? file : "session-ended"
     },
   }
 }

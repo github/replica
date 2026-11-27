@@ -280,15 +280,17 @@ try {
               const { findPrivatePreviewDistFile } =
                 await import("./repositories/private-previews/find-private-preview-dist-file/index.ts")
               const { prisma } = await import("./integrations/prisma/index.ts")
+              const restoreSession = authentication.currentSession.restore.bind(
+                authentication.currentSession,
+              )
               privatePreview = {
                 settings: privatePreviewSettings,
+                hasCurrentHubSession: async (digest) => Boolean(await restoreSession(digest)),
                 authority: createPrivatePreviewAuthority({
                   readerOrigin: privatePreviewSettings.readerOrigin,
                   storage,
                   access: createPrivatePreviewAccessStore(prisma),
-                  restoreSession: authentication.currentSession.restore.bind(
-                    authentication.currentSession,
-                  ),
+                  restoreSession,
                   isRepositoryVisible: product.isRepositoryVisible.bind(product),
                   hasCurrentRepositoryAccess: async (viewer, repositoryId) => {
                     if (!canViewPrivatePreview(viewer, authenticationConfiguration.localConfigured))

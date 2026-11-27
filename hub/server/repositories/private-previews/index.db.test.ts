@@ -33,6 +33,7 @@ describe("createPrivatePreviewAccessStore()", () => {
     const { id: buildId } = await createAccessBuild()
     const grantExpiresAt = new Date(Date.now() + 30_000)
     await store.issue({
+      id: randomUUID(),
       tokenDigest: grantDigest,
       sessionDigest,
       buildId,
@@ -49,18 +50,16 @@ describe("createPrivatePreviewAccessStore()", () => {
           tokenDigest,
           readerOrigin,
           challengeDigest,
-          grantExpiresAt,
-          expiresAt: new Date(Date.now() + 60_000),
         }),
       ),
     )
 
     expect(attempts.filter(Boolean)).toHaveLength(1)
     const [winner, loser] = attempts[0] ? accessDigests : accessDigests.toReversed()
-    await expect(store.read(winner!, readerOrigin, null)).resolves.toMatchObject({
-      buildId,
-      sessionDigest,
-    })
+    const winning = await store.read(winner!, readerOrigin, null)
+    expect(winning).toMatchObject({ buildId, sessionDigest })
+    // The reader session lasts eight hours from the exchange, measured by the database.
+    expect(winning!.expiresAt.getTime() - Date.now()).toBeGreaterThan(8 * 60 * 60_000 - 60_000)
     await expect(store.read(loser!, readerOrigin, null)).resolves.toBeNull()
     await expect(store.read(grantDigest, readerOrigin, challengeDigest)).resolves.toBeNull()
   })
@@ -73,8 +72,10 @@ describe("createPrivatePreviewAccessStore()", () => {
       const grantDigest = digest()
       const challengeDigest = digest()
       const { id: buildId } = await createAccessBuild()
-      const grantExpiresAt = new Date(Date.now() + (condition === "expired" ? -30_000 : 30_000))
+      const grantExpiresAt = new Date(Date.now() + 30_000)
+      const id = randomUUID()
       await store.issue({
+        id,
         tokenDigest: grantDigest,
         sessionDigest: digest(),
         buildId,
@@ -83,6 +84,12 @@ describe("createPrivatePreviewAccessStore()", () => {
         expiresAt: grantExpiresAt,
       })
 
+      if (condition === "expired") {
+        await prisma.privatePreviewAccess.update({
+          where: { id },
+          data: { expiresAt: new Date(Date.now() - 1_000) },
+        })
+      }
       const tokenDigest = digest()
       await expect(
         store.exchange({
@@ -90,8 +97,6 @@ describe("createPrivatePreviewAccessStore()", () => {
           tokenDigest,
           readerOrigin: condition === "wrong origin" ? "https://other.example.org" : readerOrigin,
           challengeDigest: condition === "wrong browser" ? digest() : challengeDigest,
-          grantExpiresAt,
-          expiresAt: new Date(Date.now() + 60_000),
         }),
       ).resolves.toBe(false)
       await expect(store.read(tokenDigest, readerOrigin, null)).resolves.toBeNull()
@@ -100,6 +105,34 @@ describe("createPrivatePreviewAccessStore()", () => {
       }
     },
   )
+
+  it("issues at most one handoff per launch ID, even after its exchange", async () => {
+    const store = createPrivatePreviewAccessStore(prisma)
+    const readerOrigin = "https://preview.example.net"
+    const { id: buildId } = await createAccessBuild()
+    const id = randomUUID()
+    const challengeDigest = digest()
+    const grantDigest = digest()
+    const claim = {
+      id,
+      sessionDigest: digest(),
+      buildId,
+      readerOrigin,
+      challengeDigest,
+      expiresAt: new Date(Date.now() + 30_000),
+    }
+
+    await expect(store.issue({ ...claim, tokenDigest: grantDigest })).resolves.toBe(true)
+    await expect(store.issue({ ...claim, tokenDigest: digest() })).resolves.toBe(false)
+    await expect(
+      store.exchange({ grantDigest, tokenDigest: digest(), readerOrigin, challengeDigest }),
+    ).resolves.toBe(true)
+    await expect(store.issue({ ...claim, tokenDigest: digest() })).resolves.toBe(false)
+    await expect(
+      store.issue({ ...claim, id: randomUUID(), tokenDigest: digest(), expiresAt: new Date(0) }),
+    ).resolves.toBe(false)
+    await expect(prisma.privatePreviewAccess.count({ where: { buildId } })).resolves.toBe(1)
+  })
 })
 
 function distArtifact(path = "dist/index.html") {

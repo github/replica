@@ -17,6 +17,7 @@ export function privatePreviewAddress(repositoryId: string, runId: string) {
     runId,
     mount: `/previews/github/${key}/`,
     launch: `/api/private-preview/launch/${key}`,
+    launchReturn: `/api/private-preview/launch/${key}/return`,
     begin: `/__replica/begin/${key}`,
     exchange: `/__replica/exchange/${key}`,
   }

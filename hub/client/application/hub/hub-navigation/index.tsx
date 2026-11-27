@@ -92,17 +92,25 @@ export function HubNavigation({ children }: PropsWithChildren) {
       submitter?.getAttribute("formaction") ?? event.target.action,
       document.baseURI,
     )
+    const opensPrivatePrototype =
+      (submitter?.getAttribute("formtarget") ?? event.target.target) === "_blank" &&
+      /^\/api\/private-preview\/launch\/[1-9][0-9]{0,18}\/[1-9][0-9]{0,18}$/.test(
+        destination.pathname,
+      ) &&
+      !destination.search &&
+      !destination.hash
     if (
       method === "post" &&
       destination.origin === window.location.origin &&
-      [
-        "/api/auth/github/start",
-        "/api/auth/github/admin-enrollment/start",
-        "/api/auth/entra/start",
-        "/api/auth/entra/admin-enrollment/start",
-        "/api/auth/local/start",
-        "/api/auth/session/sign-out",
-      ].includes(destination.pathname)
+      (opensPrivatePrototype ||
+        [
+          "/api/auth/github/start",
+          "/api/auth/github/admin-enrollment/start",
+          "/api/auth/entra/start",
+          "/api/auth/entra/admin-enrollment/start",
+          "/api/auth/local/start",
+          "/api/auth/session/sign-out",
+        ].includes(destination.pathname))
     )
       return
     if (method === "get") {

@@ -369,6 +369,7 @@ export const StandalonePrivatePreview: Story = {
       emptyHeading: "Private preview",
       emptyLabel: "This Build opens in a separate tab.",
       privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privatePreviewBuildId: "00000000-0000-4000-8000-000000000003",
       privateReviewLink: "https://hub.example.com/repositories/2001/prototypes/1?build=3",
     },
   },
@@ -379,6 +380,7 @@ export const PrivateLinkWithEmbeddedReview: Story = {
     data: {
       ...data,
       privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privatePreviewBuildId: "00000000-0000-4000-8000-000000000003",
       privateReviewLink: "https://hub.example.com/repositories/2001/prototypes/1?build=3",
     },
   },
@@ -389,6 +391,7 @@ export const PrivateReviewLocationUnavailable: Story = {
     data: {
       ...data,
       privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privatePreviewBuildId: "00000000-0000-4000-8000-000000000003",
       privateReviewLink: null,
     },
   },

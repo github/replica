@@ -1,9 +1,10 @@
-import { createHash, randomBytes } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer, request as httpRequest, type IncomingHttpHeaders } from "node:http"
 import type { AddressInfo } from "node:net"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { createLaunchProof } from "../../domains/private-preview/create-launch-proof"
 import { privatePreviewAddress } from "../../utils/private-preview-address"
 import { createPrivatePreviewReader } from "."
 
@@ -11,6 +12,31 @@ const address = privatePreviewAddress("901", "1201")!
 const settings = {
   hubOrigin: "https://hub.example.com",
   readerOrigin: "https://preview.example.net",
+  readerSecret: randomBytes(32).toString("base64url"),
+}
+const proof = createLaunchProof(settings)
+const buildId = randomUUID()
+const formHeaders = {
+  origin: settings.hubOrigin,
+  "content-type": "application/x-www-form-urlencoded",
+}
+
+function digest(value: string) {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+function cookiePair(header: string) {
+  return header.split(";")[0]!
+}
+
+function cookieValue(header: string) {
+  const pair = cookiePair(header)
+  return pair.slice(pair.indexOf("=") + 1)
+}
+
+function formValue(body: string, action: string, field: string) {
+  expect(body).toContain(`<form method="post" action="${action}">`)
+  return body.match(new RegExp(`name="${field}" value="([^"]+)"`))?.[1]
 }
 const assetPath = `${address.mount}style.css`
 const fixtureBytes = Buffer.from("body { color: black; }")
@@ -23,7 +49,9 @@ const asset = {
 async function startReader(startPage = "/") {
   type ReaderOptions = Parameters<typeof createPrivatePreviewReader>[0]
   const access = randomBytes(32).toString("base64url")
-  const exchange = vi.fn<ReaderOptions["exchange"]>().mockResolvedValue({ access, startPage })
+  const exchange = vi
+    .fn<ReaderOptions["exchange"]>()
+    .mockResolvedValue({ access, startPage, buildId })
   const authorizeFile = vi.fn<ReaderOptions["authorizeFile"]>().mockResolvedValue(asset)
   const readArtifact = vi
     .fn<ReaderOptions["readArtifact"]>()
@@ -76,49 +104,67 @@ async function startReader(startPage = "/") {
     )
   }
 
-  async function signIn() {
-    const begin = await request(address.begin)
-    expect(begin.status).toBe(302)
-    const challenge = begin.headers["set-cookie"]![0]!
-    const challengeCookie = challenge.split(";")[0]!
-    const grant = randomBytes(32).toString("base64url")
-    const exchanged = await request(address.exchange, {
+  async function begin(intent = proof.start(address, buildId, digest("session"), new Date())) {
+    return request(address.begin, {
       method: "POST",
-      headers: {
-        origin: settings.hubOrigin,
-        cookie: challengeCookie,
-        "content-type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({ grant }).toString(),
+      headers: formHeaders,
+      body: new URLSearchParams({ intent }).toString(),
     })
-    expect(exchanged.status).toBe(303)
-    const cookie = exchanged.headers["set-cookie"]!.find((value) => value.includes(`=${access};`))!
-    return { begin, challenge, challengeCookie, grant, exchanged, cookie }
   }
 
-  return { request, signIn, access, exchange, authorizeFile, readArtifact }
+  function exchangeTicket(ticket: string, cookie?: string) {
+    return request(address.exchange, {
+      method: "POST",
+      headers: { ...formHeaders, ...(cookie ? { cookie } : {}) },
+      body: new URLSearchParams({ grant: ticket }).toString(),
+    })
+  }
+
+  async function signIn() {
+    const begun = await begin()
+    expect(begun.status).toBe(200)
+    const challenge = begun.headers["set-cookie"]![0]!
+    const continuation = formValue(
+      begun.body,
+      `${settings.hubOrigin}${address.launchReturn}`,
+      "continuation",
+    )!
+    const { id } = proof.read(continuation, address)!
+    const grant = randomBytes(32).toString("base64url")
+    const exchanged = await exchangeTicket(`${id}.${grant}`, cookiePair(challenge))
+    expect(exchanged.status).toBe(303)
+    const cookies = exchanged.headers["set-cookie"]!
+    const cookie = cookies.find((value) => value.includes(`=${access};`))!
+    const marker = cookies.find((value) => value.startsWith("__Host-replica-preview-build-"))!
+    return { begun, challenge, continuation, id, grant, exchanged, cookie, marker }
+  }
+
+  return { request, begin, exchangeTicket, signIn, access, exchange, authorizeFile, readArtifact }
 }
 
 describe("createPrivatePreviewReader()", () => {
   it("binds the handoff and checks documents and assets before and after each read", async () => {
     const { request, signIn, access, exchange, authorizeFile, readArtifact } = await startReader()
-    const { begin, challenge, challengeCookie, grant, exchanged, cookie } = await signIn()
-    const challengeDigest = createHash("sha256")
-      .update(challengeCookie.slice(challengeCookie.indexOf("=") + 1))
-      .digest("hex")
-    const launch = new URL(begin.headers.location!)
-    expect(launch.origin).toBe(settings.hubOrigin)
-    expect(launch.pathname).toBe(address.launch)
-    expect(launch.searchParams.get("challenge")).toBe(challengeDigest)
+    const { challenge, continuation, id, grant, exchanged, cookie, marker } = await signIn()
+    const challengeDigest = digest(cookieValue(challenge))
+    expect(proof.read(continuation, address)?.challenge).toBe(challengeDigest)
     expect(exchange).toHaveBeenCalledWith(grant, address, challengeDigest)
-    expect(challenge).toMatch(/;\s*HttpOnly\b/i)
-    expect(challenge).toMatch(/;\s*Secure\b/i)
-    expect(challenge).not.toMatch(/;\s*Domain=/i)
+    expect(challenge).toMatch(new RegExp(`^__Host-replica-preview-challenge-${id}=`))
+    expect(challenge).toMatch(/;\s*SameSite=None\b/i)
     expect(exchanged.headers.location).toBe(address.mount)
-    expect(cookie).toMatch(/;\s*HttpOnly\b/i)
-    expect(cookie).toMatch(/;\s*Secure\b/i)
-    expect(cookie).not.toMatch(/;\s*Domain=/i)
-    const accessCookie = cookie.split(";")[0]!
+    expect(exchanged.headers["set-cookie"]).toContainEqual(
+      expect.stringMatching(new RegExp(`^__Host-replica-preview-challenge-${id}=;.*Expires=`)),
+    )
+    expect(cookie).toMatch(/;\s*Max-Age=28800\b/i)
+    expect(cookie).toMatch(/;\s*SameSite=Lax\b/i)
+    expect(marker).toMatch(/;\s*Max-Age=86400\b/i)
+    for (const header of [challenge, cookie, marker]) {
+      expect(header).toMatch(/;\s*HttpOnly\b/i)
+      expect(header).toMatch(/;\s*Secure\b/i)
+      expect(header).toMatch(/;\s*Path=\/(?:;|$)/i)
+      expect(header).not.toMatch(/;\s*Domain=/i)
+    }
+    const accessCookie = cookiePair(cookie)
 
     const html = Buffer.from("<!doctype html><title>Synthetic preview</title>")
     const files = [
@@ -244,18 +290,188 @@ describe("createPrivatePreviewReader()", () => {
     expect(readArtifact).not.toHaveBeenCalled()
   })
 
-  it("does not exchange a grant when the browser challenge cookie is absent", async () => {
-    const { request, exchange } = await startReader()
-    const response = await request(address.exchange, {
-      method: "POST",
-      headers: { origin: settings.hubOrigin, "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant: randomBytes(32).toString("base64url") }).toString(),
-    })
+  it("does not exchange a grant without the challenge cookie for that launch", async () => {
+    const { begin, exchangeTicket, exchange } = await startReader()
+    const first = await begin()
+    const second = await begin()
+    const secondId = proof.read(
+      formValue(second.body, `${settings.hubOrigin}${address.launchReturn}`, "continuation")!,
+      address,
+    )!.id
+    const grant = randomBytes(32).toString("base64url")
 
-    expect(response.status).toBe(404)
-    expect(response.headers["set-cookie"]).toBeUndefined()
+    for (const [ticket, cookie] of [
+      [`${secondId}.${grant}`, undefined],
+      [`${secondId}.${grant}`, cookiePair(first.headers["set-cookie"]![0]!)],
+      [grant, cookiePair(second.headers["set-cookie"]![0]!)],
+    ] as const) {
+      const response = await exchangeTicket(ticket, cookie)
+      expect(response.status).toBe(404)
+      expect(response.headers["set-cookie"]).toBeUndefined()
+    }
     expect(exchange).not.toHaveBeenCalled()
   })
+
+  it("limits pending launches in one browser", async () => {
+    const { request } = await startReader()
+    const pending = Array.from(
+      { length: 12 },
+      () =>
+        `__Host-replica-preview-challenge-${randomUUID()}=${randomBytes(32).toString("base64url")}`,
+    ).join("; ")
+
+    const response = await request(address.begin, {
+      method: "POST",
+      headers: { ...formHeaders, cookie: pending },
+      body: new URLSearchParams({
+        intent: proof.start(address, buildId, digest("session"), new Date()),
+      }).toString(),
+    })
+
+    expect(response.status).toBe(429)
+    expect(response.headers["set-cookie"]).toBeUndefined()
+  })
+
+  it.each([
+    { reason: "access cookie is missing", ended: false },
+    { reason: "Hub reports the session ended", ended: true },
+  ])(
+    "silently renews a prototype navigation to its route and query when the $reason",
+    async ({ ended }) => {
+      const { request, exchangeTicket, signIn, exchange, authorizeFile } = await startReader()
+      const { cookie, marker } = await signIn()
+      if (ended) authorizeFile.mockResolvedValueOnce("session-ended")
+      const page = "/checkout/?step=2"
+
+      const navigation = await request(`${address.mount}${page.slice(1)}`, {
+        headers: {
+          cookie: [ended ? cookiePair(cookie) : null, cookiePair(marker)]
+            .filter(Boolean)
+            .join("; "),
+          "sec-fetch-dest": "document",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-site": "same-origin",
+        },
+      })
+
+      expect(navigation.status).toBe(200)
+      const token = formValue(
+        navigation.body,
+        `${settings.hubOrigin}${address.launchReturn}`,
+        "resume",
+      )!
+      const resume = proof.readResume(token, address)!
+      expect(resume).toMatchObject({ buildId, page })
+      const resumeCookie = navigation.headers["set-cookie"]![0]!
+      expect(resumeCookie).toMatch(new RegExp(`^__Host-replica-preview-resume-${resume.id}=`))
+      expect(resumeCookie).toMatch(/;\s*SameSite=None\b/i)
+      expect(resume.challenge).toBe(digest(cookieValue(resumeCookie).split(".")[0]!))
+
+      const grant = randomBytes(32).toString("base64url")
+      const renewed = await exchangeTicket(`${resume.id}.${grant}`, cookiePair(resumeCookie))
+
+      expect(renewed.status).toBe(303)
+      expect(renewed.headers.location).toBe(`${address.mount}${page.slice(1)}`)
+      expect(exchange).toHaveBeenLastCalledWith(grant, address, resume.challenge)
+    },
+  )
+
+  it("does not exchange a renewal after its signed Reader deadline", async () => {
+    const { request, exchangeTicket, signIn, exchange } = await startReader()
+    const { marker } = await signIn()
+    const navigation = await request(address.mount, {
+      headers: {
+        cookie: cookiePair(marker),
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "same-origin",
+      },
+    })
+    const token = formValue(
+      navigation.body,
+      `${settings.hubOrigin}${address.launchReturn}`,
+      "resume",
+    )!
+    const { id, expiresAt } = proof.readResume(token, address)!
+    exchange.mockClear()
+    vi.spyOn(Date, "now").mockReturnValue(expiresAt.getTime())
+    onTestFinished(() => {
+      vi.restoreAllMocks()
+    })
+
+    const renewed = await exchangeTicket(
+      `${id}.${randomBytes(32).toString("base64url")}`,
+      cookiePair(navigation.headers["set-cookie"]![0]!),
+    )
+
+    expect(renewed.status).toBe(404)
+    expect(exchange).not.toHaveBeenCalled()
+  })
+
+  it("does not renew into a different Build than the one this browser opened", async () => {
+    const { request, exchangeTicket, signIn, exchange } = await startReader()
+    const { marker } = await signIn()
+    const navigation = await request(address.mount, {
+      headers: {
+        cookie: cookiePair(marker),
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "same-origin",
+      },
+    })
+    const token = formValue(
+      navigation.body,
+      `${settings.hubOrigin}${address.launchReturn}`,
+      "resume",
+    )!
+    const { id } = proof.readResume(token, address)!
+    exchange.mockResolvedValueOnce({
+      access: randomBytes(32).toString("base64url"),
+      startPage: "/",
+      buildId: randomUUID(),
+    })
+
+    const renewed = await exchangeTicket(
+      `${id}.${randomBytes(32).toString("base64url")}`,
+      cookiePair(navigation.headers["set-cookie"]![0]!),
+    )
+
+    expect(renewed.status).toBe(404)
+    expect(renewed.headers["set-cookie"]).toBeUndefined()
+  })
+
+  it.each([
+    { reason: "an outside navigation", site: "cross-site", destination: "document", marker: true },
+    { reason: "a typed address", site: "none", destination: "document", marker: true },
+    { reason: "an asset request", site: "same-origin", destination: "style", marker: true },
+    {
+      reason: "a Build this browser never opened",
+      site: "same-origin",
+      destination: "document",
+      marker: false,
+    },
+  ])(
+    "does not renew or show an interstitial for $reason",
+    async ({ site, destination, marker }) => {
+      const { request, signIn, authorizeFile } = await startReader()
+      const { marker: markerCookie } = await signIn()
+
+      const response = await request(address.mount, {
+        headers: {
+          ...(marker ? { cookie: cookiePair(markerCookie) } : {}),
+          "sec-fetch-dest": destination,
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-site": site,
+        },
+      })
+
+      expect(response.status).toBe(404)
+      expect(response.body).not.toContain("<form")
+      expect(response.body).not.toContain(settings.hubOrigin)
+      expect(response.headers["set-cookie"]).toBeUndefined()
+      expect(authorizeFile).not.toHaveBeenCalled()
+    },
+  )
 
   it.each([
     { condition: "revoked before lookup", first: false, unavailable: false, status: 404 },
@@ -292,7 +508,13 @@ describe("createPrivatePreviewReader()", () => {
       ["x-forwarded-proto", "http"],
       ["host", new URL(settings.hubOrigin).host],
     ] as const) {
-      const response = await request(address.begin, { headers: { [name]: value } })
+      const response = await request(address.begin, {
+        method: "POST",
+        headers: { ...formHeaders, [name]: value },
+        body: new URLSearchParams({
+          intent: proof.start(address, buildId, digest("session"), new Date()),
+        }).toString(),
+      })
 
       expect(response.status).toBe(404)
       expect(response.headers.location).toBeUndefined()

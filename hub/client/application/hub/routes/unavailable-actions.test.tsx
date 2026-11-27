@@ -24,6 +24,33 @@ function UnconnectedPreferences({ galleryPath }: { galleryPath: string }) {
 }
 
 describe("Hub unavailable actions", () => {
+  it("allows only the new-tab private Build launch to submit natively", async () => {
+    const { repository } = previewRecords()
+    const server = stubHubFetch(...authenticatedWorkspace([repository]))
+    await renderHubFlow(server, "/private-launch", {
+      workspaceRoutes: [
+        {
+          path: "/private-launch",
+          element: (
+            <form method="post" action="/api/private-preview/launch/901/1201" target="_blank">
+              <button type="submit">Open private preview</button>
+            </form>
+          ),
+        },
+      ],
+    })
+    const form = screen.getByRole("button", { name: "Open private preview" }).closest("form")!
+
+    expect(fireEvent.submit(form)).toBe(true)
+
+    form.target = ""
+    expect(fireEvent.submit(form)).toBe(false)
+    form.target = "_blank"
+    form.action = `${form.action}/return`
+    expect(fireEvent.submit(form)).toBe(false)
+    expect(await screen.findByRole("alert")).toBeVisible()
+  })
+
   it("shows a dismissible failure for an unconnected native form without development tools or a mutation request", async () => {
     const { repository, galleryPath } = previewRecords()
     const server = stubHubFetch(

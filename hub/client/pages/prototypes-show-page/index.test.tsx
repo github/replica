@@ -428,6 +428,8 @@ function TestPage({
   branchSubmissionMode = PROTOTYPES_SHOW_PAGE_DATA.branchSubmissionMode,
   controlsIdentity,
   privatePreviewUrl,
+  privatePreviewBuildId,
+  privateReviewLink,
 }: {
   initialInfoOpen?: boolean
   showPrototypeInfo?: boolean
@@ -441,6 +443,8 @@ function TestPage({
   branchSubmissionMode?: PrototypesShowPageData["branchSubmissionMode"]
   controlsIdentity?: string
   privatePreviewUrl?: string
+  privatePreviewBuildId?: string
+  privateReviewLink?: string
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { resolvedColorMode: previewTheme } = useHubTheme()
@@ -472,6 +476,8 @@ function TestPage({
         branchSubmissionMode,
         controlsIdentity,
         privatePreviewUrl,
+        privatePreviewBuildId,
+        privateReviewLink,
         showPrototypeInfo,
         alert,
       }}
@@ -1333,7 +1339,7 @@ describe("PrototypesShowPage()", () => {
     expect(externalUrl.searchParams.get("route")).toBe("/checkout?step=shipping#address")
   })
 
-  it("keeps the embedded Build and its copy action alongside the private preview link", async () => {
+  it("opens the selected private Build in one click and copies only the Hub page link", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
     const build = PROTOTYPES_SHOW_PAGE_DATA.selectedBuild!
@@ -1341,10 +1347,19 @@ describe("PrototypesShowPage()", () => {
       "/api/private-preview/launch/2001/4001",
       window.location.origin,
     ).toString()
+    const privatePreviewBuildId = "00000000-0000-4000-8000-000000000003"
+    const privateReviewLink = new URL(
+      "/repositories/2001/prototypes/1?build=3",
+      window.location.origin,
+    ).toString()
 
     render(
       <HubThemeProvider>
-        <TestPage privatePreviewUrl={privatePreviewUrl} />
+        <TestPage
+          privatePreviewUrl={privatePreviewUrl}
+          privatePreviewBuildId={privatePreviewBuildId}
+          privateReviewLink={privateReviewLink}
+        />
       </HubThemeProvider>,
     )
 
@@ -1355,11 +1370,18 @@ describe("PrototypesShowPage()", () => {
     expect(writeText).toHaveBeenNthCalledWith(1, legacyUrl)
     expect(await screen.findByRole("button", { name: "Copied preview URL" })).toBeInTheDocument()
 
-    const open = screen.getByRole("link", { name: "Open private preview in new tab" })
-    expect(open).toHaveAttribute("href", privatePreviewUrl)
-    expect(open).toHaveAttribute("target", "_blank")
+    const open = screen.getByRole("button", { name: "Open private preview in new tab" })
+    const form = open.closest("form")!
+    expect(open).toHaveAttribute("type", "submit")
+    expect(form).toHaveAttribute("action", privatePreviewUrl)
+    expect(form).toHaveAttribute("method", "post")
+    expect(form).toHaveAttribute("target", "_blank")
+    expect(Object.fromEntries(new FormData(form))).toEqual({
+      start: "one-click",
+      buildId: privatePreviewBuildId,
+    })
     fireEvent.click(screen.getByRole("button", { name: "Copy private Hub link" }))
-    expect(writeText).toHaveBeenNthCalledWith(2, privatePreviewUrl)
+    expect(writeText).toHaveBeenNthCalledWith(2, privateReviewLink)
   })
 
   it("copies the current route inside a Hub link without reloading the preview", () => {
