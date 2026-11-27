@@ -16,10 +16,10 @@ const stateVariants = {
 } as const
 
 /** Shows each Build state with a consistent label color. */
-export function BuildStateLabel({ label, state, appearance = "outline" }: BuildStateLabelProps) {
+export function BuildStateLabel({ label, state }: BuildStateLabelProps) {
   return (
     <Label
-      className={`build-state-label build-state-label--${appearance} build-state-label--${state}`}
+      className={`build-state-label build-state-label--${state}`}
       color={stateVariants[state]}
       size="small"
       leadingVisual={

@@ -38,3 +38,17 @@
   gap: 0.25rem;
   font-size: 0.875rem;
 }
+
+.build-history__author .build-history__avatar {
+  --hub-avatar-size: 1rem;
+}
+
+a.build-history__author {
+  color: var(--hub-fg-default);
+  text-decoration: none;
+}
+
+a.build-history__author:hover,
+a.build-history__author:focus-visible {
+  text-decoration: underline;
+}

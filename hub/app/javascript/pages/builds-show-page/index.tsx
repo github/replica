@@ -25,9 +25,7 @@ export function BuildsShowPage({ data }: { data: BuildsShowPageData }) {
       <Stack gap="normal">
         <HubContentPageHeader
           title={data.heading}
-          trailing={
-            <BuildStateLabel state={data.state} label={data.stateLabel} appearance="soft" />
-          }
+          trailing={<BuildStateLabel state={data.state} label={data.stateLabel} />}
         />
 
         {data.failureSummary && data.failureHeading ? (

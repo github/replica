@@ -20,7 +20,7 @@ const data: BuildsShowPageData = {
       stateLabel: "Running",
     },
   ],
-  commitAuthor: prototypeWorkspaceData.author,
+  commitAuthor: { ...prototypeWorkspaceData.author, label: "@octocat" },
   commitHeading: "Exact commit",
   commitSha: "a".repeat(40),
   closePath: "/repositories/2001/prototypes/1",

@@ -44,11 +44,11 @@ json.builds do
       json.avatarUrl(@repository.local? ? User::LOCAL_AVATAR_URL : build.commit_author_avatar_url)
 
       if @repository.local?
-        json.label t("repositories.show.author", login: Current.user.login)
+        json.label t("builds.author", login: Current.user.login)
       elsif build.commit_author_login
-        json.label t("repositories.show.author", login: build.commit_author_login)
+        json.label t("builds.author", login: build.commit_author_login)
       elsif build.commit_author_name
-        json.label t("repositories.show.author_name", name: build.commit_author_name)
+        json.label t("builds.author_name", name: build.commit_author_name)
       else
         json.label t("repositories.show.unknown_author")
       end

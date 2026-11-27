@@ -59,6 +59,8 @@ export function BuildsIndexPage({
                       {build.numberLabel}
                     </InlineLink>
 
+                    <BuildStateLabel state={build.state} label={build.stateLabel} />
+
                     {build.state === "successful" ? (
                       <CopyBuildLinkButton
                         url={withViewMode(
@@ -78,21 +80,21 @@ export function BuildsIndexPage({
                       {build.commitLabel}
                     </Text>
 
-                    <BuildStateLabel
-                      state={build.state}
-                      label={build.stateLabel}
-                      appearance="soft"
-                    />
-
                     {build.author.url ? (
                       <InlineLink href={build.author.url} className="build-history__author">
-                        <HubUserAvatar src={build.author.avatarUrl} size={32} />
+                        <HubUserAvatar
+                          src={build.author.avatarUrl}
+                          className="build-history__avatar"
+                        />
 
                         {build.author.label}
                       </InlineLink>
                     ) : (
                       <Text size="100" className="build-history__author build-history__state">
-                        <HubUserAvatar src={build.author.avatarUrl} size={32} />
+                        <HubUserAvatar
+                          src={build.author.avatarUrl}
+                          className="build-history__avatar"
+                        />
                         {build.author.label}
                       </Text>
                     )}

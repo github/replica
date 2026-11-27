@@ -1,12 +1,10 @@
 .build-state-label {
+  --build-state-label-tint: color-mix(in srgb, currentColor 12%, transparent);
+
   max-width: 100%;
   min-height: var(--base-size-24);
   padding: var(--base-size-6);
   gap: var(--base-size-4);
-}
-
-.build-state-label--soft {
-  --build-state-label-tint: color-mix(in srgb, currentColor 12%, transparent);
 
   /* Tints an opaque canvas so the colour stays consistent on grey surfaces. */
   background:
@@ -14,7 +12,7 @@
     var(--hub-canvas-default);
 }
 
-[data-color-mode="dark"] .build-state-label--soft {
+[data-color-mode="dark"] .build-state-label {
   --build-state-label-tint: color-mix(in srgb, currentColor 20%, transparent);
 }
 
@@ -23,15 +21,15 @@
   --brand-Label-color: var(--hub-fg-muted);
 }
 
-.build-state-label--soft.build-state-label--failed {
+.build-state-label.build-state-label--failed {
   --brand-Label-color: color-mix(in srgb, var(--hub-fg-danger) 75%, var(--hub-fg-default));
 }
 
-.build-state-label--soft.build-state-label--successful {
+.build-state-label.build-state-label--successful {
   --brand-Label-color: color-mix(in srgb, var(--hub-fg-success) 75%, var(--hub-fg-default));
 }
 
-.build-state-label--soft::before {
+.build-state-label::before {
   content: none;
 }
 

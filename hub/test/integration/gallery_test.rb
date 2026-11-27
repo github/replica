@@ -641,6 +641,7 @@ class GalleryTest < ActionDispatch::IntegrationTest
     repository, prototype = sign_in_and_create_prototype
     time = Time.current
     build = build_with_state(prototype, 1, "successful", "f", time)
+    build.commit_author.record!(commit_payload(build.commit_sha))
 
     get repository_prototype_build_path(repository.github_id, prototype, build.number)
 
@@ -653,6 +654,16 @@ class GalleryTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "View workflow run"
     assert_includes response.body, build.workflow_url
     assert_includes response.body, "Storage used"
+
+    get repository_prototype_build_path(repository.github_id, prototype, build.number), as: :json
+    assert_response :success
+    author = JSON.parse(response.body).fetch("data").fetch("commitAuthor")
+    assert_equal "@octocat", author.fetch("label")
+    assert_equal "https://github.com/octocat", author.fetch("url")
+
+    get repository_prototype_builds_path(repository.github_id, prototype), as: :json
+    assert_response :success
+    assert_equal author, JSON.parse(response.body).fetch("data").fetch("builds").first.fetch("author")
   end
 
   test "shows the saved failure explanation" do
