@@ -14,7 +14,9 @@ RUN --mount=type=cache,id=replica-hub-npm,target=/root/.npm \
     fi; \
     npm ci --include=optional --engine-strict --fetch-retries=5 --prefer-offline --no-audit --no-fund
 COPY hub/ .
-RUN npm run build:runtime
+RUN npm run build:runtime \
+    && chmod -R u=rwX,go=rX package.json package-lock.json prisma7.config.ts schema dist \
+      client/utils/prototype-controls
 
 FROM node:24-bookworm-slim AS learning
 WORKDIR /opt/replica/learning
@@ -32,6 +34,7 @@ RUN --mount=type=cache,id=replica-learning-npm,target=/root/.npm \
     fi \
     && test -f node_modules/@github/copilot-sdk/package.json
 COPY packages/learning/ .
+RUN find . -path ./node_modules -prune -o -exec chmod u=rwX,go=rX {} +
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app

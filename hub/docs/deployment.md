@@ -72,7 +72,7 @@ The deployment orchestrator owns serialization of the complete release, includin
 
 ## Scope and evidence
 
-CI checks the image against disposable PostgreSQL, including setup, frontend/API serving, readiness, and termination. Set `NPM_REGISTRY` when running `node hub/script/check-image/index.ts` locally if the build requires a proxy. This is not a supported local-production installation. The existing devcontainer remains the development environment.
+The image sets file modes for copied runtime inputs so setup and startup can read them as the non-root image user, even when the build checkout is private. CI checks the image against disposable PostgreSQL, including setup, frontend/API serving, readiness, and termination. Set `NPM_REGISTRY` when running `node hub/script/check-image/index.ts` locally if the build requires a proxy. This is not a supported local-production installation. The existing devcontainer remains the development environment.
 
 The [Azure reference installation](../../infrastructure/README.md) uses Terraform and a serialized maintenance-window release. Its protected GitHub Actions workflow builds the reviewed commit and updates one non-production installation through OIDC without receiving application secret values. It supplies public GitHub identifiers directly and credential references through Key Vault; configure the exact Container Apps proxy-chain length before enabling authentication.
 
