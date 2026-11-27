@@ -90,6 +90,7 @@ describe("BrowserPrototypePreview()", () => {
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
       const options = screen.getByRole("complementary", { name: "Options" })
+      expect(within(options).getByRole("button", { name: "Move options" })).not.toHaveFocus()
       expect(within(options).getByRole("button", { name: "Collapse options" })).toHaveAttribute(
         "aria-expanded",
         "true",

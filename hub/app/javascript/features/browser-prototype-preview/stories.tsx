@@ -102,9 +102,6 @@ type Story = StoryObj<typeof meta>
 export const Expanded: Story = {}
 export const Minimized: Story = { args: { minimized: true } }
 export const NoOptions: Story = { args: { status: "no-controls" } }
-export const Connecting: Story = {
-  args: { status: "missing-runtime" },
-}
 export const ConnectionFailure: Story = {
   args: { status: "unsupported-runtime" },
 }
