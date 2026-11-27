@@ -1,7 +1,8 @@
-import { createRef, useCallback, useEffect, useRef, useState, type RefObject } from "react"
+import { createRef, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react"
 
 import { copy } from "@utils/prototype-canvas/en"
 import type { HubStatus } from "@utils/prototype-canvas/types"
+import { MAXIMUM_PREVIEW_URL_LENGTH } from "@hooks/use-local-preview-route/constants"
 import type { PendingPreviewClick, PreviewNavigation, PreviewRoute } from "./types"
 
 type Props = {
@@ -28,10 +29,13 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
   )
   const [liveRoute, setLiveRoute] = useState<PreviewRoute | null>(null)
   const initialized = useRef<string | null>(null)
-  const currentNavigation =
-    navigation.input === prototypeUrl
-      ? navigation
-      : { input: prototypeUrl ?? "", entries: prototypeUrl ? [prototypeUrl] : [], index: 0 }
+  const currentNavigation = useMemo(
+    () =>
+      navigation.input === prototypeUrl
+        ? navigation
+        : { input: prototypeUrl ?? "", entries: prototypeUrl ? [prototypeUrl] : [], index: 0 },
+    [navigation, prototypeUrl],
+  )
   const address = currentNavigation.entries[currentNavigation.index] ?? ""
   const cancelPendingClick = useCallback(() => cancelClick.current?.(), [cancelClick])
   const replaceAddress = useCallback(
@@ -106,45 +110,47 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
   const reportRoute = useCallback(
     (route: PreviewRoute, replace = false) => {
       if (!prototypeUrl) return
-      setLiveRoute(route)
+      const history =
+        currentNavigation.input === prototypeUrl
+          ? currentNavigation
+          : { input: prototypeUrl, entries: [prototypeUrl], index: 0 }
+      const previous = new URL(history.entries[history.index]!)
       const url = new URL(prototypeUrl)
       url.pathname = route.pathname
       url.search = route.search
       url.hash = route.hash
-      setNavigation((current) => {
-        const history =
-          current.input === prototypeUrl
-            ? current
-            : { input: prototypeUrl, entries: [prototypeUrl], index: 0 }
-        const previous = new URL(history.entries[history.index]!)
-        const overrides = [...previous.searchParams].filter(([key]) => key.startsWith("rc."))
-        for (const address of [url, previous]) {
-          for (const key of [...address.searchParams.keys()]) {
-            if (key === "rc" || key.startsWith("rc.")) address.searchParams.delete(key)
-          }
+      const overrides = [...previous.searchParams].filter(([key]) => key.startsWith("rc."))
+      for (const address of [url, previous]) {
+        for (const key of [...address.searchParams.keys()]) {
+          if (key === "rc" || key.startsWith("rc.")) address.searchParams.delete(key)
         }
-        if (
-          previous.pathname === url.pathname &&
-          previous.searchParams.toString() === url.searchParams.toString() &&
-          previous.hash === url.hash
-        )
-          return history
-        for (const [key, value] of overrides) url.searchParams.append(key, value)
-        const destination = url.href
-        if (replace) {
-          const entries = [...history.entries]
-          entries[history.index] = destination
-          return { ...history, entries }
-        }
+      }
+      if (
+        previous.pathname === url.pathname &&
+        previous.searchParams.toString() === url.searchParams.toString() &&
+        previous.hash === url.hash
+      ) {
+        setLiveRoute(route)
+        return
+      }
+      for (const [key, value] of overrides) url.searchParams.append(key, value)
+      const destination = url.href
+      if (destination.length > MAXIMUM_PREVIEW_URL_LENGTH) return
 
-        return {
-          ...history,
-          entries: [...history.entries.slice(0, history.index + 1), destination],
-          index: history.index + 1,
-        }
+      setLiveRoute(route)
+      if (replace) {
+        const entries = [...history.entries]
+        entries[history.index] = destination
+        setNavigation({ ...history, entries })
+        return
+      }
+      setNavigation({
+        ...history,
+        entries: [...history.entries.slice(0, history.index + 1), destination],
+        index: history.index + 1,
       })
     },
-    [prototypeUrl],
+    [currentNavigation, prototypeUrl],
   )
 
   useEffect(() => {

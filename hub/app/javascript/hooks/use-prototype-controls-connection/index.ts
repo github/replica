@@ -36,8 +36,8 @@ export function useControlsConnection({
         `prototype:${new URL(prototypeUrl).origin}`,
         () => current.current.address,
         (next) => {
-          current.current.address = next
           current.current.replaceAddress(next)
+          current.current.address = next
         },
       ),
     )

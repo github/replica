@@ -1,13 +1,22 @@
 export function renderCanvasHtml(context, token) {
-  const bootstrap = JSON.stringify({
-    prototypeUrl: context.normalizedUrl,
-    previewUrl: context.previewUrl,
-    name: context.name,
-    token,
-    monitorPrototype: context.monitorPrototype === true,
-    pickAndPolish: true,
-    ...(context.improvementThreadsSample ? { improvementThreadsSample: true } : {}),
-  }).replaceAll("<", "\\u003c")
+  const bootstrap = JSON.stringify(
+    context.browserPreview
+      ? {
+          surface: "browser",
+          prototypeUrl: context.normalizedUrl,
+          previewUrl: context.previewUrl,
+          name: context.name,
+        }
+      : {
+          prototypeUrl: context.normalizedUrl,
+          previewUrl: context.previewUrl,
+          name: context.name,
+          token,
+          monitorPrototype: context.monitorPrototype === true,
+          pickAndPolish: true,
+          ...(context.improvementThreadsSample ? { improvementThreadsSample: true } : {}),
+        },
+  ).replaceAll("<", "\\u003c")
   return `<!doctype html>
 <html lang="en">
 <head>
