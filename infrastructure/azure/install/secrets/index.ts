@@ -87,6 +87,11 @@ export async function installationSecrets(context: AzureInstallation, foundation
         (await read("database-provisioned")).value === config.azure.resourceGroup
       )
     },
+    // Shared by Hub and the private preview reader; created only when the reader is turned on.
+    async privatePreviewReader() {
+      const secret = await ensure("private-preview-reader-secret", () => randomBytes(32).toString("base64url"))
+      return { key_vault_id: foundation.vault_id, secret_id: secret.id }
+    },
     async markProvisioned() {
       await put("database-provisioned", config.azure.resourceGroup)
     },

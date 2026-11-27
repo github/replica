@@ -125,15 +125,6 @@ export function createTerminalUI(
       if (!options.postSetup) view.notice = undefined
       draw()
     },
-    preview(progress) {
-      view.preview = progress
-      view.notice = undefined
-      if (progress === "skipped" || progress === "staged") {
-        view.question = undefined
-        view.transitioning = false
-      }
-      draw()
-    },
     notice(level, message) {
       view.notice = { level, message: plain(message) }
       view.feedback++

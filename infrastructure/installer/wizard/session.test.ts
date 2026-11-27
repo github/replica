@@ -66,7 +66,8 @@ it("rechecks SKU support on resume and reselects an incompatible draft region wi
     field: vi.fn(async (field) => {
       return field.parse(field.id === "name" ? "team-hub" : "platform-team")
     }),
-    text: vi.fn(async () => {
+    text: vi.fn(async (message: string) => {
+      if (message.startsWith("Publish new")) return ""
       throw new Error("Unexpected legacy text prompt")
     }),
     select: vi.fn<WizardUI["select"]>(async (_message, options) => options[0]!.value),
@@ -151,7 +152,8 @@ it("rechecks SKU support on resume and reselects an incompatible draft region wi
     cloud: vi.fn(async () => "azure" as const),
     field: vi.fn(async () => { throw new Error("Saved fields must not be asked again") }),
     confirm: vi.fn(async () => false),
-    select: vi.fn<WizardUI["select"]>(async (_message, options) => {
+    select: vi.fn<WizardUI["select"]>(async (message, options) => {
+      if (message.startsWith("Private prototype service")) return "off"
       expect(options.map(({ value }) => value)).toEqual(["westus2"])
       return "westus2"
     }),
@@ -171,7 +173,7 @@ it("rechecks SKU support on resume and reselects an incompatible draft region wi
   expect(prerequisitePhases).toEqual(["checks"])
   expect(checkpointPhases).toEqual(["checks"])
   expect(resumed.field).not.toHaveBeenCalled()
-  expect(resumed.select).toHaveBeenCalledOnce()
+  expect(resumed.select).toHaveBeenCalledTimes(2)
   expect(run.mock.calls.some(([, args]) => args[0] === "account" && args[1] === "list")).toBe(true)
   expect(run.mock.calls.some(([, args]) => args[0] === "rest")).toBe(true)
   expect(run.mock.calls.filter(([, args]) => args[0] === "provider")).toHaveLength(4)

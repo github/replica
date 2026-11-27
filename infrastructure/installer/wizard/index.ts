@@ -1,12 +1,11 @@
 import { configureAzure } from "../../azure/install/configure/index.ts"
 import { assertDraftMatchesConfig, loadConfig, parseConfig, saveConfig } from "../config/index.ts"
 import { installAzure } from "../../azure/install/index.ts"
-import { installAzurePrivatePreview } from "../../azure/install/private-preview/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
 import type { WizardSession } from "../session/index.ts"
 import { formatDeploymentSummary } from "../deployment-summary/index.ts"
 import { createPostgresAvailability } from "../../azure/install/postgres-availability/index.ts"
-import { CommandExecutionError } from "../command/index.ts"
+import { askPrivatePreview } from "../private-preview-choice/index.ts"
 
 export async function runWizard({
   ui,
@@ -15,11 +14,9 @@ export async function runWizard({
   directory,
   existing,
   configureOnly = false,
-  preparePrivatePreview = false,
   session: originalSession,
   entryAction = originalSession?.draft ? "resume" : existing ? "update" : "create",
   signal,
-  onHubDeployed,
 }: {
   ui: WizardUI
   run: RunCommand
@@ -27,11 +24,9 @@ export async function runWizard({
   directory: string
   existing?: DeploymentConfig
   configureOnly?: boolean
-  preparePrivatePreview?: boolean
   session?: WizardSession
   entryAction?: "create" | "update" | "resume"
   signal?: AbortSignal
-  onHubDeployed?(summary: string): void
 }): Promise<string> {
   signal?.throwIfAborted()
   if (existing) existing = parseConfig(existing)
@@ -75,7 +70,6 @@ export async function runWizard({
     answer: (key, value) => checkpoint(() => originalSession.answer(key, value)),
     clear: (keys) => checkpoint(() => originalSession.clear(keys)),
     phase: (phase) => checkpoint(() => originalSession.phase(phase)),
-    previewTarget: (config, phase) => checkpoint(() => originalSession.previewTarget(config, phase)),
     restart: () => checkpoint(() => originalSession.restart()),
     complete: () => checkpoint(() => originalSession.complete()),
     close: () => originalSession.close(),
@@ -88,65 +82,10 @@ export async function runWizard({
       await terminal.phase?.(phase)
     },
   }
-  const savedDraft = session?.draft
-  const savedPreviewStage = savedDraft?.answers.privatePreviewStage
-  if (configureOnly && (preparePrivatePreview || savedPreviewStage))
-    throw new Error("Private preview preparation is not available in configuration-only mode.")
-  if (entryAction === "resume" && preparePrivatePreview && !savedPreviewStage)
-    throw new Error("Resume the existing setup first. Then use Update to prepare private previews.")
-  let previewStage = savedPreviewStage
-  if (!previewStage && preparePrivatePreview)
-    previewStage = entryAction === "create" ? "after-create" : "prepare"
-  const disabledResult =
-    "The private preview reader is staged without ingress. Private previews remain disabled."
-  const skippedResult = "Private preview preparation was skipped."
-  const prepareReader = async (config: DeploymentConfig, mayHaveWritten: boolean) => {
-    let outcome: Awaited<ReturnType<typeof installAzurePrivatePreview>>
-    try {
-      outcome = await installAzurePrivatePreview(config, {
-        directory,
-        run,
-        signal,
-        ui: {
-          ...ui,
-          async phase(phase) {
-            if (phase === "provision") {
-              mayHaveWritten = true
-              await session?.previewTarget(config, phase)
-            } else if (phase === "verify") {
-              await session?.phase(phase)
-            }
-            if (phase === "review" || phase === "provision" || phase === "verify")
-              terminal.preview?.(phase)
-          },
-        },
-      })
-    } catch (error) {
-      const interrupted =
-        signal?.aborted ||
-        (error instanceof DOMException && error.name === "AbortError") ||
-        (error instanceof CommandExecutionError && error.aborted)
-      if (!mayHaveWritten && !interrupted && session?.draft) await session.complete()
-      throw error
-    }
-    signal?.throwIfAborted()
-    if (outcome === "staged" || !mayHaveWritten) await session?.complete()
-    terminal.preview?.(outcome === "declined" ? "skipped" : "staged")
-    if (outcome === "staged") return disabledResult
-    return mayHaveWritten
-      ? `${skippedResult} Saved progress from the earlier attempt was kept for Resume.`
-      : skippedResult
-  }
-  if (previewStage === "prepare") {
-    if (!existing) throw new Error("Select the saved Hub installation before preparing private previews.")
-    return prepareReader(existing, savedDraft?.deploymentStarted ?? false)
-  }
-  if (savedPreviewStage === "after-create" && savedDraft?.deploymentStarted)
+  if (session?.draft?.answers.privatePreviewStage)
     throw new Error(
-      "Verify the earlier Hub deployment using the recovery guide. Setup will not replay it to prepare private previews; the saved draft was preserved.",
+      "This draft is from the earlier private preview preparation step, which Update now replaces. The draft was preserved. After confirming no setup is running, move the draft aside and run Update to choose private preview settings.",
     )
-  if (previewStage === "after-create")
-    await session?.answer("privatePreviewStage", "after-create")
   if (entryAction === "resume" && session?.draft?.deploymentStarted) {
     if (!existing)
       throw new Error(
@@ -176,6 +115,17 @@ export async function runWizard({
       "The saved installation target or owner changed. Use a new --config file for another installation; existing configuration was not overwritten.",
     )
   }
+  // Resuming a started deployment keeps the saved choice instead of changing its target.
+  const privatePreview =
+    entryAction === "resume" && existing
+      ? existing.privatePreview
+      : await askPrivatePreview(ui, existing?.privatePreview)
+  // The default needs no saved setting, so earlier configurations stay unchanged.
+  if (
+    privatePreview &&
+    (existing?.privatePreview || privatePreview.reader !== "off" || privatePreview.writerRepositoryIds.length)
+  )
+    config.privatePreview = privatePreview
   await ui.phase?.("review")
   const save = async (next: DeploymentConfig, previous?: DeploymentConfig) =>
     checkpoint(async () => {
@@ -209,11 +159,6 @@ export async function runWizard({
     },
   })
   const summary = formatDeploymentSummary(result, path)
-  if (previewStage === "after-create") {
-    onHubDeployed?.(summary)
-    await session?.previewTarget(config, "review")
-    return `${summary}\n${await prepareReader(config, false)}`
-  }
   await session?.complete()
   ui.complete?.()
   return summary

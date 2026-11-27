@@ -1,4 +1,4 @@
-import type { FieldDefinition, NoticeLevel, PreviewProgress, WizardPhase } from "../types.ts"
+import type { FieldDefinition, NoticeLevel, WizardPhase } from "../types.ts"
 
 export type Question =
   | { kind: "cloud"; resolve: (value: "azure") => void }
@@ -22,7 +22,6 @@ export interface TerminalView {
   recoveryError?: string
   transitioning?: boolean
   phase: WizardPhase
-  preview?: PreviewProgress
   complete: boolean
   welcome: boolean
 }

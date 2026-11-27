@@ -16,6 +16,7 @@ import { recoverLease } from "./lease/recover/index.ts"
 import { deploymentResult } from "./result/index.ts"
 import type { AzureInstallation, DeploymentResult, Foundation, Installation } from "./types.ts"
 import { openInstallationWorkspace } from "./workspace/index.ts"
+import { preparePrivatePreview } from "./private-preview/index.ts"
 import { readInstallationInputs } from "./inputs/index.ts"
 import { approveDeployment } from "./approval/index.ts"
 import { retryableProvisioningFailure } from "./retryable-provisioning-failure/index.ts"
@@ -281,6 +282,15 @@ async function install(
       image,
       await state.backend("provision"),
     )
+    const preview = await preparePrivatePreview(context, {
+      image,
+      foundation: resources,
+      installation,
+      inputs: operatorInputs,
+      readerSecret: () => secrets.privatePreviewReader(),
+      lock,
+    })
+    await writePrivateFile(variables, JSON.stringify({ ...inputs, ...preview.inputs }))
     await ui.phase?.("release")
     await recoverLease(context, installation.storage_account, "releases", "deployment.lock")
     ui.status("Running the serialized maintenance-window release")
@@ -315,6 +325,7 @@ async function install(
       )
       throw error
     }
+    const notes = await preview.finish()
     await ui.phase?.("verify")
     const released = await app.output<Installation>("installation")
     const result = deploymentResult({
@@ -323,6 +334,7 @@ async function install(
       foundation: resources,
       stateStorageId: state.id,
       image,
+      notes,
     })
     await lock.release()
     return result

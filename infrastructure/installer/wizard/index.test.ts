@@ -107,7 +107,7 @@ it("selects the cloud before Azure discovery and saves a configure-only run with
       events.push("cloud")
       return "azure"
     },
-    text: vi.fn(async () => answers.shift()!),
+    text: vi.fn(async (message: string) => (message.startsWith("Publish new") ? "" : answers.shift()!)),
     select: async (_message, options) => options[0]!.value,
     confirm: async () => true,
     wait: async (message) => {
@@ -176,7 +176,7 @@ it("selects the cloud before Azure discovery and saves a configure-only run with
     },
   })
   expect(saved.azure).not.toHaveProperty("stateAllowedIp")
-  expect(ui.text).toHaveBeenCalledTimes(3)
+  expect(ui.text).toHaveBeenCalledTimes(4)
   expect((await stat(path)).mode & 0o777).toBe(0o600)
   expect(events).not.toContainEqual(
     expect.stringMatching(/\bcreate\b|\bapply\b|provider register|docker buildx build/),
@@ -222,8 +222,8 @@ it("completes the draft and reports the structured deployment only after the ins
   })
   const ui: WizardUI = {
     cloud: vi.fn(async () => "azure" as const),
-    text: vi.fn(),
-    select: vi.fn(),
+    text: vi.fn(async () => ""),
+    select: vi.fn(async (_message: string, options: { value: string }[]) => options[0]!.value),
     confirm: vi.fn(),
     wait: vi.fn(),
     status: vi.fn(),
@@ -342,7 +342,10 @@ it("normalizes saved legacy configuration before provisioning without asking to 
   await writeFile(path, JSON.stringify(existing), { mode: 0o600 })
   const ui: WizardUI = {
     cloud: vi.fn(async () => "azure" as const),
-    text: vi.fn(async () => { throw new Error("Existing installation must not prompt for identity") }),
+    text: vi.fn(async (message: string) => {
+      if (message.startsWith("Publish new")) return ""
+      throw new Error("Existing installation must not prompt for identity")
+    }),
     select: async (_message, options) => options[0]!.value,
     confirm: async () => false,
     wait: async () => {
@@ -387,7 +390,7 @@ it("normalizes saved legacy configuration before provisioning without asking to 
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual(expected)
   expect((await stat(path)).mode & 0o777).toBe(0o600)
   expect(ui.cloud).not.toHaveBeenCalled()
-  expect(ui.text).not.toHaveBeenCalled()
+  expect(vi.mocked(ui.text).mock.calls.map(([message]) => message.split(" ")[0])).toEqual(["Publish"])
 })
 
 it("checkpoints a corrected build proxy in the draft and complete config before retry, then restores it after another failure", async () => {
@@ -419,7 +422,10 @@ it("checkpoints a corrected build proxy in the draft and complete config before 
   })
   const ui: WizardUI = {
     cloud: vi.fn(async () => "azure" as const),
-    text: vi.fn(async () => { throw new Error("Existing installation must not prompt for identity") }),
+    text: vi.fn(async (message: string) => {
+      if (message.startsWith("Publish new")) return ""
+      throw new Error("Existing installation must not prompt for identity")
+    }),
     select: vi.fn(async (_message, options) => options[0]!.value),
     confirm: vi.fn(async () => false),
     wait: vi.fn(async (message) => {
@@ -503,7 +509,7 @@ it("checkpoints a corrected build proxy in the draft and complete config before 
     runWizard({ ui, run, path, directory, existing: saved, session: reopened }),
   ).resolves.toContain("https://hub.example.com")
 
-  expect(ui.text).not.toHaveBeenCalled()
+  expect(vi.mocked(ui.text).mock.calls.map(([message]) => message.split(" ")[0])).toEqual(["Publish"])
   expect(ui.confirm).toHaveBeenCalledTimes(1)
   expect(ui.cloud).not.toHaveBeenCalled()
   expect(install).toHaveBeenCalledTimes(2)

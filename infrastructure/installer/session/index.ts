@@ -18,6 +18,7 @@ export interface DraftAnswers {
   resourceGroup?: string
   useProxy?: boolean
   npmRegistry?: string
+  // Written only by the earlier standalone preparation step; read so those drafts stay reviewable.
   privatePreviewStage?: "after-create" | "prepare"
 }
 
@@ -39,7 +40,6 @@ export interface WizardSession {
   answer<K extends keyof DraftAnswers>(key: K, value: DraftAnswers[K]): Promise<void>
   clear(keys: (keyof DraftAnswers)[]): Promise<void>
   phase(phase: WizardPhase): Promise<void>
-  previewTarget(config: DeploymentConfig, phase: "review" | "provision"): Promise<void>
   restart(): Promise<void>
   complete(): Promise<void>
   close(): Promise<void>
@@ -260,16 +260,6 @@ export async function openSession(
       update((next) => {
         next.phase = phase
         if (["provision", "release", "verify"].includes(phase)) next.deploymentStarted = true
-      }),
-    previewTarget: (config, phase) =>
-      update((next) => {
-        const { tenantId, subscriptionId, location, resourceGroup } = config.azure
-        Object.assign(next.answers, {
-          cloud: config.cloud, tenantId, subscriptionId, location, resourceGroup,
-          name: config.name, owner: config.owner, privatePreviewStage: "prepare",
-        } satisfies DraftAnswers)
-        next.phase = phase
-        next.deploymentStarted = phase === "provision"
       }),
     restart: () =>
       enqueue(async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { existingRoleAssignment } from "./index.ts"
+import { ConflictingRoleAssignment, existingRoleAssignment } from "./index.ts"
 
 const subscription = "00000000-0000-0000-0000-000000000001"
 const scope = `/subscriptions/${subscription}/resourceGroups/hub/providers/Microsoft.Storage/storageAccounts/hub/blobServices/default/containers/artifacts`
@@ -437,5 +437,37 @@ describe("existingRoleAssignment", () => {
 
     await expect(existingRoleAssignment(azure, subscription)(planned)).resolves.toBeUndefined()
     expect(azure).not.toHaveBeenCalled()
+  })
+
+  describe("with an ABAC condition", () => {
+    const condition = "(\n  (\n    !(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'} AND SubOperationMatches{'Blob.List'})\n  )\n)"
+    const conditioned = { ...change, after: { ...change.after, condition, condition_version: "2.0" } }
+
+    it("finds a grant with the same condition and version", async () => {
+      const azure = vi.fn(async () =>
+        JSON.stringify([{ ...assignment, condition: condition.replace(/\s+/g, " "), conditionVersion: "2.0" }]),
+      )
+
+      await expect(existingRoleAssignment(azure, subscription)(conditioned)).resolves.toBe(id)
+    })
+
+    it.each([
+      ["no condition", { condition: null, conditionVersion: null }],
+      ["another condition version", { condition, conditionVersion: "1.0" }],
+    ])("refuses to import a grant with %s", async (_, override) => {
+      const azure = vi.fn(async () => JSON.stringify([{ ...assignment, ...override }]))
+
+      await expect(existingRoleAssignment(azure, subscription)(conditioned)).rejects.toBeInstanceOf(
+        ConflictingRoleAssignment,
+      )
+    })
+
+    it("refuses to import a conditioned grant for an unconditioned plan", async () => {
+      const azure = vi.fn(async () => JSON.stringify([{ ...assignment, condition, conditionVersion: "2.0" }]))
+
+      await expect(existingRoleAssignment(azure, subscription)(change)).rejects.toBeInstanceOf(
+        ConflictingRoleAssignment,
+      )
+    })
   })
 })

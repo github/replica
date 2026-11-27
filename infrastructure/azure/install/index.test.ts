@@ -220,7 +220,11 @@ async function scenario({
           managed_by: "replica-installer",
         },
       })
-    if (operation === "storage blob exists") return JSON.stringify({ exists: true })
+    if (operation === "storage blob exists")
+      return JSON.stringify({
+        exists: !args[args.indexOf("--name") + 1]!.endsWith("/private-preview.tfstate"),
+      })
+    if (operation === "storage container-rm exists") return JSON.stringify({ exists: false })
     if (operation === "storage blob show")
       return JSON.stringify(
         args[args.indexOf("--name") + 1] === "deployment.lock" && releaseLocked

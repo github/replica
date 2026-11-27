@@ -60,6 +60,18 @@ function assignmentId(value: unknown, scope: string): value is string {
   return id.startsWith(prefix) && guid.test(id.slice(prefix.length))
 }
 
+const conditionText = (value: unknown) =>
+  typeof value === "string" && value.trim() ? value.replace(/\s+/g, "") : undefined
+
+export class ConflictingRoleAssignment extends Error {
+  constructor(id: string) {
+    super(
+      `Azure already has ${id} for the same role, principal, and scope, but with a different condition. It is not the planned grant and was not imported. Review the existing grant before retrying; do not import it.`,
+    )
+    this.name = "ConflictingRoleAssignment"
+  }
+}
+
 export function existingRoleAssignment(
   azure: (...args: string[]) => Promise<string>,
   subscriptionId: string,
@@ -71,10 +83,8 @@ export function existingRoleAssignment(
 
   return async ({ type, after }: PlannedCreate): Promise<string | undefined> => {
     if (type !== "azurerm_role_assignment" || !after || typeof after !== "object") return
-    const { scope, principal_id, role_definition_id, role_definition_name } = after as Record<
-      string,
-      unknown
-    >
+    const { scope, principal_id, role_definition_id, role_definition_name, condition, condition_version } =
+      after as Record<string, unknown>
     const roleId = typeof role_definition_id === "string" ? role_definition_id : undefined
     const plannedName =
       typeof role_definition_name === "string" ? role_definition_name : undefined
@@ -139,7 +149,14 @@ export function existingRoleAssignment(
         (matchingId !== undefined && matchingName !== undefined && matchingId !== matchingName)
       )
         throw new Error("Azure returned an ambiguous role-assignment identity.")
-      if (matchingId ?? matchingName) matches.push(assignment.id)
+      if (!(matchingId ?? matchingName)) continue
+      // A grant is the planned one only if its ABAC condition and version match too.
+      if (
+        conditionText(assignment.condition) !== conditionText(condition) ||
+        (conditionText(condition) !== undefined && assignment.conditionVersion !== condition_version)
+      )
+        throw new ConflictingRoleAssignment(assignment.id)
+      matches.push(assignment.id)
     }
     if (matches.length > 1)
       throw new Error("Azure returned multiple matching role assignments.")

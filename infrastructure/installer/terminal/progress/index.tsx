@@ -1,6 +1,6 @@
 import { Text } from "ink"
 
-import { wizardPhases, type PreviewProgress, type WizardPhase } from "../../types.ts"
+import { wizardPhases, type WizardPhase } from "../../types.ts"
 import { terminalColors } from "../theme/index.ts"
 
 const labels: Record<WizardPhase, string> = {
@@ -15,25 +15,19 @@ const labels: Record<WizardPhase, string> = {
 
 export function Progress({
   phase,
-  preview,
   configureOnly = false,
   complete = false,
   compact = false,
   blocked = false,
 }: {
   phase: WizardPhase
-  preview?: PreviewProgress
   configureOnly?: boolean
   complete?: boolean
   compact?: boolean
   blocked?: boolean
 }) {
-  if (preview === "skipped") return <Text>Private preview preparation skipped</Text>
-  if (preview === "staged") return <Text>Disabled reader staged</Text>
-  const phases: readonly WizardPhase[] = preview
-    ? ["review", "provision", "verify"]
-    : configureOnly ? wizardPhases.slice(0, 4) : wizardPhases
-  const activePhase = preview ?? phase
+  const phases: readonly WizardPhase[] = configureOnly ? wizardPhases.slice(0, 4) : wizardPhases
+  const activePhase = phase
   const current = phases.indexOf(activePhase)
   if (compact)
     return (

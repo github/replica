@@ -174,6 +174,32 @@ describe("deployment configuration", () => {
     expect(() => parseConfig({ ...configuration(), npmRegistry })).toThrow()
   })
 
+  it("accepts private preview settings with a reader hostname and writer repositories", () => {
+    const config = {
+      ...configuration(),
+      privatePreview: {
+        reader: "on",
+        inline: true,
+        hostname: "preview.replica.coreai.design",
+        writerRepositoryIds: ["123", "456"],
+      },
+    }
+    expect(parseConfig(config)).toEqual(config)
+  })
+
+  it.each([
+    ["inline playback while the reader is off", { reader: "off", inline: true, writerRepositoryIds: [] }],
+    ["writer repositories when the reader is removed", { reader: "removed", inline: false, writerRepositoryIds: ["123"] }],
+    ["an uppercase hostname", { reader: "on", inline: false, hostname: "Preview.example.com", writerRepositoryIds: [] }],
+    ["a hostname with a scheme", { reader: "on", inline: false, hostname: "https://preview.example.com", writerRepositoryIds: [] }],
+    ["a repository name instead of an ID", { reader: "off", inline: false, writerRepositoryIds: ["org/repo"] }],
+    ["a duplicate repository ID", { reader: "off", inline: false, writerRepositoryIds: ["123", "123"] }],
+    ["an unknown reader mode", { reader: "disabled", inline: false, writerRepositoryIds: [] }],
+    ["an unknown field", { reader: "off", inline: false, writerRepositoryIds: [], stage: "expand" }],
+  ])("rejects private preview settings with %s", (_, privatePreview) => {
+    expect(() => parseConfig({ ...configuration(), privatePreview })).toThrow(/private preview/)
+  })
+
   it("saves and reloads only the non-secret configuration with private file permissions", async () => {
     const directory = await configDirectory()
     const filename = path.join(directory, "config.json")

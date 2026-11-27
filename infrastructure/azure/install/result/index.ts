@@ -7,12 +7,14 @@ export function deploymentResult({
   foundation,
   stateStorageId,
   image,
+  notes = [],
 }: {
   config: DeploymentConfig
   installation: Installation
   foundation: Foundation
   stateStorageId: string
   image: string
+  notes?: string[]
 }): DeploymentResult {
   const invalid =
     "Deployment verification returned incomplete or invalid non-secret metadata. Inspect Terraform outputs and the installation lock before retrying."
@@ -47,6 +49,7 @@ export function deploymentResult({
     tenantId: config.azure.tenantId,
     location: config.azure.location,
     image,
+    ...(notes.length ? { notes } : {}),
     resources: {
       resourceGroup: resourceId(installation.resource_group_id),
       app: resourceId(installation.app_id),

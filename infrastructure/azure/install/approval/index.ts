@@ -5,6 +5,20 @@ import type { AzureInstallation, DeploymentApproval } from "../types.ts"
 import { guidedPostgresProfile, type PostgresProfile } from "../profile.ts"
 import { createBuildSnapshot } from "../build-context/index.ts"
 
+function describePrivatePreview({ privatePreview: choice }: AzureInstallation["config"]) {
+  const writer = choice?.writerRepositoryIds.length
+    ? ` Publishing for repositories ${choice.writerRepositoryIds.join(", ")} with a create-only grant on Hub's identity.`
+    : " Publishing off."
+  if (choice?.reader === "on")
+    return `on. Reader ${readerLocation(choice.hostname)}, its identity, ingress and grants are created or updated, and Hub opens Builds in a new tab${choice.inline ? " and inline" : ""}.${writer}`
+  if (choice?.reader === "removed")
+    return "remove. The reader app, its hostname and every reader and writer grant are deleted; published Builds are kept."
+  return `off. No reader ingress; an existing disabled reader is kept and its grant is limited to deny listing.${writer}`
+}
+
+const readerLocation = (hostname: string | undefined) =>
+  hostname ? `on ${hostname} (DNS records are printed if missing)` : "on its generated hostname"
+
 export async function approveDeployment(
   { config, directory, run, ui, signal }: Pick<
     AzureInstallation,
@@ -40,6 +54,7 @@ export async function approveDeployment(
     "- Storage: private artifact and release containers, versioning, and soft deletion.",
     "- Compute and logs: Container Apps environment, Hub app, setup job, and Log Analytics.",
     "- Access: separate workload identities and scoped deployment/workload grants for state, Blob, registry, and Key Vault.",
+    `- Private prototype service: ${describePrivatePreview(config)}`,
     `- First-installation provisioning: temporary job and identity ${config.name}-provision and their scoped grants; these temporary resources are removed after success.`,
     "",
     `Source: ${sourceRevision}${sourceStatus ? " with uncommitted changes" : " (clean checkout)"}.`,
