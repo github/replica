@@ -21,13 +21,20 @@ import {
 import { readCookie } from "../../integrations/express/read-cookie/index.ts"
 import { sendPrivatePreviewForm } from "../../integrations/express/send-private-preview-form/index.ts"
 import { normalizeStartPage } from "../../utils/normalize-start-page/index.ts"
-import { privatePreviewAddress } from "../../utils/private-preview-address/index.ts"
+import {
+  privatePreviewAddress,
+  type PrivatePreviewAddress,
+} from "../../utils/private-preview-address/index.ts"
 import { readPrivatePreviewAddress } from "../../utils/read-private-preview-address/index.ts"
 
 const challengeCookie = "__Host-replica-preview-challenge"
 const resumeCookie = "__Host-replica-preview-resume"
 const maximumPendingChallenges = 12
 const maximumPendingResumes = 2
+// Every retained Build sends its cookies on each request, so keep the header well within limits.
+const maximumRetainedBuilds = 8
+const retainedCookiePattern =
+  /^__Host-replica-preview-(build-)?([1-9][0-9]{0,18})-([1-9][0-9]{0,18})$/
 const cookieOptions = { httpOnly: true, secure: true, path: "/" } as const
 // Hub returns each handoff with a cross-site POST, so its challenge cookie must be SameSite=None.
 const handoffCookieOptions = { ...cookieOptions, sameSite: "none", maxAge: grantLifetime } as const
@@ -82,6 +89,20 @@ function unavailable(response: Response) {
   return response.status(503).type("text").send("Private preview is temporarily unavailable.")
 }
 
+function readCookiePairs(request: Request) {
+  return (request.headers.cookie?.split(";") ?? []).flatMap((pair): [string, string][] => {
+    const separator = pair.indexOf("=")
+    if (separator < 0) return []
+    try {
+      return [
+        [pair.slice(0, separator).trim(), decodeURIComponent(pair.slice(separator + 1).trim())],
+      ]
+    } catch {
+      return []
+    }
+  })
+}
+
 export function createPrivatePreviewReader({
   settings,
   trustedProxyHops = 0,
@@ -92,6 +113,34 @@ export function createPrivatePreviewReader({
   const app = express()
   const readerHost = new URL(settings.readerOrigin).host
   const proof = createLaunchProof(settings)
+  // Clears the oldest other Builds so that adding this one stays within the retained limit.
+  function evictRetainedBuilds(
+    request: Request,
+    response: Response,
+    current: PrivatePreviewAddress,
+  ) {
+    const retained = new Map<string, { repositoryId: string; runId: string; deadline: number }>()
+    for (const [name, value] of readCookiePairs(request)) {
+      const [, marker, repositoryId, runId] = retainedCookiePattern.exec(name) ?? []
+      const address = repositoryId && runId ? privatePreviewAddress(repositoryId, runId) : null
+      if (!address || (repositoryId === current.repositoryId && runId === current.runId)) continue
+      const key = `${repositoryId}/${runId}`
+      const deadline = (marker && proof.readBuild(value, address)?.deadline) || 0
+      retained.set(key, {
+        repositoryId: address.repositoryId,
+        runId: address.runId,
+        deadline: Math.max(deadline, retained.get(key)?.deadline ?? 0),
+      })
+    }
+    const oldest = [...retained.values()].sort((left, right) => left.deadline - right.deadline)
+    for (const { repositoryId, runId } of oldest.slice(
+      0,
+      Math.max(0, oldest.length - maximumRetainedBuilds + 1),
+    )) {
+      response.clearCookie(accessCookie(repositoryId, runId), playbackCookieOptions)
+      response.clearCookie(buildCookie(repositoryId, runId), playbackCookieOptions)
+    }
+  }
   app.disable("x-powered-by")
   app.disable("etag")
   app.set("trust proxy", trustedProxyHops)
@@ -207,9 +256,12 @@ export function createPrivatePreviewReader({
           !session ||
           !page ||
           !previewTokenPattern.test(session.access) ||
-          (resume && resume.buildId !== session.buildId)
+          // The signed renewal state can expire while Hub is exchanging its grant.
+          (resume &&
+            (resume.buildId !== session.buildId || resume.expiresAt.getTime() <= Date.now()))
         )
           return response.sendStatus(404)
+        evictRetainedBuilds(request, response, address)
         response.clearCookie(name, handoffCookieOptions)
         response.cookie(accessCookie(address.repositoryId, address.runId), session.access, {
           ...playbackCookieOptions,
@@ -247,7 +299,7 @@ export function createPrivatePreviewReader({
       )
         return null
       const marker = readCookie(request, buildCookie(address.repositoryId, address.runId))
-      const buildId = marker && proof.readBuild(marker, address)
+      const buildId = marker && proof.readBuild(marker, address)?.buildId
       if (!buildId) return null
       const challenge = randomBytes(32).toString("base64url")
       const page = `/${request.originalUrl.slice(address.mount.length)}`
@@ -313,9 +365,9 @@ export function createPrivatePreviewReader({
           return unavailable(response)
         const current = await authorizeFile(access, address, path, allowEntryPointFallback)
         if (closed) return
+        if (current === "session-ended") return renew() ?? response.sendStatus(404)
         if (
           !current ||
-          current === "session-ended" ||
           current.path !== file.path ||
           current.byteLength !== file.byteLength ||
           current.storageKey !== file.storageKey

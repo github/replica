@@ -280,6 +280,7 @@ try {
               const { findPrivatePreviewDistFile } =
                 await import("./repositories/private-previews/find-private-preview-dist-file/index.ts")
               const { prisma } = await import("./integrations/prisma/index.ts")
+              const { sessionLifetime } = await import("./domains/private-preview/types.ts")
               const restoreSession = authentication.currentSession.restore.bind(
                 authentication.currentSession,
               )
@@ -289,7 +290,7 @@ try {
                 authority: createPrivatePreviewAuthority({
                   readerOrigin: privatePreviewSettings.readerOrigin,
                   storage,
-                  access: createPrivatePreviewAccessStore(prisma),
+                  access: createPrivatePreviewAccessStore(prisma, sessionLifetime),
                   restoreSession,
                   isRepositoryVisible: product.isRepositoryVisible.bind(product),
                   hasCurrentRepositoryAccess: async (viewer, repositoryId) => {

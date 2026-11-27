@@ -34,6 +34,15 @@ function cookieValue(header: string) {
   return pair.slice(pair.indexOf("=") + 1)
 }
 
+function navigationHeaders(...cookies: string[]) {
+  return {
+    cookie: cookies.map(cookiePair).join("; "),
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "same-origin",
+  }
+}
+
 function formValue(body: string, action: string, field: string) {
   expect(body).toContain(`<form method="post" action="${action}">`)
   return body.match(new RegExp(`name="${field}" value="([^"]+)"`))?.[1]
@@ -395,9 +404,6 @@ describe("createPrivatePreviewReader()", () => {
     const { id, expiresAt } = proof.readResume(token, address)!
     exchange.mockClear()
     vi.spyOn(Date, "now").mockReturnValue(expiresAt.getTime())
-    onTestFinished(() => {
-      vi.restoreAllMocks()
-    })
 
     const renewed = await exchangeTicket(
       `${id}.${randomBytes(32).toString("base64url")}`,
@@ -406,6 +412,115 @@ describe("createPrivatePreviewReader()", () => {
 
     expect(renewed.status).toBe(404)
     expect(exchange).not.toHaveBeenCalled()
+  })
+
+  it("does not open a renewal whose signed state expires while Hub exchanges it", async () => {
+    const { request, exchangeTicket, signIn, exchange, access } = await startReader()
+    const { marker } = await signIn()
+    const navigation = await request(address.mount, { headers: navigationHeaders(marker) })
+    const token = formValue(
+      navigation.body,
+      `${settings.hubOrigin}${address.launchReturn}`,
+      "resume",
+    )!
+    const { id, expiresAt } = proof.readResume(token, address)!
+    exchange.mockImplementationOnce(() => {
+      vi.spyOn(Date, "now").mockReturnValue(expiresAt.getTime())
+      return Promise.resolve({ access, startPage: "/", buildId })
+    })
+
+    const renewed = await exchangeTicket(
+      `${id}.${randomBytes(32).toString("base64url")}`,
+      cookiePair(navigation.headers["set-cookie"]![0]!),
+    )
+
+    expect(exchange).toHaveBeenCalled()
+    expect(renewed.status).toBe(404)
+    expect(renewed.headers["set-cookie"]).toBeUndefined()
+  })
+
+  it("renews when the session ends while the document bytes are being read", async () => {
+    const { request, signIn, authorizeFile, readArtifact } = await startReader()
+    const { cookie, marker } = await signIn()
+    const html = Buffer.from("<!doctype html><title>Synthetic</title>")
+    authorizeFile
+      .mockResolvedValueOnce({
+        storageKey: "synthetic-html",
+        byteLength: html.length,
+        path: "dist/index.html",
+      })
+      .mockResolvedValueOnce("session-ended")
+    readArtifact.mockResolvedValueOnce({ status: "ok", bytes: html })
+
+    const navigation = await request(`${address.mount}?tab=2`, {
+      headers: navigationHeaders(cookie, marker),
+    })
+
+    expect(navigation.status).toBe(200)
+    expect(navigation.body).not.toContain("Synthetic")
+    const token = formValue(
+      navigation.body,
+      `${settings.hubOrigin}${address.launchReturn}`,
+      "resume",
+    )!
+    expect(proof.readResume(token, address)?.page).toBe("/?tab=2")
+  })
+
+  it("limits pending renewals in one browser", async () => {
+    const { request, signIn } = await startReader()
+    const { marker } = await signIn()
+    const pending = [randomUUID(), randomUUID()].map(
+      (id) => `__Host-replica-preview-resume-${id}=pending`,
+    )
+
+    const response = await request(address.mount, {
+      headers: {
+        ...navigationHeaders(marker),
+        cookie: [cookiePair(marker), ...pending].join("; "),
+      },
+    })
+
+    expect(response.status).toBe(404)
+    expect(response.headers["set-cookie"]).toBeUndefined()
+  })
+
+  it("keeps at most eight Builds' cookies by clearing the oldest other Builds", async () => {
+    const { begin, exchangeTicket } = await startReader()
+    const others = Array.from({ length: 8 }, (_, index) => {
+      const other = privatePreviewAddress("902", String(2000 + index))!
+      const marker = proof.identifyBuild(other, randomUUID(), Date.now() + (index + 1) * 60_000)
+      return {
+        access: `__Host-replica-preview-${other.repositoryId}-${other.runId}`,
+        marker: `__Host-replica-preview-build-${other.repositoryId}-${other.runId}`,
+        cookies: [
+          `__Host-replica-preview-${other.repositoryId}-${other.runId}=${randomBytes(32).toString("base64url")}`,
+          `__Host-replica-preview-build-${other.repositoryId}-${other.runId}=${marker}`,
+        ],
+      }
+    })
+    const begun = await begin()
+    const continuation = formValue(
+      begun.body,
+      `${settings.hubOrigin}${address.launchReturn}`,
+      "continuation",
+    )!
+    const { id } = proof.read(continuation, address)!
+
+    const exchanged = await exchangeTicket(
+      `${id}.${randomBytes(32).toString("base64url")}`,
+      [
+        cookiePair(begun.headers["set-cookie"]![0]!),
+        ...others.flatMap(({ cookies }) => cookies),
+      ].join("; "),
+    )
+
+    expect(exchanged.status).toBe(303)
+    const cleared = exchanged.headers["set-cookie"]!.filter((header) =>
+      /^[^=]+=;/.test(header),
+    ).map((header) => header.slice(0, header.indexOf("=")))
+    expect(cleared.sort()).toEqual(
+      [others[0]!.access, others[0]!.marker, `__Host-replica-preview-challenge-${id}`].sort(),
+    )
   })
 
   it("does not renew into a different Build than the one this browser opened", async () => {

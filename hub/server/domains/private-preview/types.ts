@@ -9,7 +9,6 @@ export const sessionLifetime = 8 * 60 * 60_000
 export const buildMarkerLifetime = 24 * 60 * 60_000
 export const resumeTokenPattern = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/
 export const maximumResumeTokenLength = 3500
-export const previewSessionEndedHeader = "X-Replica-Preview-Session-Ended"
 export const readerExchangePath = "/api/private-preview/reader/exchange"
 export const readerAuthorizePath = "/api/private-preview/reader/file"
 

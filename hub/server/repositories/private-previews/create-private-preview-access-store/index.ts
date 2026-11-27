@@ -1,7 +1,11 @@
-import type { PrismaClient } from "../../../generated/prisma/client.ts"
-import { sessionLifetime } from "../../../domains/private-preview/types.ts"
+import type { PrismaClient, PrivatePreviewAccess } from "../../../generated/prisma/client.ts"
 
-export function createPrivatePreviewAccessStore(database: PrismaClient) {
+type AccessRow = Pick<
+  PrivatePreviewAccess,
+  "tokenDigest" | "sessionDigest" | "buildId" | "readerOrigin" | "challengeDigest" | "expiresAt"
+>
+
+export function createPrivatePreviewAccessStore(database: PrismaClient, sessionLifetime: number) {
   async function clock() {
     const [row] = await database.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`
     if (!row) throw new Error("Private preview could not read database time.")
@@ -29,18 +33,20 @@ export function createPrivatePreviewAccessStore(database: PrismaClient) {
       })
       return result.count === 1 && input.expiresAt > (await clock())
     },
+    /** Reads unexpired access and the database time used to judge it, in one round trip. */
     async read(tokenDigest: string, readerOrigin: string, challengeDigest: string | null) {
-      return database.privatePreviewAccess.findFirst({
-        where: { tokenDigest, readerOrigin, challengeDigest, expiresAt: { gt: await clock() } },
-        select: {
-          tokenDigest: true,
-          sessionDigest: true,
-          buildId: true,
-          readerOrigin: true,
-          challengeDigest: true,
-          expiresAt: true,
-        },
-      })
+      const [row] = await database.$queryRaw<(AccessRow & { now: Date })[]>`
+        WITH tick AS MATERIALIZED (SELECT clock_timestamp() AS now)
+        SELECT token_digest AS "tokenDigest", session_digest AS "sessionDigest",
+               build_id AS "buildId", reader_origin AS "readerOrigin",
+               challenge_digest AS "challengeDigest", expires_at AS "expiresAt", tick.now AS "now"
+        FROM private_preview_accesses, tick
+        WHERE token_digest = ${tokenDigest}
+          AND reader_origin = ${readerOrigin}
+          AND challenge_digest IS NOT DISTINCT FROM ${challengeDigest}
+          AND expires_at > tick.now
+      `
+      return row ?? null
     },
     async exchange(input: {
       grantDigest: string

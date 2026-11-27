@@ -533,6 +533,7 @@ describe("createPrivatePreviewAuthority()", () => {
       readerOrigin,
       tokenDigest: randomBytes(32).toString("hex"),
       challengeDigest: null,
+      now: new Date(),
       expiresAt: new Date(Date.now() + 30_000),
     })
     const path = "dist/docs/index.html"
@@ -586,6 +587,7 @@ describe("createPrivatePreviewAuthority()", () => {
         readerOrigin,
         tokenDigest: createHash("sha256").update(hub.access).digest("hex"),
         challengeDigest: null,
+        now: new Date(),
         expiresAt: new Date(Date.now() + 30_000),
       })
       findDistFile.mockResolvedValue({ storageKey: "stored-artifact", byteLength: 20 })
@@ -652,8 +654,8 @@ describe("createPrivatePreviewAuthority()", () => {
       expiresAt: new Date(Date.now() + 30_000),
     }
     read
-      .mockResolvedValueOnce({ ...row, challengeDigest })
-      .mockResolvedValueOnce({ ...row, challengeDigest: null })
+      .mockResolvedValueOnce({ ...row, challengeDigest, now: new Date() })
+      .mockResolvedValueOnce({ ...row, challengeDigest: null, now: new Date() })
 
     await expect(authority.exchange(grantOrAccess, address, challengeDigest)).resolves.toBeNull()
     await expect(
@@ -682,6 +684,7 @@ describe("createPrivatePreviewAuthority()", () => {
         readerOrigin,
         tokenDigest: randomBytes(32).toString("hex"),
         challengeDigest: null,
+        now: new Date(),
         expiresAt: new Date(Date.now() + 30_000),
       })
       findDistFile.mockImplementation(() => {
@@ -716,6 +719,7 @@ describe("createPrivatePreviewAuthority()", () => {
       readerOrigin,
       tokenDigest: randomBytes(32).toString("hex"),
       challengeDigest: null,
+      now: new Date(),
       expiresAt: new Date(Date.now() - 1),
     })
     findDistFile.mockResolvedValue({ storageKey: "synthetic-index", byteLength: 20 })
@@ -791,6 +795,7 @@ describe("createPrivatePreviewAuthority()", () => {
         readerOrigin,
         tokenDigest: randomBytes(32).toString("hex"),
         challengeDigest: null,
+        now: new Date(),
         expiresAt: new Date(Date.now() + 30_000),
       })
       findDistFile.mockResolvedValue({ storageKey: "synthetic-style", byteLength: 20 })

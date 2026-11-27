@@ -174,6 +174,7 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
         path === privatePreviewManifestPath
       )
         return null
+      const started = performance.now()
       // An ended reader or Hub session lets the reader renew a prototype navigation through Hub.
       const session = await access.read(hashAuthenticationValue(token), readerOrigin, null)
       if (!session) return "session-ended"
@@ -199,7 +200,9 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
       )
       if (file === signedOut) return "session-ended"
       if (!file) return null
-      return session.expiresAt > (await access.clock()) ? file : "session-ended"
+      // Advance the lookup's database time locally rather than querying the clock again.
+      const now = session.now.getTime() + (performance.now() - started)
+      return session.expiresAt.getTime() > now ? file : "session-ended"
     },
   }
 }

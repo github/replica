@@ -28,7 +28,11 @@ import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/ty
 import { extractDistPackage } from "../../build-artifacts/extract-dist-package"
 import { readBuildPreviewFile } from "../../build-preview/read-build-preview-file"
 import { createPrivatePreviewAuthority } from "../../private-preview/create-authority"
-import { readerAuthorizePath, readerExchangePath } from "../../private-preview/types"
+import {
+  readerAuthorizePath,
+  readerExchangePath,
+  sessionLifetime,
+} from "../../private-preview/types"
 import { distArtifactName, screenshotArtifactName } from "../constants"
 import { discoverGitHubWorkflowRuns } from "../discover-github-workflow-runs"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition"
@@ -359,7 +363,7 @@ describe("importGitHubWorkflowRun", () => {
       const authority = createPrivatePreviewAuthority({
         readerOrigin: settings.readerOrigin,
         storage: fixture.storage,
-        access: createPrivatePreviewAccessStore(prisma),
+        access: createPrivatePreviewAccessStore(prisma, sessionLifetime),
         restoreSession: (digest) => Promise.resolve(digest === sessionDigest ? viewer : null),
         isRepositoryVisible: hasAccess,
         hasCurrentRepositoryAccess: hasAccess,

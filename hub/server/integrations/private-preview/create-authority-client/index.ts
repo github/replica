@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { previewSessionEndedHeader } from "../../../domains/private-preview/types.ts"
+import { privatePreviewSessionEndedHeader } from "../../../utils/private-preview-session-ended-header/index.ts"
 
 const exchangeReply = z.strictObject({
   access: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
@@ -70,7 +70,9 @@ export function createAuthorityClient(hubOrigin: string, readerSecret: string) {
       },
     ) {
       return request(endpoint, input, fileReply, (response) =>
-        response.headers.get(previewSessionEndedHeader) === "1" ? ("session-ended" as const) : null,
+        response.headers.get(privatePreviewSessionEndedHeader) === "1"
+          ? ("session-ended" as const)
+          : null,
       )
     },
   }

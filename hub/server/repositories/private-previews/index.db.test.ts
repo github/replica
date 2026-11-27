@@ -6,6 +6,8 @@ import { privatePreviewAddress } from "../../utils/private-preview-address"
 import { createPrivatePreviewAccessStore } from "./create-private-preview-access-store"
 import { findPrivatePreviewTarget } from "./find-private-preview-target"
 
+const sessionLifetime = 8 * 60 * 60_000
+
 function digest() {
   return randomBytes(32).toString("hex")
 }
@@ -25,7 +27,7 @@ async function createAccessBuild() {
 
 describe("createPrivatePreviewAccessStore()", () => {
   it("allows only one concurrent exchange and preserves the winning access scope", async () => {
-    const store = createPrivatePreviewAccessStore(prisma)
+    const store = createPrivatePreviewAccessStore(prisma, sessionLifetime)
     const readerOrigin = "https://preview.example.net"
     const grantDigest = digest()
     const challengeDigest = digest()
@@ -67,7 +69,7 @@ describe("createPrivatePreviewAccessStore()", () => {
   it.each(["wrong browser", "wrong origin", "expired"] as const)(
     "does not turn a %s grant into reader access",
     async (condition) => {
-      const store = createPrivatePreviewAccessStore(prisma)
+      const store = createPrivatePreviewAccessStore(prisma, sessionLifetime)
       const readerOrigin = "https://preview.example.net"
       const grantDigest = digest()
       const challengeDigest = digest()
@@ -106,8 +108,55 @@ describe("createPrivatePreviewAccessStore()", () => {
     },
   )
 
+  it("does not exchange a grant that expires while the exchange waits for its row lock", async () => {
+    const store = createPrivatePreviewAccessStore(prisma, sessionLifetime)
+    const readerOrigin = "https://preview.example.net"
+    const { id: buildId } = await createAccessBuild()
+    const id = randomUUID()
+    const grantDigest = digest()
+    const challengeDigest = digest()
+    await store.issue({
+      id,
+      tokenDigest: grantDigest,
+      sessionDigest: digest(),
+      buildId,
+      readerOrigin,
+      challengeDigest,
+      expiresAt: new Date(Date.now() + 30_000),
+    })
+    let signalLocked!: () => void
+    const locked = new Promise<void>((resolve) => {
+      signalLocked = resolve
+    })
+    const holder = prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT id FROM private_preview_accesses WHERE id = ${id}::uuid FOR UPDATE`
+      await transaction.$executeRaw`
+        UPDATE private_preview_accesses
+        SET expires_at = clock_timestamp() + interval '200 milliseconds'
+        WHERE id = ${id}::uuid
+      `
+      signalLocked()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    })
+
+    await locked
+    const exchange = store.exchange({
+      grantDigest,
+      tokenDigest: digest(),
+      readerOrigin,
+      challengeDigest,
+    })
+    await holder
+
+    await expect(exchange).resolves.toBe(false)
+    await expect(prisma.privatePreviewAccess.findUnique({ where: { id } })).resolves.toMatchObject({
+      tokenDigest: grantDigest,
+      challengeDigest,
+    })
+  })
+
   it("issues at most one handoff per launch ID, even after its exchange", async () => {
-    const store = createPrivatePreviewAccessStore(prisma)
+    const store = createPrivatePreviewAccessStore(prisma, sessionLifetime)
     const readerOrigin = "https://preview.example.net"
     const { id: buildId } = await createAccessBuild()
     const id = randomUUID()

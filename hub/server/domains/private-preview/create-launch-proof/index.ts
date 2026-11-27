@@ -147,7 +147,7 @@ export function createLaunchProof({
       if (value.length > 512 || !resumeTokenPattern.test(value)) return null
       const marker = open("build-marker", value, buildMarker)
       return marker && matches(marker, address) && marker.deadline > Date.now()
-        ? marker.buildId
+        ? { buildId: marker.buildId, deadline: marker.deadline }
         : null
     },
   }

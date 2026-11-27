@@ -7,7 +7,6 @@ import { createLaunchProof } from "../../domains/private-preview/create-launch-p
 import {
   maximumResumeTokenLength,
   previewDigestPattern,
-  previewSessionEndedHeader,
   previewTokenPattern,
   resumeTokenPattern,
 } from "../../domains/private-preview/types.ts"
@@ -16,6 +15,7 @@ import { secureHubSessionCookieName } from "../../integrations/express/hub-sessi
 import { readCookie } from "../../integrations/express/read-cookie/index.ts"
 import { sendPrivatePreviewForm } from "../../integrations/express/send-private-preview-form/index.ts"
 import { privatePreviewAddress } from "../../utils/private-preview-address/index.ts"
+import { privatePreviewSessionEndedHeader } from "../../utils/private-preview-session-ended-header/index.ts"
 import type { PrivatePreviewRouteDependencies } from "./types.ts"
 
 const addressShape = { repositoryId: z.string(), runId: z.string() }
@@ -229,7 +229,7 @@ export function mountPrivatePreview(
     try {
       const file = await authority.authorizeFile(access, address, path, allowEntryPointFallback)
       if (file === "session-ended")
-        return response.setHeader(previewSessionEndedHeader, "1").sendStatus(404)
+        return response.setHeader(privatePreviewSessionEndedHeader, "1").sendStatus(404)
       return file ? response.json(file) : response.sendStatus(404)
     } catch {
       return response.sendStatus(503)
