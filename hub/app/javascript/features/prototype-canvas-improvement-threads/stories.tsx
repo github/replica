@@ -85,6 +85,24 @@ function ResolvableNotes(props: ComponentProps<typeof ImprovementThreads>) {
     <ImprovementThreads
       {...props}
       threads={threads}
+      onDelete={(thread) => {
+        setThreads((items) => items.filter((item) => item.id !== thread.id))
+        return Promise.resolve(true)
+      }}
+      onRetry={
+        props.onRetry
+          ? (thread) => {
+              setThreads((items) =>
+                items.map((item) =>
+                  item.id === thread.id
+                    ? { ...item, status: "open", retryStatus: undefined, originalPending: true }
+                    : item,
+                ),
+              )
+              return Promise.resolve(true)
+            }
+          : undefined
+      }
       onResolve={(thread) => {
         setThreads((items) =>
           items.map((item) => (item.id === thread.id ? { ...item, status: "resolved" } : item)),
@@ -150,6 +168,77 @@ export const BlockedNotes: Story = {
         retryStatus: "blocked",
       },
     ],
+  },
+}
+
+export const SelectedActionsMenu: Story = {
+  ...SelectNotes,
+  play: async (context) => {
+    await SelectNotes.play!(context)
+    await context.userEvent.click(
+      context.canvas.getByRole("button", { name: copy.selectedActions }),
+    )
+  },
+}
+
+export const OpenNoteActions: Story = {
+  ...ActiveNotes,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: `${copy.actions}: 1` }))
+  },
+}
+
+export const SelectedDoubleDigitCounts: Story = {
+  args: {
+    open: true,
+    threads: Array.from({ length: 24 }, (_, index) => ({
+      ...selectionNotes[index % 2]!,
+      id: index + 1,
+    })),
+  },
+  render: (args) => <ResolvableNotes {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    for (const checkbox of canvas.getAllByRole("checkbox")) await userEvent.click(checkbox)
+    await userEvent.click(canvas.getByRole("button", { name: copy.selectedActions }))
+  },
+}
+
+export const SelectedRetryMenu: Story = {
+  args: BlockedNotes.args,
+  render: (args) => <ResolvableNotes {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    for (const checkbox of canvas.getAllByRole("checkbox")) await userEvent.click(checkbox)
+    await userEvent.click(canvas.getByRole("button", { name: copy.selectedActions }))
+  },
+}
+
+export const SelectedReturnToActiveMenu: Story = {
+  ...SelectedRetryMenu,
+  args: {
+    ...BlockedNotes.args,
+    threads: BlockedNotes.args!.threads!.map((thread) => ({
+      ...thread,
+      status: "sent",
+      retryStatus: "sent",
+    })),
+  },
+}
+
+export const SelectedDeleteConfirmation: Story = {
+  ...SelectedActionsMenu,
+  play: async (context) => {
+    await SelectedActionsMenu.play!(context)
+    await context.userEvent.click(context.canvas.getByRole("menuitem", { name: copy.delete }))
+  },
+}
+
+export const SelectedDeleteFailure: Story = {
+  ...SelectedDeleteConfirmation,
+  render: (args) => <FailedActions {...args} />,
+  play: async (context) => {
+    await SelectedDeleteConfirmation.play!(context)
+    await context.userEvent.click(context.canvas.getByRole("button", { name: copy.delete }))
+    await context.canvas.findByRole("region", { name: "Comment notifications" })
   },
 }
 
@@ -235,7 +324,7 @@ export const FollowUpFailure: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", {
-        name: "Open improvement: Keep the save action visible while editing project details.",
+        name: "Open note: Keep the save action visible while editing project details.",
       }),
     )
     await userEvent.type(
@@ -251,9 +340,9 @@ export const DeleteFailure: Story = {
   args: { open: true },
   render: (args) => <FailedActions {...args} />,
   play: async ({ canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: "Improvement actions: 1" }))
-    await userEvent.click(canvas.getByRole("menuitem", { name: "Delete improvement" }))
-    await userEvent.click(canvas.getByRole("button", { name: "Delete improvement" }))
+    await userEvent.click(canvas.getByRole("button", { name: `${copy.actions}: 1` }))
+    await userEvent.click(canvas.getByRole("menuitem", { name: copy.delete }))
+    await userEvent.click(canvas.getByRole("button", { name: copy.delete }))
     await canvas.findByRole("region", { name: "Comment notifications" })
   },
 }

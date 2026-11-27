@@ -1523,8 +1523,7 @@ describe("App()", () => {
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
       fireEvent.click(screen.getByRole("button", { name: copy.openNotes(1) }))
-      expect(screen.queryByRole("button", { name: "Note actions: 1" })).not.toBeInTheDocument()
-      expect(screen.getByRole("button", { name: `${threadCopy.delete}: 1` })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Note actions: 1" })).toBeInTheDocument()
       fireEvent.click(screen.getByRole("button", { name: "Open note: Original feedback." }))
       fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
         target: { value: "Older unsaved draft." },
@@ -1552,7 +1551,8 @@ describe("App()", () => {
       ])
       expect(fetch.mock.calls.at(-1)?.[1]?.body).toContain('"expectedNoteRevision":2')
       fireEvent.click(screen.getByRole("button", { name: threadCopy.back }))
-      fireEvent.click(screen.getByRole("button", { name: `${threadCopy.delete}: 1` }))
+      fireEvent.click(screen.getByRole("button", { name: "Note actions: 1" }))
+      fireEvent.click(screen.getByRole("menuitem", { name: threadCopy.delete }))
       serverNote.revision = 4
       saved.revision++
       await act(() => vi.advanceTimersByTimeAsync(3000))
