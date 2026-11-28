@@ -2253,6 +2253,12 @@ describe("replica-learning CLI: guard rails", () => {
     const fetched = (await call("get_learning", { id: memory.id })).data
     assert.equal(fetched.id, listed.id)
     assert.equal(fetched.state, listed.state)
+    assert.equal("title" in listed, false)
+    assert.equal("content" in listed, false)
+    assert.equal("title" in fetched, false)
+    assert.equal("content" in fetched, false)
+    assert.equal(JSON.stringify([listed, fetched]).includes(proposal.title), false)
+    assert.equal(JSON.stringify([listed, fetched]).includes(proposal.content), false)
     const shot = {
       file: "after.png",
       route: "/checkout",
@@ -2513,6 +2519,87 @@ describe("replica-learning CLI: guard rails", () => {
       assert.equal(review.data.formAvailable, false)
       assert.match(pending.accept, /accept .*--digest .*--by github:YOUR_LOGIN/)
       assert.match(pending.reject, /reject .*--digest .*--by github:YOUR_LOGIN/)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("offers update commands when MCP elicitation is unavailable", async () => {
+    const repo = checkout("mcp-update-review-no-elicitation")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const environment = await resolveEnvironment({ cwd: repo, env: {} })
+    const { store } = await openLearningStore(environment, { clock: () => CLOCK })
+    let update
+    try {
+      const context = {
+        scope: environment.scope,
+        sourceRepository: environment.sourceRepository,
+        principal: { kind: "agent", id: "agent:copilot" },
+      }
+      const recalled = await store.recall(context)
+      const commitSha = "f".repeat(40)
+      await store.reportUsage(context, {
+        reportId: "review-update-commands",
+        guidanceIds: [recalled.guidanceId],
+        commitSha,
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      })
+      const [used] = (await store.usageForCommit(context, { commitSha }))[0].used
+      const score = await store.recordScore(context, {
+        usedLearningId: used.id,
+        operationId: "11111111-1111-4111-8111-111111111111",
+        efficiency: 2,
+        followed: "followed",
+        reasoning: "The label was still hard to find.",
+        issue: "Labels need a clearer position.",
+        inputs: ["build_diff"],
+        route: { kind: "fusion", fusionTier: "max" },
+      })
+      const secondScore = await store.recordScore(context, {
+        usedLearningId: used.id,
+        operationId: "22222222-2222-4222-8222-222222222222",
+        efficiency: 2,
+        followed: "followed",
+        reasoning: "The field label was still hard to find.",
+        issue: "Labels need a clearer position.",
+        inputs: ["build_diff"],
+        route: { kind: "fusion", fusionTier: "max" },
+      })
+      const { record } = await store.getMemory(context, proposal.id)
+      update = await store.proposeUpdate(context, {
+        memoryId: proposal.id,
+        versionDigest: record.digest,
+        issueKey: "label-position",
+        issue: "Labels need a clearer position.",
+        content: "Put a visible label above every field.",
+        reasoning: "Naming the position removes the guess.",
+        support: [score.id, secondScore.id],
+        route: { kind: "fusion", fusionTier: "max" },
+      })
+    } finally {
+      await store.close()
+    }
+
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    try {
+      const review = await mcp.call("review_learnings")
+      const pending = review.data.updates.find(({ id }) => id === update.proposal.id)
+
+      assert.equal(review.error, undefined)
+      assert.equal(review.data.formAvailable, false)
+      assert.match(pending.inspect, new RegExp(`updates ${proposal.id}`))
+      assert.match(pending.apply, new RegExp(`apply-update ${update.proposal.id}`))
+      assert.match(pending.apply, /--operation-id OPERATION_ID/)
+      assert.match(pending.dismiss, new RegExp(`dismiss-update ${update.proposal.id}`))
+      assert.match(pending.dismiss, /--reason REASON/)
     } finally {
       assert.equal(await mcp.close(), 0)
     }
