@@ -721,11 +721,13 @@ class LocalRuntime:
                 else None
             )
             project_request = getattr(connector, "project_request", _backend_request)
+            connector_request = dict(project_request(request))
+            connector_request["expectedGeneration"] = promotion["generation"]
             answers = dict(
                 _run_inference(
                     connector,
                     adapter,
-                    project_request(request),
+                    connector_request,
                     work_directory=work,
                     context=context,
                     credential=credential,
@@ -1761,6 +1763,7 @@ def _run_backend(
 ) -> TrainingResult:
     """Run backend code in a child that the runtime can stop at the job deadline."""
     process_context = _process_context()
+    cancellation_event = process_context.Event()
     result_path = work_directory / "result.pickle"
     process = process_context.Process(
         target=_backend_process,
@@ -1779,20 +1782,33 @@ def _run_backend(
             context.max_credits,
             context.budget_mode,
             credential,
+            cancellation_event,
         ),
         name=f"replica-{connector.name}-job",
     )
     process.start()
+    timed_out = False
     try:
         while process.is_alive():
-            context.cancellation.raise_if_requested()
+            if context.cancellation.requested:
+                cancellation_event.set()
+                process.join(5)
+                context.cancellation.raise_if_requested()
             remaining = context.deadline - time.monotonic()
             if remaining <= 0:
+                timed_out = True
                 break
             process.join(min(0.05, remaining))
         if process.is_alive():
-            context.cancellation.cancel()
-            _stop_process(process)
+            cancellation_event.set()
+            process.join(5)
+        if timed_out:
+            if process.is_alive():
+                _stop_process(process)
+            raise RuntimeFailure(
+                "job_timed_out", "The bounded training job reached maxSeconds."
+            )
+        if time.monotonic() >= context.deadline:
             raise RuntimeFailure(
                 "job_timed_out", "The bounded training job reached maxSeconds."
             )
@@ -1840,6 +1856,7 @@ def _backend_process(
     max_credits: float | None,
     budget_mode: str,
     credential: Credential | None,
+    cancellation_event: Any,
 ) -> None:
     """Load task data afresh and run one serializable connector in a spawned child process."""
     try:
@@ -1856,7 +1873,7 @@ def _backend_process(
             scope=scope,
             owner=owner,
             deadline=deadline,
-            cancellation=Cancellation(),
+            cancellation=Cancellation(cancellation_event),
             max_credits=max_credits,
             budget_mode=budget_mode,
         )

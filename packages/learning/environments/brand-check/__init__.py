@@ -10,6 +10,15 @@ __all__ = [
     "BrandCheckAction",
     "BrandCheckEnv",
     "BrandCheckObservation",
+    "AzureConnectorBundle",
+    "AzureContainerAppsTrainingConnector",
+    "AzureEndpointInferenceConnector",
+    "AzureManagedIdentityCredentialConnector",
+    "AzureObservabilityConnector",
+    "AzurePostgresCandidateConnector",
+    "AzurePostgresJobConnector",
+    "AzureBlobArtifactConnector",
+    "AzureBlobTasksetConnector",
     "ConnectorConformanceFixture",
     "ConnectorError",
     "FixtureBackend",
@@ -23,12 +32,23 @@ __all__ = [
     "TrainingResult",
     "connector_conformance",
     "create_local_connector_bundle",
+    "create_azure_connector_bundle",
+    "initialize_azure_postgres",
     "question_options",
 ]
 
 # The scoring modules use only the standard library. Importing the OpenEnv classes on first use
 # lets them, and their tests, run where openenv-core is not installed.
 _OPENENV_EXPORTS = {
+    "AzureBlobArtifactConnector": ".azure_connectors",
+    "AzureBlobTasksetConnector": ".azure_connectors",
+    "AzureConnectorBundle": ".azure_connectors",
+    "AzureContainerAppsTrainingConnector": ".azure_connectors",
+    "AzureEndpointInferenceConnector": ".azure_connectors",
+    "AzureManagedIdentityCredentialConnector": ".azure_connectors",
+    "AzureObservabilityConnector": ".azure_connectors",
+    "AzurePostgresCandidateConnector": ".azure_connectors",
+    "AzurePostgresJobConnector": ".azure_connectors",
     "BrandCheckAction": ".models",
     "BrandCheckObservation": ".models",
     "BrandCheckEnv": ".client",
@@ -43,6 +63,8 @@ _OPENENV_EXPORTS = {
     "TrainingResult": ".connectors",
     "RuntimeFailure": ".runtime",
     "create_local_connector_bundle": ".local_connectors",
+    "create_azure_connector_bundle": ".azure_connectors",
+    "initialize_azure_postgres": ".azure_connectors",
 }
 
 
