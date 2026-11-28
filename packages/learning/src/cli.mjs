@@ -215,6 +215,9 @@ const OPTIONS = {
   "evidence-until": { type: "string" },
   reason: { type: "string" },
   grant: { type: "string", multiple: true },
+  "expected-origin": { type: "string" },
+  wait: { type: "boolean" },
+  "require-session-evaluation": { type: "boolean" },
   from: { type: "string" },
   to: { type: "string" },
   max: { type: "string" },
@@ -349,6 +352,24 @@ export async function main(
       throw new UsageError(
         "A checkout's --legacy-repository is used only with migrate-scope --offline.",
       )
+    if (
+      values["expected-origin"] !== undefined &&
+      !/^[a-z0-9_.-]{1,100}\/[a-z0-9_.-]{1,100}$/.test(values["expected-origin"])
+    )
+      throw new UsageError("--expected-origin must be a GitHub owner/name.")
+    if (values["expected-origin"] !== undefined) {
+      const current = await resolveEnvironment({
+        cwd,
+        env,
+        directory: values.dir,
+        resolveIdentity: false,
+      })
+      if (current.sourceRepository !== values["expected-origin"])
+        throw new LearningError(
+          "conflict",
+          "This checkout's GitHub origin changed while learning was running. Restart the MCP server.",
+        )
+    }
     const environment = await resolveEnvironment({
       cwd,
       env,
@@ -569,6 +590,51 @@ async function open(session) {
   return opened
 }
 
+async function verifyCheckoutOrigin(session) {
+  const expected =
+    session.values["expected-origin"] ??
+    (!session.environment.hosted && session.environment.scope?.host === "github.com"
+      ? session.environment.sourceRepository
+      : undefined)
+  if (expected === undefined) return
+  const current = await resolveEnvironment({
+    cwd: session.cwd,
+    env: session.env,
+    directory: session.values.dir,
+    resolveIdentity: false,
+  })
+  if (current.sourceRepository !== expected)
+    throw new LearningError(
+      "conflict",
+      "This checkout's GitHub origin changed while learning was running. Restart the MCP server.",
+    )
+}
+
+async function hasAgentSessionEvaluationGrant(session) {
+  await verifyCheckoutOrigin(session)
+  const { store } = await open(session)
+  try {
+    return await agentSessionEvaluationAllowed(
+      store,
+      context(session, { kind: "system", id: "system:replica-learning-analysis" }),
+      timestampFromMilliseconds(session.clock()),
+    )
+  } finally {
+    session.opened.splice(session.opened.indexOf(store), 1)
+    await store.close()
+  }
+}
+
+async function agentSessionEvaluationAllowed(store, ctx, now) {
+  return (await store.listGrants(ctx)).some(
+    ({ grant, activePurposes }) =>
+      grant.sources.includes("agent_session") &&
+      activePurposes.includes("evaluation") &&
+      (!grant.evidenceFrom || now >= grant.evidenceFrom) &&
+      (!grant.evidenceUntil || now < grant.evidenceUntil),
+  )
+}
+
 function redactionFollowUpLines(followUps) {
   return [
     ...(followUps.memoriesNeedingRebuild ?? []).map(
@@ -586,6 +652,9 @@ function context(session, principal) {
     scope: session.environment.scope,
     sourceRepository: session.environment.sourceRepository,
     principal,
+    ...(session.values.grant?.length
+      ? { allowedGrantIds: [...new Set(session.values.grant)] }
+      : {}),
   }
 }
 
@@ -1534,16 +1603,30 @@ async function score(session) {
   const { store } = await open(session)
   const verifiedAt = time(session, session.values["reviewer-verified-at"], "--reviewer-verified-at")
   const evaluator = createCopilotEvaluator({ token: session.env.COPILOT_GITHUB_TOKEN || undefined })
-  const result = await withCopilot(session, evaluator, (copilotContext) =>
-    scoreUsedLearning(store, copilotContext, {
+  const result = await withCopilot(session, evaluator, async (copilotContext) => {
+    if (diff !== undefined) await verifyCheckoutOrigin(session)
+    if (
+      diff !== undefined &&
+      session.values["require-session-evaluation"] &&
+      !(await agentSessionEvaluationAllowed(
+        store,
+        context(session, actor(session)),
+        timestampFromMilliseconds(session.clock()),
+      ))
+    )
+      throw new LearningError(
+        "grant_inactive",
+        "Agent-session evaluation consent was withdrawn before commit analysis reached Copilot.",
+      )
+    return scoreUsedLearning(store, copilotContext, {
       evaluator,
       usedLearningId,
       operationId,
       diff,
       ...(kept ? { readScreenshot: (sha256) => kept.read(sha256) } : {}),
       ...(verifiedAt !== undefined ? { reviewerVerifiedAt: verifiedAt } : {}),
-    }),
-  )
+    })
+  })
   const usage = totals(result.usage)
   session.out(
     { score: result.score, stored: result.stored, route: result.route, usage },
@@ -1585,7 +1668,7 @@ async function proposeUpdate(session) {
  * It labels new feedback, then suggests themes that recur over the last 90 days. With
  * a commit, it also scores each learning an agent used there and may suggest new
  * wording. Hub's caps keep one run's Copilot usage bounded. A failed step is reported
- * and the rest still run. Runs take turns so two never repeat the same work.
+ * and the rest still run. Runs take turns under one lock.
  */
 async function analyze(session) {
   const commitSha = session.values.commit
@@ -1616,6 +1699,7 @@ async function analyze(session) {
   await mkdir(directory, { recursive: true, mode: 0o700 })
   /** Labels, consolidates, and scores in one go, holding the analysis lock. */
   async function work() {
+    await verifyCheckoutOrigin(session)
     const startedAt = timestampFromMilliseconds(session.clock())
     const labeled = await step("label", [
       "label",
@@ -1639,12 +1723,29 @@ async function analyze(session) {
     const updates = []
     if (commitSha) {
       const reports = (await step("usage", ["usage", "--commit", commitSha]))?.reports ?? []
+      if (reports.length && !(await hasAgentSessionEvaluationGrant(session))) {
+        throw new LearningError(
+          "grant_inactive",
+          "No active evaluation grant for agent sessions permits sending this commit diff to Copilot.",
+        )
+      }
       const temporary = await mkdtemp(path.join(tmpdir(), "replica-learning-analyze-"))
       try {
         const diffFile = path.join(temporary, "commit.diff")
+        await verifyCheckoutOrigin(session)
         const diff = await commitDiff(session.cwd, commitSha)
+        if (diff && reports.length && !(await hasAgentSessionEvaluationGrant(session)))
+          throw new LearningError(
+            "grant_inactive",
+            "Agent-session evaluation consent was withdrawn before commit analysis started.",
+          )
         if (diff) await writeFile(diffFile, diff, { mode: 0o600 })
         for (const used of reports.flatMap((report) => report.used)) {
+          if (diff && !(await hasAgentSessionEvaluationGrant(session)))
+            throw new LearningError(
+              "grant_inactive",
+              "Agent-session evaluation consent was withdrawn before commit analysis completed.",
+            )
           // The same ID for the same use, so a second run keeps the first score.
           const result = await step("score", [
             "score",
@@ -1652,6 +1753,7 @@ async function analyze(session) {
             "--operation-id",
             operationIdFor(`analyze-score:${used.id}`),
             ...(diff ? ["--diff-file", diffFile] : []),
+            ...(diff ? ["--require-session-evaluation"] : []),
           ])
           if (result) scored.add(used.memoryId)
         }
@@ -1685,9 +1787,8 @@ async function analyze(session) {
     path: path.join(directory, "analysis.lock"),
     timeoutMs: 60 * 60 * 1000,
   })
-  // One run may wait behind the running one for each repository's commit, or its chats
-  // alone. A later request finds that run waiting and leaves the new data to it.
-  // Repositories can share a directory, so each waits on its own key.
+  // One worker per repository and commit key takes the next turn. Automatic workers
+  // retry this slot so every saved submission stays queued if the MCP server exits.
   const key = createHash("sha256")
     .update(
       JSON.stringify([
@@ -1703,26 +1804,37 @@ async function analyze(session) {
     timeoutMs: 1000,
   })
   let running
-  try {
-    await waiting.run(
-      () =>
-        new Promise((started) => {
-          running = lock.run(async () => {
-            started()
-            return work()
-          })
-          running.catch(started)
-        }),
-    )
-  } catch (error) {
-    if (running || error?.code !== "conflict") throw error
-    session.out(
-      { waiting: true },
-      "Another analysis is waiting to run and will include this one's data.",
-    )
-    return localLearning.ANALYSIS_DEFERRED_EXIT_CODE
+  let summary
+  let startedWork
+  while (true) {
+    running = undefined
+    startedWork = false
+    try {
+      await waiting.run(
+        () =>
+          new Promise((started) => {
+            running = lock.run(async () => {
+              startedWork = true
+              started()
+              return work()
+            })
+            running.catch(started)
+          }),
+      )
+      summary = await running
+      break
+    } catch (error) {
+      if (startedWork || error?.code !== "conflict") throw error
+      if (!session.values.wait) {
+        session.out(
+          { waiting: true },
+          "An analysis is already running; try again after it finishes.",
+        )
+        return localLearning.ANALYSIS_DEFERRED_EXIT_CODE
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
   }
-  const summary = await running
   session.out(
     summary,
     [
@@ -1738,9 +1850,17 @@ async function analyze(session) {
 
 /** The options that point another run of this CLI at the same store. */
 function storeArguments(session) {
-  return ["dir", "repository"].flatMap((name) =>
+  const options = ["dir", "repository"].flatMap((name) =>
     session.values[name] === undefined ? [] : [`--${name}`, session.values[name]],
   )
+  for (const grant of session.values.grant ?? []) options.push("--grant", grant)
+  const origin =
+    session.values["expected-origin"] ??
+    (!session.environment.hosted && session.environment.scope?.host === "github.com"
+      ? session.environment.sourceRepository
+      : undefined)
+  if (origin) options.push("--expected-origin", origin)
+  return options
 }
 
 /** The commit's own changes, or null when Git cannot show them. */
@@ -1980,6 +2100,11 @@ async function serveMcp(session) {
   const principal =
     session.values.actor === undefined ? { kind: "agent", id: "agent:mcp" } : actor(session)
   if (principal.kind !== "agent") throw new UsageError("Name the agent with --actor agent:<name>.")
+  if (session.environment.config.memory?.provider === "in-memory")
+    throw new LearningError(
+      "unsupported",
+      "The in-memory provider is for isolated operations; MCP needs a persistent provider because each request and its background analysis use separate processes.",
+    )
   let mcp
   let stdio
   try {
@@ -1994,6 +2119,7 @@ async function serveMcp(session) {
     throw error
   }
   async function withStore(call) {
+    await verifyCheckoutOrigin(session)
     const { store } = await open(session)
     try {
       return await call(store, context(session, principal))
@@ -2026,15 +2152,7 @@ async function serveMcp(session) {
     )?.grant.id
   }
   async function sessionEvaluationAllowed(store, ctx) {
-    const now = timestampFromMilliseconds(session.clock())
-    return (await store.listGrants(ctx)).some(
-      ({ grant, activePurposes }) =>
-        startedWith(grant) &&
-        grant.sources.includes("agent_session") &&
-        activePurposes.includes("evaluation") &&
-        (!grant.evidenceFrom || now >= grant.evidenceFrom) &&
-        (!grant.evidenceUntil || now < grant.evidenceUntil),
-    )
+    return agentSessionEvaluationAllowed(store, ctx, timestampFromMilliseconds(session.clock()))
   }
   async function sessionGrants(store, ctx) {
     return (await store.listGrants(ctx)).filter(
@@ -2180,7 +2298,7 @@ async function serveMcp(session) {
   const activeAnalyses = new Map()
   let requestedChatGeneration = 0
   let completedChatGeneration = 0
-  let activeChatGeneration
+  const activeChatGenerations = new Set()
   /** Starts the labeling, consolidating, and scoring a person would otherwise run. */
   function analyzeLater(commitSha, { force = false } = {}) {
     if (session.values.manual) return
@@ -2200,14 +2318,14 @@ async function serveMcp(session) {
       if (force) requestedChatGeneration++
       else if (requestedChatGeneration === 0) requestedChatGeneration = 1
       generation = requestedChatGeneration
-      if (completedChatGeneration >= generation || activeChatGeneration !== undefined) return
+      if (completedChatGeneration >= generation || activeChatGenerations.has(generation)) return
     }
     try {
       const started = session.startAnalysis({
         cwd: session.cwd,
         env: session.env,
         dataDirectory: session.environment.dataDirectory,
-        args: [...storeArguments(session), ...(commitSha ? ["--commit", commitSha] : [])],
+        args: [...storeArguments(session), ...(commitSha ? ["--commit", commitSha] : []), "--wait"],
       })
       if (!started) {
         session.stderr.write(
@@ -2224,7 +2342,7 @@ async function serveMcp(session) {
       if (active) {
         active.add(generation)
         activeAnalyses.set(commitSha, active)
-      } else activeChatGeneration = generation
+      } else activeChatGenerations.add(generation)
       let finished = false
       function finish(code, detail) {
         if (finished) return
@@ -2240,12 +2358,15 @@ async function serveMcp(session) {
           if (moreWork) analyzeLater(commitSha, { force: true })
           else if (code === 0 && currentGeneration > generation) analyzeLater(commitSha)
         } else {
-          activeChatGeneration = undefined
+          activeChatGenerations.delete(generation)
           if (code === 0) completedChatGeneration = Math.max(completedChatGeneration, generation)
           if (moreWork) requestedChatGeneration = Math.max(requestedChatGeneration, generation + 1)
           if (
             requestedChatGeneration > completedChatGeneration &&
-            (code === 0 || moreWork || requestedChatGeneration > generation)
+            (code === 0 ||
+              moreWork ||
+              code === localLearning.ANALYSIS_DEFERRED_EXIT_CODE ||
+              requestedChatGeneration > generation)
           )
             analyzeLater()
         }
@@ -2321,9 +2442,35 @@ async function serveMcp(session) {
         )
         if (!grantIds.length && !session.values.grant?.length) grantIds = await agreeToLearn()
         if (!grantIds.length) throw new LearningError("grant_inactive", noConsentMessage())
-        const result = await withStore((store, ctx) =>
-          store.importAgentSession(ctx, input, { grantIds }),
-        )
+        const notes = input.pickAndPolishNotes
+        if (notes && new Set(notes.map((note) => note.localId)).size !== notes.length)
+          throw new LearningError(
+            "invalid_input",
+            "Pick & Polish notes must have different local IDs.",
+          )
+        const chunks = notes?.length
+          ? Array.from({ length: Math.ceil(notes.length / 200) }, (_, index) =>
+              notes.slice(index * 200, (index + 1) * 200),
+            )
+          : [notes]
+        const imports = await withStore(async (store, ctx) => {
+          const results = []
+          for (const chunk of chunks) {
+            results.push(
+              await store.importAgentSession(
+                ctx,
+                notes === undefined ? input : { ...input, pickAndPolishNotes: chunk },
+                { grantIds },
+              ),
+            )
+          }
+          return results
+        })
+        const result = {
+          ...imports[0],
+          addedEpisodes: imports.reduce((total, item) => total + item.addedEpisodes, 0),
+          addedEvents: imports.reduce((total, item) => total + item.addedEvents, 0),
+        }
         const waitingCount = await withStore(
           async (store) => Object.values(await waitingForReview(store)).flat().length,
         )
@@ -2360,20 +2507,34 @@ async function serveMcp(session) {
             ...summary,
             decide: {
               note: canAskPerson()
-                ? "Only a person can decide. Call review_learnings so they can decide in a form, or ask them to run one of these with their GitHub login."
-                : "Only a person can decide. Ask them to run one of these with their GitHub login.",
-              accept: `${command} accept ${record.id} --digest ${record.reviewDigest} --by github:<login>`,
-              reject: `${command} reject ${record.id} --digest ${record.reviewDigest} --by github:<login> --reason <text>`,
+                ? "Only a person can decide. Call review_learnings so they can decide in a form, or ask them to replace YOUR_LOGIN and REASON, then run one of these commands."
+                : "Only a person can decide. Ask them to replace YOUR_LOGIN and REASON, then run one of these commands.",
+              accept: `${command} accept ${shellQuote(record.id)} --digest ${shellQuote(record.reviewDigest)} --by ${shellQuote("github:YOUR_LOGIN")}`,
+              reject: `${command} reject ${shellQuote(record.id)} --digest ${shellQuote(record.reviewDigest)} --by ${shellQuote("github:YOUR_LOGIN")} --reason ${shellQuote("REASON")}`,
             },
           }
         }),
       reviewLearnings: async () => {
-        if (!canAskPerson())
-          throw new LearningError(
-            "unsupported",
-            "This client cannot show the person a form. get_learning gives the commands they can run instead.",
-          )
         const waiting = await withStore((store) => waitingForReview(store))
+        if (!canAskPerson()) {
+          const command = decisionCommandPrefix(session)
+          return {
+            formAvailable: false,
+            note: "Replace YOUR_LOGIN, REASON, and OPERATION_ID with your values before running a command.",
+            proposals: waiting.proposals.map((proposal) => ({
+              id: proposal.id,
+              inspect: proposal.evidenceCommand,
+              accept: `${command} accept ${shellQuote(proposal.id)} --digest ${shellQuote(proposal.reviewDigest)} --by ${shellQuote("github:YOUR_LOGIN")}`,
+              reject: `${command} reject ${shellQuote(proposal.id)} --digest ${shellQuote(proposal.reviewDigest)} --by ${shellQuote("github:YOUR_LOGIN")} --reason ${shellQuote("REASON")}`,
+            })),
+            updates: waiting.updates.map((update) => ({
+              id: update.id,
+              inspect: `${command} updates ${shellQuote(update.memoryId)}`,
+              apply: `${command} apply-update ${shellQuote(update.id)} --by ${shellQuote("github:YOUR_LOGIN")} --operation-id ${shellQuote("OPERATION_ID")} --reason ${shellQuote("REASON")}`,
+              dismiss: `${command} dismiss-update ${shellQuote(update.id)} --by ${shellQuote("github:YOUR_LOGIN")} --reason ${shellQuote("REASON")}`,
+            })),
+          }
+        }
         const digests = new Map(waiting.proposals.map((record) => [record.id, record.reviewDigest]))
         const counts = await localLearning.reviewWithPerson(askPerson, {
           repository: repositoryName,
@@ -2425,6 +2586,12 @@ function decisionCommandPrefix(session) {
   for (const name of ["dir", "repository", "legacy-repository"])
     if (session.values[name] !== undefined)
       parts.push(`--${name}`, shellQuote(session.values[name]))
+  const origin =
+    session.values["expected-origin"] ??
+    (!session.environment.hosted && session.environment.scope?.host === "github.com"
+      ? session.environment.sourceRepository
+      : undefined)
+  if (origin) parts.push("--expected-origin", shellQuote(origin))
   return parts.join(" ")
 }
 

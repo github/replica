@@ -522,15 +522,29 @@ export async function finishStoppedApplies(store, { system, as, accepted, update
     (await store.updatesFor(system, {
       memoryIds: acceptedItems.map(({ record }) => record.id),
     }))
+  const stoppedIds = new Set(
+    proposals
+      .filter((update) => update.state === "stale" && !update.decision)
+      .map((update) => update.memoryId),
+  )
+  if (!stoppedIds.size) return false
+  const histories = await store.queryMemory(system, {
+    states: ["accepted"],
+    purpose: "review",
+    history: true,
+  })
+  const versionsById = new Map(
+    histories
+      .filter(({ record }) => stoppedIds.has(record.id))
+      .map(({ record, versions }) => [record.id, versions ?? []]),
+  )
   let finished = false
   for (const { record } of acceptedItems) {
     const stopped = proposals.filter(
       (update) => update.memoryId === record.id && update.state === "stale" && !update.decision,
     )
     if (!stopped.length) continue
-    const { versions } = await store.getMemory(system, record.id, {
-      history: true,
-    })
+    const versions = versionsById.get(record.id) ?? []
     for (const update of stopped) {
       const operationId = applyOperationId(update.id)
       const saved = versions.find((version) => version.accepted?.operationId === operationId)

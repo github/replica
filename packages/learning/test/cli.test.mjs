@@ -31,6 +31,7 @@ import {
 } from "../conformance/fixtures.mjs"
 import { openLearningStore, resolveEnvironment } from "../src/config.mjs"
 import { main } from "../src/cli.mjs"
+import { LearningError } from "../src/errors.mjs"
 import { sealMemory } from "../src/records.mjs"
 import {
   ANALYSIS_DEFERRED_EXIT_CODE,
@@ -88,7 +89,7 @@ async function cli(repo, args, { clock = CLOCK, stdin = "" } = {}) {
     stdout: { write: (text) => (stdout += text) },
     stderr: { write: (text) => (stderr += text) },
     stdin: Readable.from([Buffer.from(stdin)]),
-    clock: () => clock,
+    clock: typeof clock === "function" ? clock : () => clock,
   })
   return { code, stdout, stderr, json: () => JSON.parse(stdout) }
 }
@@ -686,6 +687,18 @@ describe("replica-learning CLI: labeling with a labeler", () => {
         "--json",
       ])
     ).json()
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "evaluation",
+      "--source",
+      "agent_session",
+      "--basis",
+      "The team agreed to evaluate agent-session commit changes.",
+      "--by",
+      "github:ana-designer",
+    ])
     await ok(repo, ["import", "hub-comments", "week-1.json", "--grant", grant.id])
     await ok(repo, ["label", "labels.json", "--actor", "agent:copilot"])
     const [proposal] = (
@@ -798,6 +811,225 @@ describe("replica-learning CLI: labeling with a labeler", () => {
       await running
       if (waiting) await waiting
     }
+  })
+
+  it("waits for an occupied analysis lock when --wait is set", async () => {
+    const repo = configured("analyze-wait-option")
+    await learnFromReviews(repo)
+    const directory = path.join(repo, ".replica", "learning")
+    const finish = Promise.withResolvers()
+    const running = createFileLock({ path: path.join(directory, "analysis.lock") }).run(
+      () => finish.promise,
+    )
+    let waiting
+    try {
+      await waitFor(() => existsSync(path.join(directory, "analysis.lock")), "the active lock")
+      waiting = cli(repo, ["analyze", "--wait", "--json"])
+      await waitFor(
+        () =>
+          readdirSync(directory).some(
+            (name) => name.startsWith("analysis-waiting-") && name.endsWith(".lock"),
+          ),
+        "the queued analysis",
+      )
+      finish.resolve()
+      await running
+      const result = await waiting
+      assert.equal(result.code, 0, result.stderr)
+      assert.deepEqual(result.json().failed, [])
+    } finally {
+      finish.resolve()
+      await running
+      if (waiting) await waiting
+    }
+  })
+
+  it("preserves a conflict raised by analysis work after --wait acquires the lock", async () => {
+    const repo = configured("analyze-work-conflict")
+    await learnFromReviews(repo)
+    const directory = path.join(repo, ".replica", "learning")
+    const finish = Promise.withResolvers()
+    const running = createFileLock({ path: path.join(directory, "analysis.lock") }).run(
+      () => finish.promise,
+    )
+    let released = false
+    let workConflicts = 0
+    let waiting
+    try {
+      await waitFor(() => existsSync(path.join(directory, "analysis.lock")), "the active lock")
+      waiting = cli(repo, ["analyze", "--wait", "--json"], {
+        clock: () => {
+          if (released && workConflicts === 0) {
+            workConflicts++
+            throw new LearningError("conflict", "Analysis work found a changed scope.")
+          }
+          return CLOCK
+        },
+      })
+      await waitFor(
+        () =>
+          readdirSync(directory).some(
+            (name) => name.startsWith("analysis-waiting-") && name.endsWith(".lock"),
+          ),
+        "the queued analysis",
+      )
+      released = true
+      finish.resolve()
+      await running
+      const result = await waiting
+      assert.equal(result.code, 1)
+      assert.match(result.stderr, /Analysis work found a changed scope/)
+      assert.equal(workConflicts, 1)
+    } finally {
+      released = true
+      finish.resolve()
+      await running
+      if (waiting) await waiting
+    }
+  })
+
+  it("rechecks session evaluation consent after analysis waits for the lock", async () => {
+    const repo = configured("analyze-session-evaluation-consent")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "evaluation",
+        "--source",
+        "hub_review_comments",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to evaluate agent-session evidence.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    writeFileSync(path.join(repo, "prototype.txt"), "A committed prototype change.\n")
+    execFileSync("git", ["-C", repo, "add", "prototype.txt"])
+    execFileSync("git", [
+      "-C",
+      repo,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-qm",
+      "Prototype",
+    ])
+    const commitSha = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim()
+    const directory = path.join(repo, ".replica", "learning")
+    const finish = Promise.withResolvers()
+    const running = createFileLock({ path: path.join(directory, "analysis.lock") }).run(
+      () => finish.promise,
+    )
+    let mcp
+    let analysisFinished
+    try {
+      await waitFor(() => existsSync(path.join(directory, "analysis.lock")), "the active lock")
+      mcp = await connect(repo, ["--actor", "agent:copilot"], {
+        startAnalysis: (options) => {
+          const child = startAnalysis(options)
+          analysisFinished = new Promise((resolve) => child.once("close", resolve))
+          return child
+        },
+      })
+      const guidance = (await mcp.call("get_guidance", { task: "Build the form" })).data
+      const report = await mcp.call("report_usage", {
+        reportId: "consent-lock-race",
+        guidanceIds: [guidance.guidanceId],
+        commitSha,
+        used: guidance.learnings.map(({ deliveryId }) => ({ deliveryId })),
+      })
+      assert.equal(report.data.stored, true)
+      await waitFor(
+        () =>
+          readdirSync(directory).some(
+            (name) => name.startsWith("analysis-waiting-") && name.endsWith(".lock"),
+          ),
+        "the analysis queued behind the lock",
+      )
+      assert.equal(await mcp.close(), 0)
+      mcp = undefined
+      await ok(repo, [
+        "grants",
+        "withdraw",
+        grant.id,
+        "--purpose",
+        "evaluation",
+        "--by",
+        "github:ana-designer",
+      ])
+      finish.resolve()
+      await running
+      await analysisFinished
+
+      const log = path.join(directory, "analysis.log")
+      assert.match(readFileSync(log, "utf8"), /No active evaluation grant for agent sessions/)
+      assert.doesNotMatch(readFileSync(log, "utf8"), /No one is signed in to Copilot here/)
+    } finally {
+      finish.resolve()
+      await running
+      if (mcp) await mcp.close()
+      if (analysisFinished) await analysisFinished
+    }
+  })
+
+  it("finishes submitted analysis after its MCP server closes", async () => {
+    const repo = configured("mcp-analysis-close")
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    let analysisFinished
+    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", grant.id], {
+      startAnalysis: (options) => {
+        const child = startAnalysis(options)
+        analysisFinished = new Promise((resolve) => child.once("close", resolve))
+        return child
+      },
+    })
+    const submitted = await mcp.call("submit_session", {
+      sessionId: "analysis-close-session",
+      messages: [{ role: "user", text: "Keep the labels visible." }],
+    })
+    assert.equal(submitted.error, undefined)
+    assert.equal(await mcp.close(), 0)
+    await analysisFinished
+
+    const directory = path.join(repo, ".replica", "learning")
+    const activity = path.join(directory, "activity.jsonl")
+    await waitFor(
+      () => existsSync(activity) && readFileSync(activity, "utf8").length > 0,
+      "analysis",
+    )
+    const run = JSON.parse(readFileSync(activity, "utf8").trim().split("\n").at(-1))
+    assert.equal(run.state, "succeeded")
   })
 
   it("keeps waiting analyses for different repositories separate in a shared store", async () => {
@@ -1969,6 +2201,18 @@ describe("replica-learning CLI: guard rails", () => {
       "--by",
       "github:ana-designer",
     ])
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "instruction",
+      "--source",
+      "hub_review_comments",
+      "--basis",
+      "The team agreed to provide review learnings as guidance.",
+      "--by",
+      "github:ana-designer",
+    ])
     const sessionGrant = (
       await ok(repo, [
         "grants",
@@ -2005,8 +2249,10 @@ describe("replica-learning CLI: guard rails", () => {
     assert.deepEqual(Object.keys(memory), ["id", "deliveryId"])
     assert.equal(memory.id, proposal.id)
     const [listed] = (await call("list_learnings", {})).data
-    assert.ok(guidance.text.includes(listed.content))
-    assert.deepEqual((await call("get_learning", { id: memory.id })).data, listed)
+    assert.ok(guidance.text.includes(proposal.content))
+    const fetched = (await call("get_learning", { id: memory.id })).data
+    assert.equal(fetched.id, listed.id)
+    assert.equal(fetched.state, listed.state)
     const shot = {
       file: "after.png",
       route: "/checkout",
@@ -2052,7 +2298,9 @@ describe("replica-learning CLI: guard rails", () => {
       "--json",
     ])
     assert.equal((await call("report_usage", report)).data.stored, false)
-    assert.deepEqual(mcp.analyses, [["--commit", "a".repeat(40)]])
+    assert.deepEqual(mcp.analyses, [
+      ["--expected-origin", "acme/checkout-prototypes", "--commit", "a".repeat(40), "--wait"],
+    ])
     assert.equal(await mcp.close(), 0)
 
     // A server that names its grants may name screenshot grants too, which don't cover
@@ -2140,10 +2388,196 @@ describe("replica-learning CLI: guard rails", () => {
     assert.match((await named.call("submit_session", conversation)).data, /^grant_inactive: /)
 
     assert.equal(await named.close(), 0)
-    // Screenshot consent does not also permit evaluating commit diffs.
-    assert.deepEqual(named.analyses, [[]])
+    // The queued analysis receives only named grants and rechecks them before sending.
+    assert.deepEqual(named.analyses, [
+      [
+        "--grant",
+        sessionGrant.id,
+        "--grant",
+        screenshotGrant.id,
+        "--expected-origin",
+        "acme/checkout-prototypes",
+        "--wait",
+      ],
+    ])
     const evidence = path.join(repo, ".replica", "learning", "evidence")
     assert.equal(readdirSync(evidence).filter((name) => name.endsWith(".png")).length, 1)
+  })
+
+  it("refuses MCP guidance after the checkout origin changes", async () => {
+    const repo = checkout("mcp-origin-change")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    try {
+      execFileSync("git", [
+        "-C",
+        repo,
+        "remote",
+        "set-url",
+        "origin",
+        "https://github.com/acme/another-prototype.git",
+      ])
+      const guidance = await mcp.call("get_guidance", { task: "Build the form" })
+
+      assert.equal(guidance.error, true)
+      assert.match(guidance.data, /origin changed/i)
+      assert.equal(JSON.stringify(guidance).includes(proposal.content), false)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("limits MCP guidance and analysis to the named grants", async () => {
+    const repo = checkout("mcp-grant-allowlist")
+    const { grant: hubGrant, proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const sessionGrant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", sessionGrant.id])
+    try {
+      const guidance = await mcp.call("get_guidance", { task: "Build the form" })
+      assert.equal(guidance.error, undefined)
+      assert.equal(JSON.stringify(guidance.data).includes(proposal.content), false)
+      const submitted = await mcp.call("submit_session", {
+        sessionId: "grant-allowlist-session",
+        messages: [{ role: "user", text: "Keep the labels visible." }],
+      })
+      assert.equal(submitted.error, undefined)
+      assert.deepEqual(mcp.analyses[0].slice(0, 2), ["--grant", sessionGrant.id])
+      assert.equal(mcp.analyses[0].includes(hubGrant.id), false)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("withholds unaccepted learning text from MCP list and get results", async () => {
+    const repo = checkout("mcp-withheld-learning")
+    const { proposal } = await learnFromReviews(repo)
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    try {
+      const listed = await mcp.call("list_learnings")
+      const details = await mcp.call("get_learning", { id: proposal.id })
+      const item = listed.data.find(({ id }) => id === proposal.id)
+
+      assert.equal(listed.error, undefined)
+      assert.equal(details.error, undefined)
+      assert.equal(item.withheld, true)
+      assert.equal(details.data.withheld, true)
+      assert.equal("content" in details.data, false)
+      assert.equal(JSON.stringify([listed.data, details.data]).includes(proposal.content), false)
+      assert.match(details.data.decide.accept, /accept .*--digest .*--by github:YOUR_LOGIN/)
+      assert.match(details.data.decide.reject, /reject .*--digest .*--by github:YOUR_LOGIN/)
+      assert.match(details.data.decide.accept, /--expected-origin acme\/checkout-prototypes/)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("offers review commands when MCP elicitation is unavailable", async () => {
+    const repo = checkout("mcp-review-no-elicitation")
+    const { proposal } = await learnFromReviews(repo)
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    try {
+      const review = await mcp.call("review_learnings")
+      const pending = review.data.proposals.find(({ id }) => id === proposal.id)
+
+      assert.equal(review.error, undefined)
+      assert.equal(review.data.formAvailable, false)
+      assert.match(pending.accept, /accept .*--digest .*--by github:YOUR_LOGIN/)
+      assert.match(pending.reject, /reject .*--digest .*--by github:YOUR_LOGIN/)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("rejects MCP when the configured provider is in-memory", async () => {
+    const repo = checkout("mcp-in-memory")
+    const configFile = path.join(repo, ".replica", "learning", "config.json")
+    const config = JSON.parse(readFileSync(configFile, "utf8"))
+    writeFileSync(configFile, JSON.stringify({ ...config, memory: { provider: "in-memory" } }))
+
+    await assert.rejects(connect(repo, ["--actor", "agent:copilot"]), /in-memory provider/i)
+  })
+
+  it("imports every note in a batch larger than 200 through MCP", async () => {
+    const repo = checkout("mcp-many-notes")
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", grant.id])
+    const notes = Array.from({ length: 201 }, (_, index) => {
+      const localId = `fix-all-note-${index}`
+      return {
+        localId,
+        revision: 1,
+        body: `Keep feedback note ${index}.`,
+        requestIds: [localId],
+        thread: { originalStatus: "open", messages: [] },
+        anchor: {
+          kind: "area",
+          route: { pathname: "/checkout", search: "", hash: "" },
+        },
+      }
+    })
+    try {
+      const submitted = await mcp.call("submit_session", {
+        sessionId: "fix-all-session",
+        messages: [{ role: "user", text: "Fix all selected notes." }],
+        pickAndPolishNotes: notes,
+      })
+      assert.equal(submitted.error, undefined)
+      const observations = (
+        await ok(repo, ["observations", "--purpose", "review", "--json"])
+      ).json()
+      const texts = observations.events
+        .map((event) => event.payload?.text)
+        .filter((text) => /^Keep feedback note \d+\.$/.test(text ?? ""))
+
+      assert.equal(texts.length, 201)
+      assert.equal(new Set(texts).size, 201)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
   })
 
   it("retries a report's analysis after failure but deduplicates active and successful runs", async () => {
@@ -2215,8 +2649,8 @@ describe("replica-learning CLI: guard rails", () => {
     assert.deepEqual(
       analyses.map(({ args }) => args),
       [
-        ["--commit", "b".repeat(40)],
-        ["--commit", "b".repeat(40)],
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "b".repeat(40), "--wait"],
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "b".repeat(40), "--wait"],
       ],
     )
     assert.equal(await mcp.close(), 0)
@@ -2344,7 +2778,7 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(starts, 2)
     assert.deepEqual(
       analyses.map(({ args }) => args),
-      [[]],
+      [["--expected-origin", "acme/checkout-prototypes", "--wait"]],
     )
     analyses[0].close(0)
     await setTimeout(0)
@@ -2397,7 +2831,10 @@ describe("replica-learning CLI: guard rails", () => {
     await setTimeout(0)
     assert.deepEqual(
       analyses.map(({ args }) => args),
-      [[], []],
+      [
+        ["--expected-origin", "acme/checkout-prototypes", "--wait"],
+        ["--expected-origin", "acme/checkout-prototypes", "--wait"],
+      ],
     )
     analyses[1].close(0)
     await setTimeout(0)
@@ -2470,9 +2907,9 @@ describe("replica-learning CLI: guard rails", () => {
     assert.deepEqual(
       analyses.map(({ args }) => args),
       [
-        ["--commit", "c".repeat(40)],
-        ["--commit", "c".repeat(40)],
-        ["--commit", "c".repeat(40)],
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "c".repeat(40), "--wait"],
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "c".repeat(40), "--wait"],
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "c".repeat(40), "--wait"],
       ],
     )
     assert.equal(await mcp.close(), 0)
@@ -2596,7 +3033,7 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(accepted.record.accepted.by.id, "github:ana-designer")
     assert.equal(accepted.record.content, wording)
     assert.equal(await mcp.close(), 0)
-    assert.deepEqual(mcp.analyses, [[]])
+    assert.deepEqual(mcp.analyses, [["--expected-origin", "acme/checkout-prototypes", "--wait"]])
   })
 
   it("asks once per session when the person declines, even for overlapping requests", async () => {

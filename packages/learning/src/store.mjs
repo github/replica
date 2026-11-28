@@ -88,6 +88,26 @@ const FOLLOWED = ["followed", "not_followed", "unclear"]
 const SCORE_INPUTS = ["screenshots", "build_diff", "reviewer_verification"]
 /** The grant source a person names to allow evaluating agent screenshots. */
 const SCREENSHOT_SOURCE = "agent_screenshots"
+
+function noChangeUpdateAttemptId(memoryId, versionDigest, evidenceDigest) {
+  return derivedId("audit", {
+    kind: "update_no_change",
+    memoryId,
+    versionDigest,
+    evidenceDigest,
+  })
+}
+
+function isNoChangeUpdateAttempt(record, memoryId, versionDigest, evidenceDigest) {
+  return (
+    record.operation === "update.propose" &&
+    record.reason === `No wording change for evidence ${evidenceDigest}.` &&
+    record.subjects.length === 1 &&
+    record.subjects[0].kind === "memory" &&
+    record.subjects[0].id === memoryId &&
+    record.subjects[0].digest === versionDigest
+  )
+}
 const DAY_MS = 24 * 60 * 60 * 1000
 // The streams that hold what agents received and said they used.
 const MEMORY_STATES = ["proposed", "accepted", "rejected", "retired"]
@@ -203,6 +223,16 @@ export function scopeProblem(scope) {
 export function assertContext(context) {
   const problem = scopeProblem(context?.scope)
   if (problem) throw new LearningError("invalid_input", problem)
+  if (
+    context.allowedGrantIds !== undefined &&
+    (!Array.isArray(context.allowedGrantIds) ||
+      context.allowedGrantIds.some((id) => typeof id !== "string" || !RECORD_ID.test(id)) ||
+      new Set(context.allowedGrantIds).size !== context.allowedGrantIds.length)
+  )
+    throw new LearningError(
+      "invalid_input",
+      "The grant allowlist must contain different grant IDs.",
+    )
   const principal = context.principal
   if (
     !principal ||
@@ -776,10 +806,10 @@ class LearningStore {
   }
 
   /** An audit entry for an operation in this context, for a write to carry or #audit to append. */
-  #auditEntry(context, operation, subjects, { purpose, outcome = "ok", reason } = {}) {
+  #auditEntry(context, operation, subjects, { id, purpose, outcome = "ok", reason } = {}) {
     const entry = sealRecord({
       schemaVersion: SCHEMA_VERSIONS.auditEntry,
-      id: randomId("audit"),
+      id: id ?? randomId("audit"),
       at: this.#now(),
       actor: context.principal,
       operation,
@@ -858,6 +888,10 @@ class LearningStore {
       withdrawals = result[1]
       collections = result[2]
       migrations = result[3]
+    }
+    if (context.allowedGrantIds !== undefined) {
+      const allowed = new Set(context.allowedGrantIds)
+      grants = grants.filter((grant) => allowed.has(grant.id))
     }
     const eligibility = createEligibility({ grants, withdrawals, at })
     const origins = new Map()
@@ -2193,31 +2227,33 @@ class LearningStore {
     }
     let prepared = await prepare()
     let added
-    try {
-      added = await append(prepared)
-    } catch (error) {
-      if (error?.code !== "conflict") throw error
-      if (prepared.events.length) {
-        const current = await this.#read("events", context, {
-          episodeIds: [...new Set(prepared.events.map((event) => event.episodeId))],
-        })
-        const byId = new Map(current.map((event) => [event.id, event]))
-        for (const proposed of prepared.events) {
-          const storedEvent = byId.get(proposed.id)
-          if (
-            storedEvent &&
-            (storedEvent.payload === undefined ||
-              storedEvent.type !== proposed.type ||
-              storedEvent.actor.id !== proposed.actor.id ||
-              storedEvent.supersedes !== proposed.supersedes ||
-              canonicalJson(storedEvent.payload) !== canonicalJson(proposed.payload) ||
-              current.some((event) => event.supersedes === proposed.id))
-          )
-            throw error
+    for (let attempt = 0; ; attempt++) {
+      try {
+        added = await append(prepared)
+        break
+      } catch (error) {
+        if (error?.code !== "conflict" || attempt >= 7) throw error
+        if (prepared.events.length) {
+          const current = await this.#read("events", context, {
+            episodeIds: [...new Set(prepared.events.map((event) => event.episodeId))],
+          })
+          const byId = new Map(current.map((event) => [event.id, event]))
+          for (const proposed of prepared.events) {
+            const storedEvent = byId.get(proposed.id)
+            if (
+              storedEvent &&
+              (storedEvent.payload === undefined ||
+                storedEvent.type !== proposed.type ||
+                storedEvent.actor.id !== proposed.actor.id ||
+                storedEvent.supersedes !== proposed.supersedes ||
+                canonicalJson(storedEvent.payload) !== canonicalJson(proposed.payload) ||
+                current.some((event) => event.supersedes === proposed.id))
+            )
+              throw error
+          }
         }
+        prepared = await prepare()
       }
-      prepared = await prepare()
-      added = await append(prepared)
     }
     return {
       episodeId: prepared.episodeId,
@@ -2710,7 +2746,7 @@ class LearningStore {
   }
 
   /** Memories in scope, newest version of each, with their recall status, read for a purpose. */
-  async queryMemory(context, { states, kinds, purpose = "review" } = {}) {
+  async queryMemory(context, { states, kinds, purpose = "review", history = false } = {}) {
     assertContext(context)
     const [recall, view] = await Promise.all([
       this.#statuses(context, "instruction"),
@@ -2725,10 +2761,18 @@ class LearningStore {
       )
       .map((item) => {
         const projected = this.#project(item)
+        const versions = history
+          ? item.versions.map((version) =>
+              !item.problems.length && this.#evidenceEligible(dependencies(version), view.eligible)
+                ? version
+                : { ...metadataOf(version), withheld: true },
+            )
+          : undefined
         return {
           record: projected.record,
           status: statuses.get(item.id),
           withheld: projected.withheld,
+          ...(history ? { versions } : {}),
         }
       })
   }
@@ -4173,6 +4217,75 @@ class LearningStore {
       )
     }
     return updates.sort((left, right) => left.proposedAt.localeCompare(right.proposedAt))
+  }
+
+  /** Whether Copilot already found no wording change for this exact score set. */
+  async hasNoChangeUpdateAttempt(context, { memoryId, versionDigest, evidenceDigest } = {}) {
+    assertContext(context)
+    if (
+      typeof memoryId !== "string" ||
+      !RECORD_ID.test(memoryId) ||
+      !DIGEST.test(versionDigest ?? "") ||
+      !DIGEST.test(evidenceDigest ?? "")
+    )
+      throw new LearningError("invalid_input", "Name a learning version and evidence digest.")
+    const id = noChangeUpdateAttemptId(memoryId, versionDigest, evidenceDigest)
+    const [record] = await this.#read("audit", context, { ids: [id] })
+    if (!record) return false
+    if (!isNoChangeUpdateAttempt(record, memoryId, versionDigest, evidenceDigest))
+      throw new LearningError("storage_corrupt", `Update attempt ${id} does not match its key.`)
+    return true
+  }
+
+  /** Record a successful no-change draft so the same scores do not trigger another request. */
+  async recordNoChangeUpdateAttempt(context, { memoryId, versionDigest, evidenceDigest } = {}) {
+    assertContext(context)
+    if (
+      typeof memoryId !== "string" ||
+      !RECORD_ID.test(memoryId) ||
+      !DIGEST.test(versionDigest ?? "") ||
+      !DIGEST.test(evidenceDigest ?? "")
+    )
+      throw new LearningError("invalid_input", "Name a learning version and evidence digest.")
+    const { record, status, withheld } = await this.getMemory(context, memoryId, {
+      purpose: "evaluation",
+    })
+    if (withheld)
+      throw new LearningError(
+        "purpose_not_granted",
+        `The evidence behind ${memoryId} no longer allows evaluation.`,
+      )
+    if (record.state !== "accepted" || record.digest !== versionDigest)
+      throw new LearningError("stale_review", `Memory ${memoryId} changed during update analysis.`)
+    if (status.superseded || status.conflicts.length)
+      throw new LearningError(
+        "invalid_transition",
+        `Memory ${memoryId} is superseded or conflicts with another learning.`,
+      )
+    const id = noChangeUpdateAttemptId(memoryId, versionDigest, evidenceDigest)
+    const reason = `No wording change for evidence ${evidenceDigest}.`
+    const [existing] = await this.#read("audit", context, { ids: [id] })
+    if (existing) {
+      if (!isNoChangeUpdateAttempt(existing, memoryId, versionDigest, evidenceDigest))
+        throw new LearningError("storage_corrupt", `Update attempt ${id} does not match its key.`)
+      return false
+    }
+    const auditRecord = this.#auditEntry(
+      context,
+      "update.propose",
+      [{ kind: "memory", id: memoryId, digest: versionDigest }],
+      { id, reason },
+    )
+    try {
+      const result = await this.#append("audit", [auditRecord])
+      return result.appended === 1
+    } catch (error) {
+      if (error?.code !== "conflict") throw error
+      const [winner] = await this.#read("audit", context, { ids: [id] })
+      if (!winner || !isNoChangeUpdateAttempt(winner, memoryId, versionDigest, evidenceDigest))
+        throw error
+      return false
+    }
   }
 
   /**

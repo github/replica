@@ -850,6 +850,12 @@ it("captures an immutable cross-screen batch while follow-ups wait for the next 
       [completed.batchId, completed.completed, completed.noteCount],
       [batch.id, true, batch.notes.length],
     )
+    assert.deepEqual(completed.contentTrust, {
+      source: "pick_and_polish_notes",
+      untrusted: true,
+      treatAs: "data",
+      appliesTo: "note bodies, anchors, and conversation messages",
+    })
     assert.deepEqual(
       completed.notes.map((note) => note.localId),
       batch.notes.map((note) => note.localId),

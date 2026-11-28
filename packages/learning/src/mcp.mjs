@@ -29,11 +29,11 @@ Only a person can accept, reject, edit, or delete a learning. get_learning tells
 // told about a tool they do not have. Tool descriptions repeat it, because a client may
 // not pass server instructions on to the agent.
 const REVIEW_OFFER =
-  "at the next natural pause tell the person how many suggestions are waiting and ask whether they want to review them. Offer to call review_learnings, but call it only if they agree. Offer at most once in a session unless the waiting count increases."
+  "at the next natural pause tell the person how many suggestions are waiting and ask whether they want to review them. Offer to call review_learnings, but call it only if they agree. It shows a form when supported or gives commands they can run. Offer at most once in a session unless the waiting count increases."
 
 const REVIEW_INSTRUCTIONS = `
 
-When submit_session or get_guidance returns waitingForReview above 0, ${REVIEW_OFFER} It shows each suggestion to them in a form; you see only how many they decided.`
+When submit_session or get_guidance returns waitingForReview above 0, ${REVIEW_OFFER} The person sees the suggestions in a form when supported; otherwise, they get commands to review them.`
 
 const session = z
   .object({
@@ -227,7 +227,7 @@ export function createLearningMcpServer(
     {
       title: "List learnings",
       description:
-        "Lists learnings and their states. Only accepted learnings that recall can give include their text. Read only.",
+        "Lists learning IDs and states without their text. Use get_guidance to read accepted learnings; that records what the agent received.",
       inputSchema: {
         state: z
           .array(z.enum(["proposed", "accepted", "rejected", "retired"]))
@@ -241,10 +241,7 @@ export function createLearningMcpServer(
         id: record.id,
         state: record.state,
         kind: record.kind,
-        // Text no one accepted, or that consent no longer lets agents use, is withheld.
-        ...(record.state === "accepted" && !withheld && status.recallEligible
-          ? { title: record.title, content: record.content }
-          : { withheld: true }),
+        withheld: !(record.state === "accepted" && !withheld && status.recallEligible),
         recalled: status.recallEligible,
       })),
   )
@@ -253,11 +250,21 @@ export function createLearningMcpServer(
     {
       title: "Get learning",
       description:
-        "Shows one accepted learning that recall can give. Any other learning shows only its state, and a proposed one says how a person can accept or reject it. Read only.",
+        "Shows one learning's ID, state, and any decision commands, never its text. Use get_guidance to read accepted learning text; that records what the agent received.",
       inputSchema: { id: z.string() },
       annotations: { readOnlyHint: true },
     },
-    (input) => backend.getLearning(input),
+    async (input) => {
+      const { id, state, kind, withheld, recalled, decide } = await backend.getLearning(input)
+      return {
+        id,
+        state,
+        ...(kind === undefined ? {} : { kind }),
+        ...(withheld === undefined ? {} : { withheld }),
+        ...(recalled === undefined ? {} : { recalled }),
+        ...(decide === undefined ? {} : { decide }),
+      }
+    },
   )
   if (typeof backend.reviewLearnings === "function")
     tool(
@@ -265,7 +272,7 @@ export function createLearningMcpServer(
       {
         title: "Review learnings",
         description:
-          "Shows the person each suggested learning and suggested update in a form, so they can accept, reject, or skip it. Only the person sees and answers the forms; you get back how many they decided and how many still wait. submit_session and get_guidance may report how many wait. Call it only when the person agrees.",
+          "Offers the person a way to review suggested learnings and updates. It shows forms when supported or returns commands they can run. Call it only when the person agrees.",
         inputSchema: {},
       },
       () => backend.reviewLearnings(),

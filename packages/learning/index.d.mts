@@ -95,6 +95,8 @@ export interface LearningContext {
   principal: Actor
   /** Source repository name, authenticated by the host when it differs from the scope. */
   sourceRepository?: string
+  /** Optional grant allowlist applied to every store read and eligibility check. */
+  allowedGrantIds?: string[]
 }
 
 export interface SourcePin {
@@ -1106,8 +1108,14 @@ export interface LearningStore {
   ): Promise<{ state: MemoryState | null }>
   queryMemory(
     context: LearningContext,
-    query?: { states?: MemoryState[]; kinds?: MemoryKind[]; purpose?: Purpose },
-  ): Promise<MemoryReading[]>
+    query?: { states?: MemoryState[]; kinds?: MemoryKind[]; purpose?: Purpose; history?: boolean },
+  ): Promise<
+    Array<
+      MemoryReading & {
+        versions?: Array<MemoryRecord | (MemoryMetadata & { withheld: true })>
+      }
+    >
+  >
   acceptMemory(
     context: LearningContext,
     id: string,
@@ -1346,7 +1354,20 @@ export interface LearningStore {
     },
   ): Promise<Array<{ id: string; stored: boolean; proposal: UpdateProposalRecord }>>
   /** One learning's update proposals, oldest first, each with its state. */
-  updatesFor(context: LearningContext, request: { memoryId: string }): Promise<LearningUpdate[]>
+  updatesFor(
+    context: LearningContext,
+    request: { memoryId?: string; memoryIds?: string[] },
+  ): Promise<LearningUpdate[]>
+  /** Whether Copilot already found no wording change for this exact score set. */
+  hasNoChangeUpdateAttempt(
+    context: LearningContext,
+    request: { memoryId: string; versionDigest: Digest; evidenceDigest: Digest },
+  ): Promise<boolean>
+  /** Record a successful no-change draft so the same scores do not trigger another request. */
+  recordNoChangeUpdateAttempt(
+    context: LearningContext,
+    request: { memoryId: string; versionDigest: Digest; evidenceDigest: Digest },
+  ): Promise<boolean>
   /**
    * Make an open proposal's wording, or a person's edit of it, the learning's next version.
    * Needs a person.
