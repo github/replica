@@ -2127,7 +2127,8 @@ class LearningStore {
         existing,
         now,
       }).map(sealEvent)
-      // Each Pick & Polish note is its own episode, found the same way after a migration.
+      // Each Pick & Polish note is its own episode, found the same way after a
+      // migration.
       for (const note of session.notes) {
         const noteCandidates = [context.scope, ...legacyScopes].map((scope) =>
           noteEpisodeId(scope, note.localId),
@@ -4066,10 +4067,11 @@ class LearningStore {
   }
 
   /**
-   * Update proposals for one or more learnings, oldest first, each with its state. A proposal
-   * is open until a person applies or dismisses it. It goes stale when the learning's wording
-   * changes, when a score it relied on can no longer be shown, or when a newer proposal for
-   * the same issue replaces it, so a person only ever sees one open proposal per issue.
+   * Update proposals for one or more learnings, oldest first, each with its
+   * state. A proposal stays open until a person applies or dismisses it. It
+   * goes stale when the learning's wording changes, when a score it relied on
+   * can no longer be shown, or when a newer proposal for the same issue
+   * replaces it, so a person only ever sees one open proposal per issue.
    */
   async updatesFor(context, { memoryId, memoryIds } = {}) {
     assertContext(context)
@@ -4127,7 +4129,7 @@ class LearningStore {
                 later.versionDigest === proposal.versionDigest &&
                 later.issueKey === proposal.issueKey,
             )
-          // Wording drawn from scores that may no longer be read is withheld, like the scores.
+          // Wording is withheld when its supporting scores can no longer be shown.
           const withheld = !proposal.support.every((supportId) => shown.has(supportId))
           const state = decision
             ? decision.decision

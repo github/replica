@@ -2140,7 +2140,7 @@ describe("replica-learning CLI: guard rails", () => {
     assert.match((await named.call("submit_session", conversation)).data, /^grant_inactive: /)
 
     assert.equal(await named.close(), 0)
-    // Screenshot permission alone does not allow sending the commit diff for evaluation.
+    // Screenshot consent does not also permit evaluating commit diffs.
     assert.deepEqual(named.analyses, [[]])
     const evidence = path.join(repo, ".replica", "learning", "evidence")
     assert.equal(readdirSync(evidence).filter((name) => name.endsWith(".png")).length, 1)
