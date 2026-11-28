@@ -129,7 +129,7 @@ It adds `.replica/` to `.gitignore` when Git doesn't already ignore it. It then 
 
 The checkout doesn't need a GitHub repository. Without a GitHub `origin`, setup saves a random local ID in `.replica/learning/config.json`, and learnings stay with that ID even if you add a GitHub `origin` later. Setup also gives a new store JSON Lines storage, so a Hub running in a local container can share it. A store that already holds SQLite data keeps SQLite.
 
-To set it up by hand instead, save this as `.replica/learning-mcp.json` in the prototype checkout, using your own paths:
+To set it up by hand instead, first run `setup` once if the checkout has no GitHub `origin`, so it creates the local repository ID. Then save this as `.replica/learning-mcp.json` in the prototype checkout, using your own paths:
 
 ```json
 {
