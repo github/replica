@@ -38,6 +38,7 @@ export function ControlsPanel({
   onLayoutChange,
   onDiagnose,
   diagnosisTarget = "",
+  autoFocus = true,
 }: {
   state: PanelState
   connection: Pick<ControlsConnection, "command" | "retry" | "resetAll">
@@ -45,6 +46,7 @@ export function ControlsPanel({
   onLayoutChange: Dispatch<SetStateAction<ControlsPanelLayout>>
   onDiagnose?: () => Promise<unknown>
   diagnosisTarget?: string
+  autoFocus?: boolean
 }) {
   const failures = state.loading
     ? []
@@ -130,8 +132,8 @@ export function ControlsPanel({
     onLayoutChange((previous) => ({ ...previous, position: next })),
   )
   useEffect(() => {
-    handleRef.current?.focus()
-  }, [handleRef])
+    if (autoFocus) handleRef.current?.focus()
+  }, [autoFocus, handleRef])
   useLayoutEffect(() => {
     if (lastFocus.current && !lastFocus.current.isConnected) {
       if (document.activeElement === document.body) handleRef.current?.focus()
