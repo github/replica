@@ -16,6 +16,20 @@ jobs:
       fail-fast: false
       matrix:
         node: [24, 26]
+    services:
+      postgres:
+        image: postgres:17.12-bookworm
+        env:
+          POSTGRES_USER: replica
+          POSTGRES_PASSWORD: replica
+          POSTGRES_DB: replica_learning_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U replica -d replica_learning_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: packages/learning
@@ -29,8 +43,9 @@ jobs:
       - run: npm ci --ignore-scripts --engine-strict
       - run: npm run schema:check
       - run: npm test
-      - run: npm run demo
-      - run: npm run demo:agent-memory-repo
+      - run: npm run test:database
+        env:
+          REPLICA_LEARNING_TEST_DATABASE_URL: postgresql://replica:replica@127.0.0.1:5432/replica_learning_test
       - name: Brand check environment tests
         if: matrix.node == 24
         working-directory: packages/learning/environments/brand-check

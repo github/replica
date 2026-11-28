@@ -18,6 +18,7 @@ import { after, describe, it } from "node:test"
 import {
   HUB_ORIGIN,
   REMOTE,
+  REPOSITORY,
   collectionLog,
   weekOneLabels,
   weekOneLog,
@@ -82,6 +83,19 @@ async function acceptedLearning(
   execFileSync("git", ["init", "-q", repo])
   execFileSync("git", ["-C", repo, "remote", "add", "origin", REMOTE])
   writeFileSync(path.join(repo, ".gitignore"), ".replica/\n")
+  mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+  writeFileSync(
+    path.join(repo, ".replica", "learning", "config.json"),
+    JSON.stringify({
+      schemaVersion: "replica.learning-config/v1",
+      githubRepository: {
+        id: "12345",
+        remote: `github.com/${REPOSITORY}`,
+        legacyRepository: REPOSITORY,
+      },
+    }),
+    { mode: 0o600 },
+  )
   writeFileSync(path.join(repo, "labels.json"), JSON.stringify(labels))
   const by = ["--by", "github:ana-designer"]
   const grant = (
@@ -588,6 +602,9 @@ describe("replica-learning decision", () => {
         writeFileSync(
           path.join(repo, ".replica", "learning", "config.json"),
           JSON.stringify({
+            ...JSON.parse(
+              readFileSync(path.join(repo, ".replica", "learning", "config.json"), "utf8"),
+            ),
             schemaVersion: "replica.learning-config/v1",
             consolidation: { consolidator: { module: "./tools/cite-labels.mjs" } },
           }),

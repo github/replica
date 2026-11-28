@@ -56,14 +56,14 @@
       }
     },
     "externalCalls": {
-      "description": "Hosts this provider sends data to. Empty for a provider that stays on the machine.",
+      "description": "Hosts this provider sends data to, with IPv6 addresses in brackets. Empty for a provider that stays on the machine.",
       "type": "array",
       "maxItems": 50,
       "items": {
         "type": "string",
         "minLength": 1,
         "maxLength": 255,
-        "pattern": "^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$"
+        "pattern": "^(?:[A-Za-z0-9._-]+(?::[0-9]{1,5})?|\\[[0-9A-Za-z:.%_-]+\\](?::[0-9]{1,5})?)$"
       }
     },
     "dataRetention": { "type": "string", "minLength": 1, "maxLength": 2000 }

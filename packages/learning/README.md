@@ -1,31 +1,20 @@
 # Replica learning
 
-`@github/replica-learning` lets Replica learn from review evidence without training a model. It owns the version 1 learning contracts, the memory provider interface, built-in SQLite, JSON Lines, and in-memory providers, two reference consolidators, a conformance suite, the `replica-learning` command, and an example that plugs in [Agent Memory Repo](examples/agent-memory-repo/README.md). It also prepares training for a team that chooses to post-train a [decision model](#decision-model). It isn't published to npm yet, so run it from a Replica checkout with a Node.js version matching `engines.node` in [package.json](package.json).
+`@github/replica-learning` lets Replica learn from review evidence without training a model. It owns the version 1 learning contracts, the memory provider interface, built-in SQLite, PostgreSQL, JSON Lines, and in-memory providers, two reference consolidators, a conformance suite, and the `replica-learning` command. It also prepares training for a team that chooses to post-train a [decision model](#decision-model). It isn't published to npm yet, so run it from a Replica checkout with a Node.js version matching `engines.node` in [package.json](package.json).
 
 The design and its trade-offs are in [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md), and the decision model's in [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md).
 
 ## What the first loop does
 
-The package turns saved Hub review comments into guidance that a person approved. Its CLI, providers, and demos work independently. The [new Hub](../../hub/README.md) captures complete repository review snapshots and runs the explicit learning loop through this command boundary.
+The package turns feedback into guidance that a person approved. The feedback can be saved Hub review comments or, when you work alone, your own chats with a coding agent. Its CLI and providers work independently. The [new Hub](../../hub/README.md) captures complete repository review snapshots and runs the explicit learning loop through this command boundary.
 
 1. A person records consent for named purposes, such as review and instruction.
 2. A host imports one complete snapshot of a repository's comments. Each review thread becomes an episode pinned to its prototype and to the Build the reviewer commented on.
-3. A labeler, Copilot by default, labels design themes. A consolidator proposes the themes that recur across distinct threads, prototypes, and reviewers.
+3. A labeler, Copilot by default, labels design themes. A consolidator proposes the themes that recur in at least two threads or agent sessions. When you work alone, one session is enough.
 4. A person accepts, edits, or rejects each proposal against the digest they reviewed.
 5. Agents recall the accepted learnings when they build the next prototype.
 
 Nothing is accepted automatically. Nothing is published or used for training without a grant for that purpose. No model weights change.
-
-## Try it
-
-```sh
-cd packages/learning
-npm ci
-npm test
-npm run demo
-```
-
-The demo runs the whole loop on synthetic comments in a temporary checkout and prints every command with its output. `npm run demo:agent-memory-repo` adds Dreaming, which merges duplicate learnings, and publishes the result to a memory repo other agents can read.
 
 ## Run it yourself
 
@@ -38,17 +27,31 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | Command | What it does |
 | --- | --- |
 | `doctor` | Shows the scope, the provider, where data goes, and why each was chosen |
+| `migrate` | Sets up the package-owned PostgreSQL schema using a privileged environment-supplied URL |
+| `import-sqlite --offline` | Copies a stopped Hub SQLite store and its migration mappings into PostgreSQL |
 | `grants add`, `grants list`, `grants withdraw` | Records, lists, and ends consent for purposes |
-| `redact <event-id>` | Removes a comment's text when a person asks: every version and its labels |
+| `redact <event-id>` | Removes a review comment's or agent session event's text when a person asks: every version and its labels |
 | `redact --comment <hub-comment-id>` | Removes the same text for a Hub comment named by its Hub ID. It imports and labels nothing and needs no active grant. `--reason` defaults to the comment being deleted at its source. `removed` in the `--json` output counts the events whose text it removed, 0 when none was left. Run it only while no import or labeling of the same store is in progress |
 | `import hub-comments <log.json>` | Imports a logged snapshot from the canvas comment actions. `--redact-deleted` also removes the text of comments the snapshot shows as deleted |
-| `label` | Labels, with Copilot or the configured labeler, each comment it has not been asked about, and reports what it cost. `--since` skips older comments, and `--max-requests` stops after that many labeler requests |
+| `import agent-session <session.json>` | Stores one coding agent session as evidence: the user and agent messages in order, and its outcome. It skips the task, tool calls, and tool output, removes well-known secrets such as tokens and private keys, and keeps at most 10,000 characters of each message. Sending the same `sessionId` again adds new messages and updates changed ones, but never restores a removed message. Optional `pickAndPolishNotes` stores each Pick & Polish note as its own episode under the same grant. Needs `--actor agent:<name>` and a grant that names `agent_session` |
+| `label` | Labels, with Copilot or the configured labeler, each comment it has not been asked about, and reports what it cost. `--relabel` asks about existing comments again and supersedes this labeler's earlier judgments. `--since` skips older comments, and `--max-requests` stops after that many labeler requests |
 | `label <labels.json>` | Records theme labels someone else wrote |
 | `copilot status` | Shows whether Copilot answers here, as whom, and with which models |
 | `consolidate --from <time> --to <time>` | Stores proposals and says whether the window's evidence is complete. `--max` caps the new or changed proposals one run stores, 10 by default. A proposal already stored unchanged and still undecided does not count, so later runs reach the themes past the cap, and neither does a proposal the store refuses. `overBudget` in the `--json` output counts the proposals the cap held back |
 | `memories`, `show <id>` | Lists learnings and shows one with its evidence and digests |
-| `accept`, `reject`, `retire`, `supersede` | Records a person's decision |
-| `recall --task <text>` | Prints the accepted learnings for the next run. `--task-file -` reads the task from standard input instead, which keeps a person's prompt out of the process list. `--preview --by github:<login>` shows a person the same text without recording a use. Only a person can preview, so an agent never reads learnings without an audit entry |
+| `accept`, `reject`, `retire`, `edit`, `reinstate`, `supersede` | Records a person's decision |
+| `recall --task <text>` | Prints the accepted learnings for the next run. `--task-file -` reads the task from standard input instead, which keeps a person's prompt out of the process list. `--session-id` and `--session-label` name the agent session asking. Each recall stores a guidance record and the exact text of each learning it gave, so a later report can name them. `--preview --by github:<login>` shows a person the same text without recording a use. Only a person can preview, so an agent never reads learnings without an audit entry. A host such as Hub adds learnings other repositories shared to a preview with `--shared-file`, a JSON list of their accepted records read from their own stores. Recall refuses a damaged, unaccepted, or same-repository record. It leaves out a shared learning whose ID matches one of the repository's own, and keeps one copy of an ID that two sources share. A recall that stores deliveries refuses shared learnings, because a stored copy would outlive the source's deletion |
+| `report-usage <report.json>` | Records which recalled learnings an agent says it used for a commit. The report names its own `reportId`, so sending it again stores nothing new. Each used learning names the `deliveryId` recall gave it, and may add a before and an after screenshot as a PNG file beside the report. Only each screenshot's digest is recorded; in a local store the bytes are kept under `evidence/` in the learning data directory. A hosted store keeps no bytes and accepts screenshots only with `--grant <id>`, an active grant for `evaluation` that lists the `agent_screenshots` source. A report is the agent's claim, never a verified result |
+| `usage --commit <sha>` | Lists the usage reports for one full commit SHA. Each used learning names its ID, the version the agent received, its title and text, and the digest, capture details, and consent grant of any before and after screenshot. Title and text are empty once the learning's evidence no longer allows review. A host uses it to show what was applied in the Build made from that commit |
+| `score <used-learning-id> --operation-id <uuid>` | Asks Copilot how efficiently one used learning helped, from 1 to 4, and whether the agent followed it, then keeps the score. See [Score applied learnings](#score-applied-learnings) |
+| `outcomes <memory-id>` | Lists how agents' uses of one learning were scored, oldest first. Each outcome names the version the agent received, the commit it reported, the efficiency from 1 to 4, whether the agent followed the learning, the evaluator's reasoning, and any before and after screenshot. Scores of a version whose evidence no longer permits review are left out |
+| `propose-update <memory-id>` | Suggests new wording for an accepted learning when scored uses keep showing the same issue. See [Suggest learning updates](#suggest-learning-updates) |
+| `updates <memory-id>` | Lists a learning's suggested updates, oldest first, each `open`, `applied`, `dismissed`, or `stale` |
+| `apply-update <proposal-id> --operation-id <uuid>`, `dismiss-update <proposal-id> [--operation-id <uuid>]` | Records a person's decision on a suggested update. `apply-update` makes the suggested wording, or the person's edit of it from `--title-file` and `--content-file`, the learning's next version |
+| `delete <memory-id> --reason <text>` | Removes a learning for good: every version, the records of its deliveries and use, their screenshots, and its suggested updates. A learning that is part of a replacement, or that a stored proposal would replace, cannot be deleted; retire it instead |
+| `expire-guidance [--days <n>]` | Removes guidance records older than `--days`, 365 by default, that no usage report names |
+| `delete-repository --confirm <owner/name>` | Removes every record this repository's store holds, including its audit trail. Naming the repository again guards against deleting the wrong store. Copies outside the store, such as exports, are not touched |
+| `analyze [--commit <sha>]` | Does what Hub's daily learning job does for one checkout: `label` new comments, then `consolidate` the last 90 days. With `--commit`, it also scores each learning an agent reported using in that commit and runs `propose-update` for them. It uses Hub's caps, keeps going when a step fails, and lets only one run work at a time |
 | `export --purpose <p>` | Writes a bundle of what that purpose may use; `--learnings-only` leaves out episodes and their comments, and `--preview` prepares a temporary copy without recording an export or export audit |
 | `decision models` | Lists the base models suggested for a decision model, with their sizes and licenses |
 | `decision questions --by github:<login>` | Prints the questions a decision model answers about a screenshot and whether training consent is recorded. `--preview` shows the named person the questions without recording a use |
@@ -57,11 +60,53 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 
 Add `--json` to any command for machine output.
 
+An agent session file for `import agent-session` looks like this. Only `sessionId` and `messages` are required. Each message's `role` is `user`, `agent`, or `tool`, and `outcome.status` is `success`, `failure`, `partial`, or `unknown`. `task` is checked but not stored, because it can't be removed like a message; send it as the first user message when it should count. A message is identified by its place in `messages`, counting tool messages, so keep earlier messages in place when sending a session again. A resent message must keep its `user` and `at`.
+
+`pickAndPolishNotes` takes the `notes` array from the Replica canvas's `improvement_batch` unchanged. Learning keeps each note's request, follow-ups, Copilot's replies, and the page and element it points at. A note is identified by its `localId` and each reply by its `id`, so sending a note again adds only new replies.
+
+```json
+{
+  "sessionId": "2f6c1e9a",
+  "task": "Build the checkout form.",
+  "user": "github:ana-designer",
+  "messages": [
+    { "role": "user", "text": "Keep the labels above the fields.", "at": "2026-10-02T09:00:00Z" },
+    { "role": "agent", "text": "Moved the labels above the fields." }
+  ],
+  "outcome": { "status": "success", "summary": "The form is done." }
+}
+```
+
+To report use, run recall once with `--json` and keep its output. `guidanceId` names the recall and each entry in `memories` carries its `deliveryId`. A second recall gives new IDs, so report against the recall the agent actually read. Then write `report.json` beside any screenshots and send it with `report-usage report.json --actor agent:<name>`. Only `reportId`, `guidanceIds`, and `commitSha` are required. A screenshot names a PNG `file` in the report's directory, or carries its bytes as base64 `data`, with the `route`, `viewport`, `theme`, and `capturedAt` it was taken with. In a hosted store, the host saves the bytes itself and names the screenshot consent grant with `--grant`; without an active grant the report is refused, so the agent can send it again without screenshots.
+
+```json
+{
+  "reportId": "checkout-form-1",
+  "guidanceIds": ["<guidanceId from recall>"],
+  "commitSha": "0123456789abcdef0123456789abcdef01234567",
+  "used": [
+    {
+      "deliveryId": "<deliveryId from recall>",
+      "after": {
+        "file": "after.png",
+        "route": "/checkout",
+        "viewport": { "width": 1280, "height": 800 },
+        "theme": "light",
+        "capturedAt": "2026-10-02T09:30:00Z"
+      }
+    }
+  ]
+}
+```
+
 `observations --purpose review --event <id> --event <id> --json` reads only the named events and their containing episodes. Pass at most 100 IDs per call, batching larger evidence lists instead of exporting the whole store. Missing IDs and events that consent, retraction, or redaction withholds are omitted, with no unrelated events or episodes returned. Other observation filters intersect the selection. In the API, `queryObservations(context, { purpose: "review", eventIds: [] })` returns empty `episodes` and `events`; omitting `eventIds`, or all CLI `--event` flags, preserves the unfiltered behavior.
 
 ## Rules
 
-- In a checkout, scope comes from its `origin` remote: its host and owner/name, such as `github.com/acme/checkout-prototypes`. The learning config cannot change it. A host that keeps each repository's store outside any checkout, such as Hub, names the repository with `--repository host/owner/name` and the store with `--dir`; if that directory is inside a checkout, Git must ignore it. The same owner/name on two hosts gets two scopes, and episode IDs include the scope, so the two never share records. The scope is asserted by whoever runs the command, not checked repository access, so a host checks access before it runs one. Hub review logs name only owner/name, so the importer checks the repository but cannot check the host. Every record carries its scope, and a store reads and writes only records in the caller's scope. Output never shows a user name or password from the remote URL.
+- In a checkout, `origin` names a GitHub repository. The command looks up its numeric ID with the person's GitHub CLI sign-in and saves it in the local config, so later commands use `github.com/repositories/<id>` without a network request. If the remote changes, the command looks up the new repository; if it cannot look up an uncached ID, it stops instead of guessing. A host such as Hub names the same scope with `--repository github.com/repositories/<id>` and the store with `--dir`; if that directory is inside a checkout, Git must ignore it. The scope is asserted by whoever runs the command, not checked repository access, so a host checks access before it runs one. Every record carries its scope, and a store reads and writes only records in the caller's scope. Output never shows a user name or password from the remote URL.
+- To migrate an existing checkout, stop all clients using the store, confirm the old repository name belongs to the current GitHub repository, and run `replica-learning migrate-scope --offline`. If the repository was renamed before the upgrade, add `--legacy-repository github.com/old-owner/old-name`. Repeat the command with each confirmed historical name if the same store contains more than one. A custom provider that cannot enumerate old scopes requires the old name explicitly. For a new empty custom store, run `replica-learning migrate-scope --offline --empty` instead; it keeps the configured provider. SQLite moves each history in one transaction and refuses old-scope writes. For JSON Lines and custom providers, the command verifies and copies this repository's history into a new SQLite file, then selects it in the local config. It leaves the original store untouched; verify the new store before removing any old data, which may still contain private or later-redacted text. If the original provider held other repositories, their data remains there: restore `memory.provider` from `memory.migration.sourceProvider` and remove `memory.migration` before migrating another repository. Do not run older clients against the original store after copying it; their writes would not appear in the new store.
+- Histories of the same Hub review thread retain their records and share redaction, retraction, and consent checks. Matching snapshots retain both original collection records. Migration refuses conflicting comment versions or different contents under the same snapshot ID without changing either history.
+- When merging histories reveals a redaction, the command reports affected exports and accepted learnings on migration and retry. Other local store commands also warn on standard error after automatic migration. Follow up on each export and rebuild the affected learnings. `replica-learning status` retains this information for later review.
 - The purposes are review, instruction, evaluation, analytics, training, and publication. Permission for one never implies another. A grant names its purposes and sources, and optionally the range of evidence times it covers. It covers a comment when it names the comment's source and its range contains the time the comment was written. A label counts only while the comment it judges does.
 - Withdrawing a purpose takes effect at once. Evidence stops serving that purpose, learnings built on it stop being recalled, and the command lists earlier exports that already copied it so their owners can be asked to delete it. A learning depends on its counterevidence too: it is used only while both the evidence and the contradictions a reviewer saw permit the purpose.
 - Evidence is append-only. An edited comment adds a version that supersedes the old one. A thread that someone resolves or reopens adds a status change, and so does a thread resolved again since the last import. A deleted comment adds a retraction that removes the earlier versions, and labels on them, from every purpose. Nothing is rewritten, with one exception the contract allows: a provider may remove an event's payload and record why in `redaction`. The event's digest still verifies, and a redacted event is never evidence. Labels and retractions name the event they apply to in `parentEventId`, which must match the payload and which the digest covers, so redacting one never loses its target and a redacted retraction still retracts.
@@ -69,16 +114,16 @@ Add `--json` to any command for machine output.
 - A deleted comment keeps its text in the store unless the host asks otherwise. A host that erases deleted comments imports with `--redact-deleted`. After recording the import, it removes the text of every comment the snapshot shows as deleted, and of the labels on it, the same way `redact` does, and records the importer as the one who removed it. It reports the learnings that need rebuilding and the exports to follow up. If the removal fails part way, the next such import finishes it. A host can instead remove one deleted comment with `redact --comment <hub-comment-id> --by <person>`, naming the person who deleted it. It removes the text the same way without an import, so it needs no active grant and stores no other comment. It removes nothing, and succeeds, when the store holds no text of that comment, so the host can run it again after a failure, or for a comment it never collected.
 - A host must not run `redact` or `redact --comment` while an import or labeling of the same store is in progress. Each reads the comment's events, then removes their text. Text that an import or a label stores in between stays, and `verify` does not report it. For a comment deleted at its source, later imports must also show it as deleted and use `--redact-deleted`, which removes what stayed. Hosts must serialize those operations themselves; the package does not provide a host-level execution lock.
 - Evidence references must resolve to stored events inside the episode they name. The store rebuilds each reference's source pin, time, and author from storage and refuses a proposal that states different ones.
-- A learning has two digests. `contentDigest` identifies the learning itself. `reviewDigest` covers everything a reviewer is shown, including its support, dissent, and rationale. Accepting or rejecting requires the `reviewDigest` the person reviewed, so new support or dissent makes an older review stale. An edit binds the approval to the new content, and any later change to an accepted learning voids it. Accepting may change only the text, and it records `edited` exactly when the text changed. It replaces only the learnings the reviewed lifecycle names. A stored acceptance that changes anything else, such as the evidence, counts as damaged and is never recalled.
+- A learning may have a short title. Its `contentDigest` identifies the learning itself, including its title when present; historical untitled digests stay unchanged. `reviewDigest` covers everything a reviewer is shown, including support, dissent, and rationale. Accepting or rejecting requires the `reviewDigest` the person reviewed. Editing or reinstating requires the exact version's `digest`, so an intervening decision makes an older review stale. An acceptance may edit the proposed text and replaces only the learnings the reviewed lifecycle names. A person can later edit an accepted title or text with a reason; this creates a new approved version. A person can reinstate a rejected or retired learning with a reason only while its evidence and counterevidence still permit instruction. The earlier decisions remain in history.
 - Only a person decides. Granting, withdrawing, accepting, editing, rejecting, retiring, superseding, and exporting require a human principal, and the contracts require a human on every approval. The local command cannot authenticate people, so it marks those identities as asserted.
 - Every change has an audit entry. The store writes each grant, withdrawal, learning version, and export in one provider write with the audit entry that records it, and an import writes its episodes, events, collection, and audit entries in one provider write, so a crash or an error never leaves one without the other. `verify` reports any episode, event, grant, withdrawal, collection, export, or learning version that no audit entry records, and any audit entry that names a record the store does not hold. It also reports a redaction whose audit entry is missing, so an interrupted removal can be retried even though the event's original digest and import receipt still match.
 - Supersession lives on the replacement. An accepted learning lists what it replaces in `supersedes`, and the replaced learnings keep their own state while showing as superseded. A learning records what it replaces once: when it is accepted, or with one later `supersede` if it was accepted without replacing anything. To replace more, propose a merge. A learning that a replacement already claimed cannot be replaced again. A replacement must be a learning recall uses at that moment: one that has expired, does not apply yet, or has evidence that no longer permits instruction cannot replace another, because recall would then use neither. When replacements race, readers take them in the order they were made and apply each one whole or not at all. A replacement that names any learning already claimed, or was itself replaced first, replaces nothing and is marked conflicted, so a losing merge never removes a learning it did not win and reciprocal replacements cannot hide both learnings. A losing acceptance means the learning is not used; a losing `supersede` leaves the learning as it was. Claims come only from intact versions, and retiring or damaging a replacement does not bring back what it replaced; that takes a new proposal.
 - An incomplete window is never reported as empty. A window is complete only when complete, unfiltered collections cover it. Otherwise consolidation reports the missing spans instead of "nothing found".
-- A collection describes exactly the snapshot it was imported from. A scope holds one collection for each snapshot ID, with the digest of the snapshot's normalized contents. Importing the same snapshot again, from the same log or another log of it, keeps the stored collection and audits that one. A log with different contents under a snapshot ID already imported is refused before anything is stored; collect a new snapshot instead. An unseen snapshot older than one already imported from the same Hub repository is also refused, so it cannot restore old edits or deleted text. Replaying a known older snapshot keeps its collection but does not change current events. The provider enforces one collection per snapshot ID in the same write that stores the comments, so when two imports with different contents race, only one is stored.
-- Damaged records stop the store. If any stored grant, withdrawal, episode, event, or collection fails its schema, digest, or scope check, operations refuse to run until `verify` finds the damage and someone repairs it. A damaged learning is never used, and reading it shows only its ID, state, kind, theme, and digests, each strictly checked. These checks catch altered records; they cannot catch a provider that omits or replays whole records.
+- A collection describes exactly the snapshot it was imported from, with the digest of the snapshot's normalized contents. Importing the same snapshot again, from the same log or another log of it, keeps the stored collection and audits that one. Scope migration can retain multiple matching collection records for the same snapshot ID. A log with different contents under a snapshot ID already imported is refused before anything is stored; collect a new snapshot instead. An unseen snapshot older than one already imported from the same Hub repository is also refused, so it cannot restore old edits or deleted text. Replaying a known older snapshot keeps its collection but does not change current events. Normal imports enforce uniqueness in the same write that stores the comments, so when two imports with different contents race, only one is stored.
+- Damaged records stop the operations that read them. If a grant, withdrawal, episode, event, or collection that an operation reads fails its schema, digest, or scope check, that operation refuses to run until `verify` finds the damage and someone repairs it. Learning decisions read only the records tied to their evidence, so damage elsewhere in the store does not block them. `verify` still checks every record. A damaged learning is never used, and reading it shows only its ID, state, kind, theme, and digests, each strictly checked. These checks catch altered records; they cannot catch a provider that omits or replays whole records.
 - Comment text is data. It never changes settings or decisions, terminal output quotes it, and recall never includes raw comments. Input JSON that repeats a member name is refused.
 - Recall writes each learning as plain lines of data, with the learning's text quoted as a JSON string. Every field, including who accepted the learning, has its line breaks turned into spaces and its control characters and invisible formatting characters removed: zero-width characters, tag characters, and marks that reorder text. The store refuses a person or agent ID that contains such characters, and the v1 schemas refuse a record with such an actor ID, so an ID reads the same everywhere it is shown. The character budget includes the full heading, framing, quotes, and newlines. A budget too small for the required framing is refused with the minimum it needs; recall never cuts off the framing or returns oversized text.
-- Reading a learning is a use. `show` and `memories` read for review; when a learning's evidence no longer permits review, they withhold its content, evidence, and rationale. `show --history` checks each version on its own, so an older version whose evidence or counterevidence no longer permits review shows only its state and digests.
+- Reading a learning is a use. `show` and `memories` read for review; when a learning's evidence no longer permits review, they withhold its content, evidence, and rationale. Add `--purpose instruction` to see exactly what an agent may read. `show --history` checks each version on its own, so an older version whose evidence or counterevidence no longer permits review shows only its state and digests.
 
 ## Contracts
 
@@ -95,6 +140,10 @@ The JSON Schemas in [`contracts/v1`](contracts/v1) are the normative contract. E
 | `collection` | One import and whether it was complete |
 | `provider-manifest` | What a provider is, what it supports, and where data goes |
 | `export-manifest` | What left the store, for which purpose, and what was held back |
+| `guidance`, `delivered-learning` | One recall by an agent, and each learning version it received with its exact text |
+| `usage-report`, `used-learning` | An agent's report of which delivered learnings it used for a commit |
+| `screenshot` | One screenshot in a usage report, named by the SHA-256 of its PNG bytes |
+| `update-proposal`, `update-decision` | Suggested new wording for a learning, with the scores behind it, and a person's decision to apply or dismiss it |
 | `audit-entry` | One operation, with IDs and digests but no content |
 
 Each digest is `sha256:` plus the SHA-256 of the record's RFC 8785 canonical JSON. [`contracts/v1/vectors/canonical-json.json`](contracts/v1/vectors/canonical-json.json) holds shared vectors for other languages. Times are UTC with six fractional digits, so text order is time order. [`contracts/v1/examples`](contracts/v1/examples) holds a valid example of every record, and [`contracts/v1/invalid`](contracts/v1/invalid) holds records that must fail, each with its reason.
@@ -119,6 +168,8 @@ Affected proposed learnings cannot be accepted against their old evidence, and a
 
 A provider stores canonical records and returns them. It implements `manifest()`, `health()`, `appendRecords()`, `appendBatch()`, `readRecords()`, `appendMemoryVersion()`, and `readMemoryVersions()`. `appendBatch()` appends to several streams at once. Every append method also takes the audit entries that record the change, and stores the change and its entries in one atomic write. The contract is in [`src/provider-contract.mjs`](src/provider-contract.mjs) and the types are in [`index.d.mts`](index.d.mts). The learning store keeps every consent, purpose, scope, and approval rule, re-checks everything a provider returns, and stops on damaged records, so a provider never has to enforce consent itself. A provider must still be trusted to return every record it stored.
 
+Editing or reinstating a learning also needs an atomic decision fence and indexed evidence lookups in the provider contract. Without them, those decisions fail rather than risk approving withdrawn evidence. Every built-in provider supports both. A custom provider without them can still use other operations.
+
 Run the conformance suite against your provider:
 
 ```js
@@ -139,17 +190,32 @@ The module must be inside the checkout and export `createMemoryProvider(options)
 | Provider | Choose it with | Stores | Redaction |
 | --- | --- | --- | --- |
 | SQLite, the default | `"sqlite"` | One database file, with the SQLite driver built into Node.js | Yes |
+| PostgreSQL | `"postgres"` | The package-owned `replica_learning` schema, using the optional `pg` dependency | Yes |
 | JSON Lines | `"jsonl"` | One file per stream that a person can read | Yes |
 | In memory | `"in-memory"` | Process memory, for tests | Yes |
 | Single file | [`test/fixtures/json-file-provider.mjs`](test/fixtures/json-file-provider.mjs) | One JSON file, written only from the contract with no imports from this package | No |
 
-The optional `observation.redact` capability adds `redactRecord`, described in [`src/provider-contract.mjs`](src/provider-contract.mjs); without it, `redact` refuses with `unsupported`.
+The optional `observation.redact` capability adds `redactRecord`, described in [`src/provider-contract.mjs`](src/provider-contract.mjs); without it, `redact` refuses with `unsupported`. The optional `records.delete` capability adds `deleteRecords`, which `delete`, `expire-guidance`, and `delete-repository` need. Every built-in provider has it. A provider must also store the `guidance`, `deliveries`, `usageReports`, `usedLearnings`, and `screenshots` streams.
 
-Provider queries may filter audit entries with `operations`, together with scope, IDs, and time. An empty operations list matches nothing; omitting it returns every matching operation. Comment removal and imports that erase deleted text read only `evidence.redact` receipts, so their audit reads do not return the repository's growing recall history. SQLite indexes those operations, including when it opens an existing store. JSON Lines still scans the file, but reads it one line at a time and retains only matches; its writes retain only the existing IDs they need to check. No recall audit entries are deleted or compacted.
+Provider queries may filter audit entries with `operations`, together with scope, IDs, and time. An empty operations list matches nothing; omitting it returns every matching operation. Comment removal and imports that erase deleted text read only `evidence.redact` receipts, so their audit reads do not return the repository's growing recall history. SQLite indexes those operations, including when it opens an existing store. JSON Lines still scans the file, but reads it one line at a time and retains only matches; its writes retain only the existing IDs they need to check. Only `delete-repository` deletes audit entries; nothing compacts them.
+
+## PostgreSQL storage
+
+An operator can store learnings in an existing PostgreSQL database instead of a local SQLite file. Set `"memory": { "provider": "postgres" }` in the learning config and supply `REPLICA_LEARNING_DATABASE_URL` to each command. Standard PostgreSQL URLs support DNS names, IPv4, IPv6, and Unix sockets. Remote TCP connections require `sslmode=verify-full`; loopback connections and Unix sockets can use plaintext for local development. Never put a database URL or credential in `config.json`. Installing without optional dependencies keeps SQLite usable; PostgreSQL needs the optional `pg` package.
+
+Before a runtime login uses the database, an operator runs `replica-learning migrate` with `REPLICA_LEARNING_MIGRATION_DATABASE_URL` set to a privileged connection URL. This command does not read the runtime URL or learning config. It creates the `replica_learning` schema, tables, indexes, and its migration ledger in a transaction. Retrying, including concurrent retries, is safe. Run it again before using a package version with new migrations. The runtime checks the ledger but never creates or migrates schema objects.
+
+The migration login needs permission to create the schema and own its objects. Give a separate runtime login only `USAGE` on `replica_learning`, `SELECT` on its migration ledger, `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on records, `SELECT`, `INSERT`, and `UPDATE` on decision generations, `SELECT`, `INSERT`, and `DELETE` on memory versions and decision memory targets, `SELECT` and `INSERT` on decision withdrawal targets, decision migration origins, scope mappings, and SQLite imports, `SELECT`, `INSERT`, and `DELETE` on decision grant sources, and `USAGE` on their identity sequences. After each migration, grant these privileges on newly created objects as needed. Restrict database access to trusted hosts: scope is a package-level boundary, not database row-level authorization.
+
+To move an existing Hub SQLite store, stop Hub and every older client, set the runtime URL in a protected environment, and run `replica-learning import-sqlite --offline --dir <store> --repository github.com/repositories/<github-id> --legacy-repository github.com/repositories/<hub-uuid>`. The command verifies and reconciles the source scope, then copies its records, version history, and historical mappings in one PostgreSQL transaction. A retry of the same source is safe; a changed source or an occupied destination scope is refused. Other repository scopes in the database are unaffected. Verify the destination before switching Hub. Keep older clients offline: the retained SQLite copy is not synchronized and can still contain private or later-redacted text.
+
+PostgreSQL stores the exact record JSON and indexes scope, IDs, time, episode, and audit operation. A write locks every affected scope until its transaction ends, and stores records and their audit entries together. Memory versions also check the expected prior digest. Redaction removes the payload from the current row, but old row versions may retain it until vacuum. Write-ahead logs and backups can retain it longer. Operators must set vacuum, WAL, backup, and replica retention policies to meet their deletion requirements; redaction does not erase those copies immediately.
+
+For database checks, point `REPLICA_LEARNING_TEST_DATABASE_URL` at a dedicated disposable database and run `npm run test:database`. The test login needs `CREATEDB` and `CREATEROLE`; the tests create and remove their own databases and a restricted login. Never point this command at a database containing real learning data. Learning CI supplies its own PostgreSQL service.
 
 ## Label with Copilot
 
-`replica-learning label` with no file labels every comment the labeler has not been asked about, then reports how many it labeled and what Copilot reported it cost. The built-in labeler uses the [Copilot SDK](https://github.com/github/copilot-sdk), an optional dependency that `npm ci` installs:
+`replica-learning label` with no file labels every comment the labeler has not been asked about, then reports how many it labeled and what Copilot reported it cost. Add `--relabel` to ask about those comments again; new labels supersede earlier judgments by the same labeler. The built-in labeler uses the [Copilot SDK](https://github.com/github/copilot-sdk), an optional dependency that `npm ci` installs:
 
 - Copilot sees only comments the review purpose may use now, grouped in their threads, without who wrote them, plus the theme keys already in use so it reuses them.
 - Copilot is asked about each comment once. When it gives a comment no label, or a label the contract refuses, the store records a `no_annotation` event for that labeler, so it is not asked about that comment again. It can still see the comment as context when asked about another comment in the same thread. An edited comment is a new version and is asked about again.
@@ -169,15 +235,34 @@ A labeler failure remains the primary error even if the usage attached to it is 
 
 To use another labeler, set `labeling.labeler` to `{ "module": "./path.mjs" }` exporting `createLabeler(options)`. A labeler returns labels for the comments it was asked about; the types are `MemoryLabeler` in [`index.d.mts`](index.d.mts).
 
+## Score applied learnings
+
+`replica-learning score <used-learning-id> --operation-id <uuid>` asks Copilot to judge one learning an agent said it used. For example, after an agent reports that "Keep form labels visible" shaped commit `a1b2c3`, the score says whether the agent followed it and how efficiently it led to good work:
+
+1. Not efficient at all.
+2. Slightly efficient.
+3. Mostly efficient.
+4. Highly efficient.
+
+A score of 1 or 2 also names the main issue. A learning is scored only while the review evidence behind the version the agent received is allowed for evaluation; otherwise the command fails with `unavailable` and spends nothing. Copilot sees the learning text the agent received, the usage report, and the screenshots whose consent still allows evaluation. `--diff-file <file>` adds the Build's diff, cut at 200,000 characters. `--reviewer-verified-at <time>` tells Copilot that the reviewer who gave feedback on the prototype confirmed this work addressed it. A host scores the same use again with a new operation ID after verification, and both scores are kept. A hosted store keeps no screenshot bytes, so the host writes them to a directory as `<sha256 hex>.png` and names it with `--screenshots <dir>`.
+
+Every score uses the strongest route Copilot offers, so scores stay comparable. It asks for Copilot Fusion at its max tier first. When Fusion is unavailable or does not take effect, it asks Copilot Auto which model it would choose and uses that model at its highest reasoning effort. Each score records the route it used. Inputs are treated as untrusted data, and the session has no tools, as in labeling.
+
+The host names each attempt with `--operation-id`, so a retry keeps the first score. The output includes the usage in AI credits; with `--json`, a failed attempt still prints the usage it spent, so a host can keep to its budget. Deleting a learning deletes its scores.
+
+## Suggest learning updates
+
+`replica-learning propose-update <memory-id>` suggests new wording for an accepted learning when scored uses keep showing the same problem. For example, if agents followed "Keep form labels visible" in two Builds but still put labels beside the fields, it might suggest "Show a visible label above every form field" and say why.
+
+Only scores of the current version count, and only scores whose evidence included the Build's diff or a reviewer's confirmation. Each Build counts once, by its commit. Copilot is asked only when, in at least two Builds, the agent followed the learning and still scored 1 or 2 with an issue. It sees the newest 500 issues, groups them, names each group, and drafts the full new wording. A group becomes a suggestion only when it spans at least two Builds, more Builds than went well with a score of 3 or 4, and its wording differs from the current text. A run that finds too little evidence, or no new low or high scores since the last suggestion, spends nothing. A run where Copilot suggests nothing is not recorded, so a host runs it again only after new scores arrive.
+
+A person decides with `apply-update` or `dismiss-update`. Applying records the wording, or the person's edit of it, as the learning's next version, the same way `edit` does. The host names each apply with `--operation-id`, so a retry finishes an apply that stopped partway. A host can also name a dismissal with `--operation-id`, so it can later tell its own dismissal from someone else's. A suggestion goes `stale` when the learning changes, when it is no longer accepted, when a score it relied on is gone or no longer shown, when the learning is superseded or in conflict, or when a newer suggestion names the same issue. A dismissed issue is suggested again only with at least two Builds first scored after the dismissal, one confirmed by a reviewer. Drafting needs the evaluation purpose, since it sends the learning to Copilot. The route, usage reporting, and untrusted-input handling match [scoring](#score-applied-learnings).
+
 ## Bring your own consolidator
 
 A consolidator has a `manifest` and `consolidate(request, view)`. It reads a frozen view of the evidence the purpose may use and returns proposals and diagnostics. The view shows a memory's content, evidence, and counterevidence only while its evidence permits the purpose. The store gives a consolidator no write access and saves everything it returns as proposed, up to the run's cap on new or changed proposals. A proposal it already holds unchanged does not count against the cap, so a consolidator should return every proposal it would make. A consolidator is code you choose to run; the frozen view is not a sandbox. Select one with `consolidation.consolidator` in the config, using `"recurrence"` (the default), `"none"`, or `{ "module": "./path.mjs" }` exporting `createConsolidator(options, builtins)`. `builtins` holds `createRecurrenceConsolidator` and `createNoopConsolidator`, so a module can build on them without importing this package.
 
-The recurrence consolidator is deterministic. By default it proposes accessibility and visual-quality themes with observed problems in at least 2 threads, 2 prototypes, and 2 reviewers. It holds back contested themes, themes with an accepted learning still in effect, and rejected themes without new support. When an accepted learning has stopped applying, for example because its evidence was withdrawn, a new proposal for the theme offers to replace it. Change the thresholds with `consolidation.options`.
-
-## Example: Agent Memory Repo
-
-[Agent Memory Repo](https://github.com/AgentMemoryRepo/agentmemoryrepo) is an open format for agent memory: a Git repo of Markdown entries, cleaned up by a periodic Dreaming agent. [`examples/agent-memory-repo`](examples/agent-memory-repo/README.md) plugs it in twice. Its Dreaming consolidator proposes merges of learnings that say the same thing, reports look-alikes that conflict, and flags outdated or contested learnings. That is pruning with a person's approval: records stay append-only, and recall stops using what a person merged away or retired. Its publisher copies accepted learnings into a memory repo through a learnings-only export, one file per repository, so other agents can read them and a withdrawal can find the copy.
+The recurrence consolidator is deterministic. By default it proposes themes that come up in at least 2 threads or agent sessions. Problems, preferences such as taste or brand choices, questions, and praise all count. A repeated question shows what confuses people, and repeated praise shows what to keep doing. It counts every design feedback type, such as usability, design system, and scenario feedback, and performance feedback too. It skips feedback about agreement, the Replica workflow, or other topics. A local store working alone needs only 1, so you can see a suggestion from your first session. One prototype and one reviewer are enough. It holds back contested themes, themes with an accepted learning still in effect, and rejected themes without new support. When an accepted learning has stopped applying, for example because its evidence was withdrawn, a new proposal for the theme offers to replace it. Change the thresholds with `consolidation.options`.
 
 ## Decision model
 

@@ -22,7 +22,7 @@ import { after, describe, it } from "node:test"
 import { agent, designer, weekOneLabels, weekOneLog } from "../conformance/index.mjs"
 import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
 import { createJsonLinesMemoryProvider } from "../src/providers/json-lines.mjs"
-import { SCHEMA_VERSIONS, sealRecord } from "../src/records.mjs"
+import { SCHEMA_VERSIONS, sealMemory, sealRecord } from "../src/records.mjs"
 import { createLearningStore } from "../src/store.mjs"
 
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-local-"))
@@ -146,6 +146,15 @@ function injected(what = "sync") {
 
 async function ids(provider, stream) {
   return (await provider.readRecords(stream, { scope })).map((record) => record.id)
+}
+
+/** An intact copy of an accepted learning as another repository would hold it. */
+function inScope(record, otherScope) {
+  const moved = sealMemory({ ...record, scope: otherScope })
+  return sealMemory({
+    ...moved,
+    accepted: { ...moved.accepted, contentDigest: moved.contentDigest },
+  })
 }
 
 async function acceptedStore(directory) {
@@ -298,6 +307,30 @@ describe("JSON Lines provider", () => {
     await provider.appendRecords("grants", [grant("grant_aaaaaaaa2")])
     assert.equal(existsSync(leftover), false)
     assert.equal((await provider.health()).ok, true)
+  })
+
+  it("finishes a deletion a crash stopped after it committed, and drops one before", async () => {
+    const directory = fresh()
+    const provider = createJsonLinesMemoryProvider({ directory })
+    await provider.appendRecords("grants", [grant("grant_aaaaaaaa1"), grant("grant_aaaaaaaa2")])
+    const files = path.join(directory, "v1")
+    const copy = "grants.jsonl.0123456789abcdef.del"
+    function crashedDeletion(kept, committed) {
+      writeFileSync(path.join(files, copy), `${JSON.stringify(grant(kept))}\n`, { mode: 0o600 })
+      const begun = JSON.stringify({ copies: { grants: copy } })
+      const text = committed ? `${begun}\n{"committed":true}\n` : `${begun}\n`
+      writeFileSync(path.join(files, ".replace"), text, { mode: 0o600 })
+    }
+
+    crashedDeletion("grant_aaaaaaaa2", false)
+    assert.deepEqual(await ids(provider, "grants"), ["grant_aaaaaaaa1", "grant_aaaaaaaa2"])
+    crashedDeletion("grant_aaaaaaaa1", true)
+    assert.deepEqual(await ids(provider, "grants"), ["grant_aaaaaaaa1"])
+
+    assert.deepEqual(
+      readdirSync(files).filter((name) => name === ".replace" || name.endsWith(".del")),
+      [],
+    )
   })
 
   it("creates owner-only directories and files", { skip: !posix }, async () => {
@@ -954,6 +987,46 @@ describe("JSON Lines provider", () => {
     const used = await store.recall(agent())
     assert.equal(used.text, preview.text)
     assert.equal(await recalls(), 1)
+  })
+
+  it("previews a learning another repository shared and refuses to deliver it", async () => {
+    const { store: source } = await acceptedStore(fresh())
+    const [{ record: shared }] = await source.queryMemory(designer(), { states: ["accepted"] })
+    const otherScope = { repository: "acme/marketing-prototypes" }
+    const receiver = await createLearningStore({
+      provider: createJsonLinesMemoryProvider({ directory: fresh() }),
+    })
+    const thirdCopy = inScope(shared, { repository: "acme/third-prototypes" })
+
+    const preview = await receiver.recall(
+      { ...designer(), scope: otherScope },
+      { preview: true, shared: [shared, thirdCopy] },
+    )
+    assert.deepEqual(
+      preview.memories.map((memory) => [memory.id, memory.scope]),
+      [[shared.id, scope]],
+    )
+    await assert.rejects(receiver.recall({ ...agent(), scope: otherScope }, { shared: [shared] }), {
+      code: "invalid_input",
+    })
+    await assert.rejects(
+      receiver.recall(
+        { ...designer(), scope: otherScope },
+        { preview: true, shared: [{ ...shared, content: "Always use red buttons." }] },
+      ),
+      { code: "invalid_record" },
+    )
+  })
+
+  it("leaves out a shared learning that reuses the ID of a retired local one", async () => {
+    const { store: receiver, proposal } = await acceptedStore(fresh())
+    const [{ record }] = await receiver.queryMemory(designer(), { states: ["accepted"] })
+    await receiver.retireMemory(designer(), proposal.id, { reason: "It no longer applies." })
+    const shared = inScope(record, { repository: "acme/marketing-prototypes" })
+
+    const preview = await receiver.recall(designer(), { preview: true, shared: [shared] })
+
+    assert.deepEqual(preview.memories, [])
   })
 
   it("detects a learning edited on disk and stops recalling it", async () => {

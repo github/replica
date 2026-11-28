@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/learning/v1/update-proposal.schema.json",
+  "title": "Replica update proposal v1",
+  "description": "Suggested new wording for one version of an accepted learning, drafted because scored uses of that version kept showing the same issue. It is a suggestion for a person; only a person applies it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "scope",
+    "memoryId",
+    "version",
+    "versionDigest",
+    "issueKey",
+    "issue",
+    "content",
+    "reasoning",
+    "support",
+    "counter",
+    "route",
+    "proposedBy",
+    "proposedAt",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "replica.update-proposal/v1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/scope"
+    },
+    "memoryId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "version": {
+      "description": "The learning version whose wording this would replace.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "versionDigest": {
+      "description": "The digest of that version, so applying it after the wording changed is refused.",
+      "$ref": "common.schema.json#/$defs/digest"
+    },
+    "issueKey": {
+      "description": "A short name for the issue, so later runs group the same issue under it.",
+      "$ref": "common.schema.json#/$defs/slug"
+    },
+    "issue": {
+      "description": "The recurring issue, as one sentence.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "content": {
+      "description": "The suggested wording of the learning.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "reasoning": {
+      "description": "Why this wording addresses the issue.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "support": {
+      "description": "The scores that showed the issue.",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 500,
+      "items": { "$ref": "common.schema.json#/$defs/id" }
+    },
+    "counter": {
+      "description": "The scores of the same version that went well.",
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "common.schema.json#/$defs/id" }
+    },
+    "route": {
+      "$ref": "score.schema.json#/properties/route"
+    },
+    "proposedBy": {
+      "$ref": "common.schema.json#/$defs/actor"
+    },
+    "proposedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "digest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    }
+  }
+}

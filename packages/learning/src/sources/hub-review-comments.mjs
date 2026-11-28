@@ -1,3 +1,4 @@
+import { canonicalJson } from "../canonical-json.mjs"
 import { LearningError } from "../errors.mjs"
 import { derivedId } from "../ids.mjs"
 import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
@@ -262,6 +263,19 @@ export function hubThreadEpisode({ meta, thread, scope, grantIds, principal, imp
     },
     startedAt: root.createdAt,
   }
+}
+
+/** Identifies the Hub review thread an episode came from, or null for other sources. */
+export function hubThreadKey(episode) {
+  const source = episode?.source
+  if (
+    source?.kind !== HUB_SOURCE ||
+    [source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId].some(
+      (value) => value === undefined,
+    )
+  )
+    return null
+  return canonicalJson([source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId])
 }
 
 export function hubEpisodeId(scope, meta, root) {

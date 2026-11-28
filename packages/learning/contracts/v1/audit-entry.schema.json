@@ -33,10 +33,18 @@
         "consolidation.run",
         "memory.propose",
         "memory.accept",
+        "memory.edit",
+        "memory.reinstate",
         "memory.reject",
         "memory.retire",
         "memory.supersede",
         "memory.recall",
+        "memory.delete",
+        "usage.report",
+        "usage.score",
+        "update.propose",
+        "update.decide",
+        "guidance.expire",
         "export.create"
       ]
     },
@@ -51,7 +59,23 @@
         "required": ["kind", "id"],
         "properties": {
           "kind": {
-            "enum": ["episode", "event", "memory", "grant", "withdrawal", "collection", "export"]
+            "enum": [
+              "episode",
+              "event",
+              "memory",
+              "grant",
+              "withdrawal",
+              "collection",
+              "export",
+              "guidance",
+              "delivery",
+              "usage_report",
+              "used_learning",
+              "screenshot",
+              "score",
+              "update_proposal",
+              "update_decision"
+            ]
           },
           "id": { "$ref": "common.schema.json#/$defs/id" },
           "digest": { "$ref": "common.schema.json#/$defs/digest" }

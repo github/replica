@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "replica.used-learning/v1",
+  "id": "used_86cb6647d216cf8e3de96d55",
+  "scope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "usageReportId": "usage_c980d22472110f3f8aa8184f",
+  "deliveryId": "delivery_fbbcf94c3c8ea410b4924ee7",
+  "memoryId": "memory_3c1f0a9b8e7d6c5b4a392817",
+  "claimedBy": {
+    "kind": "agent",
+    "id": "agent:copilot",
+    "asserted": true
+  },
+  "afterScreenshotId": "shot_493b87ea08e2efdf7ebd9ddc",
+  "reportedAt": "2026-10-12T10:02:00.000000Z",
+  "digest": "sha256:3cb6591479912c9a0330cedc475619808aed792f0021b3de5bb61b3b4be5df53"
+}

@@ -1,16 +1,35 @@
 import { execFile } from "node:child_process"
-import { readFile, realpath, stat } from "node:fs/promises"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
+import { constants, createReadStream } from "node:fs"
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  realpath,
+  rename,
+  rm,
+  stat,
+  unlink,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
-import { decodeUtf8, parseJson } from "./canonical-json.mjs"
+import { canonicalJson, decodeUtf8, digestOf, parseJson } from "./canonical-json.mjs"
 import { createNoopConsolidator } from "./consolidators/noop.mjs"
 import { createRecurrenceConsolidator } from "./consolidators/recurrence.mjs"
 import { LearningError } from "./errors.mjs"
 import { createCopilotLabeler } from "./labelers/copilot.mjs"
+import { STREAMS } from "./provider-contract.mjs"
 import { createInMemoryProvider } from "./providers/in-memory.mjs"
 import { createJsonLinesMemoryProvider } from "./providers/json-lines.mjs"
-import { createSqliteMemoryProvider } from "./providers/sqlite.mjs"
+import { createFileLock } from "./providers/lock.mjs"
+import { createPostgresMemoryProvider } from "./providers/postgres.mjs"
+import { backupSqliteMemoryStore, createSqliteMemoryProvider } from "./providers/sqlite.mjs"
+import { migrateRepositoryScope } from "./scope-migration.mjs"
+import { createHostKeptScreenshotStore, createScreenshotStore } from "./screenshots.mjs"
 import { createLearningStore, scopeProblem } from "./store.mjs"
 
 /**
@@ -28,28 +47,45 @@ export const CONFIG_SCHEMA_VERSION = "replica.learning-config/v1"
 
 /**
  * Find the checkout, the data directory, the optional config file, and the repository scope.
- * In a checkout the scope comes only from its origin remote, as its host and owner/name, so a
- * file an agent writes cannot point the store at another repository's records, and the same
- * owner/name on two hosts never shares them.
+ * In a checkout the origin remote identifies the repository. Its GitHub ID is saved with the
+ * remote so later commands can use the same scope without a network request. A checkout setup
+ * setup gave a local ID uses that instead, so it needs no GitHub repository.
  *
  * A host such as Hub keeps each repository's store outside any checkout. It names the
- * repository with `repository` (host/owner/name) and the store with `directory`; Git is then
+ * repository with `repository` (github.com/repositories/ID) and the store with `directory`; Git is then
  * consulted only to keep the store out of a checkout's committed files.
  *
- * @param {{ cwd?: string, env?: Record<string, string | undefined>, directory?: string, repository?: string }} [options]
+ * @param {{ cwd?: string, env?: Record<string, string | undefined>, directory?: string, repository?: string, legacyRepository?: string, resolveIdentity?: boolean }} [options]
  */
 export async function resolveEnvironment({
   cwd = process.cwd(),
   env = process.env,
   directory,
   repository,
+  legacyRepository,
+  legacyRedaction = false,
+  resolveIdentity = true,
 } = {}) {
+  if (legacyRedaction)
+    return resolveHostedEnvironment({
+      cwd,
+      directory: directory ?? env.REPLICA_LEARNING_DIR,
+      repository: legacyRepository,
+      legacyRedaction: true,
+      env,
+    })
   if (repository !== undefined)
     return resolveHostedEnvironment({
       cwd,
       directory: directory ?? env.REPLICA_LEARNING_DIR,
       repository,
+      legacyRepository,
+      env,
     })
+  const requestedLegacyScope =
+    legacyRepository === undefined ? null : legacyScopeFromName(legacyRepository)
+  if (legacyRepository !== undefined && requestedLegacyScope?.host !== "github.com")
+    throw new LearningError("invalid_input", "--legacy-repository must name a GitHub repository.")
   const checkout = await git(cwd, ["rev-parse", "--show-toplevel"])
   const root = await realLocation(checkout ?? path.resolve(cwd))
   const chosen = directory ?? env.REPLICA_LEARNING_DIR
@@ -59,9 +95,9 @@ export async function resolveEnvironment({
   const configPath = path.join(dataDirectory, "config.json")
   const config = await readConfig(configPath)
   const remote = await git(root, ["config", "--get", "remote.origin.url"])
-  const scope = remote ? scopeFromRemote(remote) : null
+  const originScope = remote ? scopeFromRemote(remote) : null
   const placement = placeIn(root, dataDirectory)
-  return {
+  const environment = {
     hosted: false,
     root,
     checkout: checkout ? root : null,
@@ -69,7 +105,11 @@ export async function resolveEnvironment({
     configPath,
     configFound: config !== null,
     config: config ?? {},
-    scope,
+    env: { REPLICA_LEARNING_DATABASE_URL: env.REPLICA_LEARNING_DATABASE_URL },
+    scope: null,
+    sourceRepository: originScope?.repository ?? null,
+    legacyScope: originScope,
+    explicitLegacyScope: legacyRepository !== undefined,
     scopeSource: remote ? `git remote origin (${withoutCredentials(remote)})` : null,
     insideCheckout: placement.inside,
     underReplica: placement.underReplica,
@@ -77,35 +117,103 @@ export async function resolveEnvironment({
       ? await isIgnoredByGit(root, placement.relative, { directory: true })
       : null,
   }
+  if (resolveIdentity && environment.config.localRepository) {
+    if (await placementProblem(environment, dataDirectory)) return environment
+    environment.scope = {
+      host: "local",
+      repository: `repositories/${environment.config.localRepository.id}`,
+    }
+    environment.legacyScope = null
+    environment.scopeSource = "the local repository ID that setup saved"
+    return environment
+  }
+  if (!resolveIdentity || !originScope || originScope.host !== "github.com") return environment
+  const problem = await placementProblem(environment, dataDirectory)
+  if (problem) return environment
+  const identity = await resolveGitHubIdentity(environment, originScope, env)
+  environment.scope = { host: "github.com", repository: `repositories/${identity.id}` }
+  environment.legacyScope = requestedLegacyScope ?? {
+    host: "github.com",
+    repository: identity.legacyRepository,
+  }
+  environment.config = identity.config
+  environment.configFound = true
+  return environment
 }
 
 /** The environment for a store a host names, with no checkout behind it. */
-async function resolveHostedEnvironment({ cwd, directory, repository }) {
+async function resolveHostedEnvironment({
+  cwd,
+  directory,
+  repository,
+  legacyRepository,
+  legacyRedaction = false,
+  env,
+}) {
   if (!directory)
     throw new LearningError(
       "invalid_input",
       "--repository needs --dir, the directory that holds this repository's learning data.",
     )
-  const scope = scopeFromName(repository)
+  const scope = legacyRedaction ? legacyScopeFromName(repository) : scopeFromName(repository)
+  if (
+    legacyRedaction &&
+    (scope?.host !== "github.com" ||
+      !/^repositories\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        scope.repository,
+      ))
+  )
+    throw new LearningError(
+      "invalid_input",
+      "Legacy redaction needs the Hub repository UUID as github.com/repositories/<uuid>.",
+    )
   if (!scope)
     throw new LearningError(
       "invalid_input",
-      `--repository must be host/owner/name, such as github.com/acme/prototypes, not ${JSON.stringify(repository)}.`,
+      `--repository must be github.com/repositories/<numeric GitHub repository ID> or local/repositories/<local ID from setup>, not ${JSON.stringify(repository)}.`,
     )
+  const legacyScope = legacyRepository === undefined ? null : legacyScopeFromName(legacyRepository)
+  if (legacyRepository !== undefined && legacyScope?.host !== "github.com")
+    throw new LearningError("invalid_input", "--legacy-repository must name a GitHub repository.")
   const dataDirectory = await realLocation(path.resolve(cwd, directory))
   const configPath = path.join(dataDirectory, "config.json")
   const config = await readConfig(configPath)
+  let selectedConfig = config ?? {}
+  if (env.REPLICA_LEARNING_HUB_POSTGRES === "1") {
+    if (!env.REPLICA_LEARNING_DATABASE_URL)
+      throw new LearningError("invalid_input", "The Hub learning database URL is missing.")
+    if (
+      typeof config?.consolidation?.consolidator === "object" ||
+      typeof config?.labeling?.labeler === "object"
+    )
+      throw new LearningError(
+        "unsupported",
+        "Hub PostgreSQL learning supports built-in consolidators and labelers only.",
+      )
+    selectedConfig = {
+      ...selectedConfig,
+      memory: {
+        provider: "postgres",
+        ...(env.REPLICA_LEARNING_HUB_REQUIRE_IMPORT === "1" ? { requireImport: true } : {}),
+      },
+    }
+  }
   const checkout = await checkoutAround(dataDirectory)
   const placement = checkout ? placeIn(checkout, dataDirectory) : null
   return {
     hosted: true,
+    legacyRedaction,
     root: dataDirectory,
     checkout,
     dataDirectory,
     configPath,
     configFound: config !== null,
-    config: config ?? {},
+    config: selectedConfig,
+    env: { REPLICA_LEARNING_DATABASE_URL: env.REPLICA_LEARNING_DATABASE_URL },
     scope,
+    legacyScope,
+    explicitLegacyScope: legacyRepository !== undefined,
+    sourceRepository: legacyScope?.repository ?? scope.repository,
     scopeSource: "--repository",
     insideCheckout: Boolean(placement?.inside),
     underReplica: Boolean(placement?.underReplica),
@@ -177,10 +285,21 @@ export function withoutCredentials(remote) {
 }
 
 /**
- * The scope a host names as host/owner/name, such as github.com/acme/prototypes, in lowercase.
- * Null when it is malformed, so the command refuses to guess.
+ * The stable repository scope a host names: a GitHub repository ID, or the local ID that setup
+ * saves in a checkout with no GitHub repository. Null when it is malformed.
  */
 export function scopeFromName(name) {
+  const text = String(name ?? "").trim()
+  const github = /^github\.com\/repositories\/([1-9][0-9]*)$/.exec(text)
+  if (github) return { host: "github.com", repository: `repositories/${github[1]}` }
+  const local = /^local\/repositories\/(.+)$/.exec(text)
+  if (!local || !UUID.test(local[1])) return null
+  return { host: "local", repository: `repositories/${local[1]}` }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+function legacyScopeFromName(name) {
   const match = /^([^/\s]+)\/([^/\s]+)\/([^/\s]+)$/.exec(String(name ?? "").trim())
   if (!match) return null
   const scope = {
@@ -188,6 +307,150 @@ export function scopeFromName(name) {
     repository: `${match[2]}/${match[3]}`.toLowerCase(),
   }
   return scopeProblem(scope) ? null : scope
+}
+
+/**
+ * Prepares a checkout's local learning store.
+ *
+ * A checkout with no GitHub repository gets a random local ID, so people can try learning
+ * before they have one, or without one. The ID stays if a GitHub origin is added later, so
+ * the learnings found so far stay with the checkout.
+ *
+ * A new store uses JSON Lines, because local Hub may run in a container that shares the
+ * checkout. Its lock file works across that boundary, and SQLite's locks may not. A store
+ * that already holds SQLite data keeps it.
+ *
+ * @param {string} root The checkout's root.
+ * @returns {Promise<{ localRepository: boolean, jsonLines: boolean }>} what it changed
+ */
+export async function prepareLocalLearningStore(root) {
+  const dataDirectory = path.join(root, ".replica", "learning")
+  await mkdir(dataDirectory, { recursive: true, mode: 0o700 })
+  await assertPrivateDirectory(dataDirectory)
+  const configPath = path.join(dataDirectory, "config.json")
+  const lock = createFileLock({ path: path.join(dataDirectory, ".config.lock") })
+  return lock.run(async () => {
+    const config = (await readConfig(configPath)) ?? { schemaVersion: CONFIG_SCHEMA_VERSION }
+    const changes = { localRepository: false, jsonLines: false }
+    if (!config.githubRepository && !config.localRepository) {
+      const remote = await git(root, ["config", "--get", "remote.origin.url"])
+      if (!remote || scopeFromRemote(remote)?.host !== "github.com") {
+        config.localRepository = { id: randomUUID() }
+        changes.localRepository = true
+      }
+    }
+    if (
+      config.memory === undefined &&
+      !(await lstat(path.join(dataDirectory, "learning.sqlite")).catch(() => null))
+    ) {
+      config.memory = { provider: "jsonl" }
+      changes.jsonLines = true
+    }
+    if (changes.localRepository || changes.jsonLines) await writePrivateConfig(configPath, config)
+    return changes
+  })
+}
+
+async function assertPrivateDirectory(directory) {
+  const info = await lstat(directory)
+  if (!info.isDirectory() || (process.platform !== "win32" && (info.mode & 0o077) !== 0))
+    throw new LearningError("storage_corrupt", `${directory} must be a private directory.`)
+}
+
+async function resolveGitHubIdentity(environment, originScope, env) {
+  const remote = `${originScope.host}/${originScope.repository}`
+  const cached = environment.config.githubRepository
+  if (cached?.remote === remote) return { ...cached, config: environment.config }
+  await mkdir(environment.dataDirectory, { recursive: true, mode: 0o700 })
+  await assertPrivateDirectory(environment.dataDirectory)
+  const lock = createFileLock({ path: path.join(environment.dataDirectory, ".config.lock") })
+  return lock.run(async () => {
+    const config = (await readConfig(environment.configPath)) ?? {
+      schemaVersion: CONFIG_SCHEMA_VERSION,
+    }
+    if (config.githubRepository?.remote === remote) return { ...config.githubRepository, config }
+    let id
+    try {
+      const { stdout } = await run(
+        "gh",
+        ["api", "--hostname", "github.com", `repos/${originScope.repository}`, "--jq", ".id"],
+        { cwd: environment.root, env, timeout: 15_000 },
+      )
+      id = stdout.trim()
+    } catch {
+      throw new LearningError(
+        "unavailable",
+        `Cannot look up the GitHub repository ID for ${remote}. Sign in with gh and try again.`,
+      )
+    }
+    if (!/^[1-9][0-9]*$/.test(id))
+      throw new LearningError(
+        "invalid_input",
+        `GitHub returned an invalid repository ID for ${remote}.`,
+      )
+    const githubRepository = {
+      id,
+      remote,
+      legacyRepository:
+        config.githubRepository?.id === id
+          ? config.githubRepository.legacyRepository
+          : originScope.repository,
+      ...(config.githubRepository?.id === id && config.githubRepository.legacyConfirmed
+        ? { legacyConfirmed: true }
+        : {}),
+    }
+    const updated = { ...config, githubRepository }
+    const current = (await readConfig(environment.configPath)) ?? {
+      schemaVersion: CONFIG_SCHEMA_VERSION,
+    }
+    if (canonicalJson(current) !== canonicalJson(config))
+      throw new LearningError("conflict", "The learning configuration changed. Try again.")
+    await writePrivateConfig(environment.configPath, updated)
+    return { ...githubRepository, config: updated }
+  })
+}
+
+async function writePrivateConfig(target, config) {
+  const existing = await lstat(target).catch((error) => {
+    if (error.code === "ENOENT") return null
+    throw error
+  })
+  if (existing && (!existing.isFile() || existing.nlink !== 1))
+    throw new LearningError("storage_corrupt", `${target} must be a private regular file.`)
+  const temporary = `${target}.${randomBytes(12).toString("hex")}.tmp`
+  let handle
+  try {
+    handle = await open(
+      temporary,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0),
+      0o600,
+    )
+    await handle.writeFile(`${JSON.stringify(config, null, 2)}\n`)
+    await handle.sync()
+    await handle.close()
+    handle = null
+    await rename(temporary, target)
+    if (process.platform !== "win32") {
+      try {
+        const directory = await open(path.dirname(target), "r")
+        try {
+          await directory.sync()
+        } finally {
+          await directory.close()
+        }
+      } catch {
+        throw new LearningError(
+          "storage_outcome_unknown",
+          "The configuration may have changed, but its directory could not be synced. Read it before retrying.",
+        )
+      }
+    }
+  } finally {
+    await handle?.close()
+    await unlink(temporary).catch((error) => {
+      if (error.code !== "ENOENT") throw error
+    })
+  }
 }
 
 /**
@@ -222,9 +485,7 @@ export async function placementProblem(
 export async function isIgnoredByGit(root, relative, { directory = false } = {}) {
   const target = `${relative.split(path.sep).join("/")}${directory ? "/" : ""}`
   try {
-    await run("git", ["-C", root, "check-ignore", "-q", "--no-index", target], {
-      timeout: 10_000,
-    })
+    await run("git", ["-C", root, "check-ignore", "-q", "--no-index", target], { timeout: 10_000 })
     return true
   } catch (error) {
     return error.code === 1 ? false : null
@@ -249,7 +510,12 @@ export function repositoryFromRemote(remote) {
  * @param {Awaited<ReturnType<typeof resolveEnvironment>>} environment
  * @param {{ clock?: () => number }} [options]
  */
+/** Providers whose records live only on this machine, beside the screenshot files. */
+const LOCAL_PROVIDERS = ["built-in sqlite", "built-in jsonl", "built-in in-memory"]
+
 export async function openLearningStore(environment, { clock = Date.now } = {}) {
+  const problem = await placementProblem(environment, environment.dataDirectory)
+  if (problem) throw new LearningError("invalid_input", problem)
   if (!environment.scope)
     throw new LearningError(
       "invalid_input",
@@ -257,11 +523,184 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
         ? `Cannot read a host and owner/name from ${environment.scopeSource}, so the repository scope is unknown.`
         : "This checkout has no origin remote, so its repository scope is unknown. Add the GitHub remote as origin.",
     )
-  const problem = await placementProblem(environment, environment.dataDirectory)
-  if (problem) throw new LearningError("invalid_input", problem)
+  const migration = environment.config.memory?.migration
+  if (migration && migration.repository !== environment.scope.repository)
+    throw new LearningError(
+      "conflict",
+      "This migrated store belongs to another repository. Restore the original provider to migrate that repository.",
+    )
   const { provider, source } = await openProvider(environment)
   try {
-    return { store: await createLearningStore({ provider, clock }), providerSource: source }
+    if (
+      environment.config.memory?.requireImport &&
+      !(await provider.hasSqliteImport?.(environment.scope))
+    )
+      throw new LearningError(
+        "conflict",
+        "This repository has existing learning files. Import its SQLite history before using PostgreSQL.",
+      )
+    if (
+      environment.hosted &&
+      environment.legacyScope &&
+      /^repositories\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        environment.legacyScope.repository,
+      )
+    )
+      await provider.registerLegacyScope?.(environment.legacyScope, environment.scope)
+    let result = null
+    if (
+      !environment.hosted &&
+      !environment.config.githubRepository?.legacyConfirmed &&
+      source.startsWith("module ") &&
+      typeof provider.legacyScopes !== "function"
+    )
+      throw new LearningError(
+        "conflict",
+        "This provider cannot discover old repository names. Stop older clients and run migrate-scope --offline with --legacy-repository, or --empty for a new store.",
+      )
+    if (environment.legacyScope && typeof provider.migrateScope === "function") {
+      if (!environment.hosted && !environment.config.githubRepository?.legacyConfirmed) {
+        const scopes =
+          typeof provider.legacyScopes === "function" ? await provider.legacyScopes() : []
+        const query = { scope: environment.legacyScope }
+        const records = await Promise.all([
+          ...Object.keys(STREAMS).map((stream) => provider.readRecords(stream, query)),
+          provider.readMemoryVersions(query),
+        ])
+        if (scopes.length || records.some((items) => items.length))
+          throw new LearningError(
+            "conflict",
+            "Confirm which repository owns the old learning data, stop older clients, then run replica-learning migrate-scope --offline.",
+          )
+      }
+      const previous =
+        typeof provider.scopeMigrationIdentityFrom === "function"
+          ? await provider.scopeMigrationIdentityFrom(environment.legacyScope)
+          : typeof provider.scopeMigrationFrom === "function"
+            ? await provider.scopeMigrationFrom(environment.legacyScope)
+            : null
+      if (previous) {
+        if (
+          !previous.oldScope ||
+          canonicalJson(previous.oldScope) !== canonicalJson(environment.legacyScope)
+        )
+          throw new LearningError("storage_corrupt", "The repository migration mapping is invalid.")
+        if (
+          !previous.newScope ||
+          canonicalJson(previous.newScope) !== canonicalJson(environment.scope)
+        )
+          throw new LearningError("conflict", "The old scope was migrated to another repository.")
+      }
+      if (previous && canonicalJson(environment.legacyScope) !== canonicalJson(environment.scope))
+        result = previous
+      else
+        result = await migrateRepositoryScope({
+          provider,
+          oldScope: environment.legacyScope,
+          newScope: environment.scope,
+          clock,
+        })
+    } else if (environment.legacyScope) {
+      const query = { scope: environment.legacyScope }
+      const scopes =
+        !environment.hosted && typeof provider.legacyScopes === "function"
+          ? await provider.legacyScopes()
+          : []
+      const records = await Promise.all([
+        ...Object.keys(STREAMS).map((stream) => provider.readRecords(stream, query)),
+        provider.readMemoryVersions(query),
+      ])
+      if (scopes.length || records.some((items) => items.length))
+        throw new LearningError(
+          "unsupported",
+          "This store has data under its old repository scope. Stop older clients, then run replica-learning migrate-scope --offline.",
+        )
+    }
+    const migrations =
+      typeof provider.scopeMigrationSummaries === "function"
+        ? await provider.scopeMigrationSummaries(environment.scope)
+        : typeof provider.scopeMigrations === "function"
+          ? await provider.scopeMigrations(environment.scope)
+          : result
+            ? [result]
+            : []
+    const digestMappings = Object.fromEntries(
+      migrations
+        .flatMap((migration) => migration.digestMappings ?? [])
+        .filter((entry) => entry.kind === "memory" && entry.field === "digest")
+        .map((entry) => [entry.oldDigest, entry.newDigest]),
+    )
+    return {
+      store: await createLearningStore({
+        provider,
+        clock,
+        legacyScopes: migrations.map((migration) => migration.oldScope),
+        digestMappings,
+        // A local store keeps the bytes on this machine. A hosted store leaves them to its
+        // host. A shared database reached without a host keeps none.
+        ...(environment.hosted
+          ? { screenshots: createHostKeptScreenshotStore() }
+          : !LOCAL_PROVIDERS.includes(source)
+            ? {}
+            : {
+                screenshots: createScreenshotStore(
+                  path.join(environment.dataDirectory, "evidence"),
+                ),
+              }),
+      }),
+      providerSource: source,
+      migrationRedactionFollowUps: migrations
+        .map((item) => item.redactionFollowUps)
+        .filter(Boolean),
+    }
+  } catch (error) {
+    await provider.close?.()
+    throw error
+  }
+}
+
+/** Open only the known Hub store for a deleted-comment maintenance operation. */
+export async function openLegacyRedactionStore(environment, { clock = Date.now } = {}) {
+  const problem = await placementProblem(environment, environment.dataDirectory)
+  if (problem) throw new LearningError("invalid_input", problem)
+  if (!environment.legacyRedaction)
+    throw new LearningError("invalid_input", "This is not a legacy redaction request.")
+  const { provider } = await openProvider(environment)
+  try {
+    if (
+      typeof provider.scopeMigrationFrom !== "function" &&
+      (typeof provider.migrateScope === "function" || environment.config.memory?.migration)
+    )
+      throw new LearningError(
+        "conflict",
+        "The store cannot identify the migrated repository scope for redaction.",
+      )
+    const migration = await provider.scopeMigrationFrom?.(environment.scope)
+    if (
+      environment.config.memory?.requireImport &&
+      (!migration || !(await provider.hasSqliteImport?.(migration.newScope)))
+    )
+      throw new LearningError(
+        "conflict",
+        "The repository's SQLite history has not been imported for legacy redaction.",
+      )
+    if (migration) {
+      const target = scopeFromName(`github.com/${migration.newScope?.repository}`)
+      if (
+        canonicalJson(migration.oldScope) !== canonicalJson(environment.scope) ||
+        !target ||
+        canonicalJson(migration.newScope) !== canonicalJson(target) ||
+        (environment.config.memory?.migration &&
+          environment.config.memory.migration.repository !== migration.newScope.repository)
+      )
+        throw new LearningError("storage_corrupt", "The repository migration mapping is invalid.")
+      environment.scope = target
+    } else if (environment.config.memory?.migration)
+      throw new LearningError(
+        "conflict",
+        "The migrated store has no mapping for this Hub repository.",
+      )
+    return { store: await createLearningStore({ provider, clock }) }
   } catch (error) {
     await provider.close?.()
     throw error
@@ -271,9 +710,14 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
 /** Open the configured memory provider. The default is one SQLite file. */
 export async function openProvider(environment) {
   const choice = environment.config.memory?.provider ?? "sqlite"
-  if (choice === "sqlite")
+  if (choice?.builtin === "sqlite" && typeof choice.file !== "string")
+    throw new LearningError("invalid_input", "A migrated SQLite provider needs its file name.")
+  if (choice === "sqlite" || choice?.builtin === "sqlite")
     return {
-      provider: createSqliteMemoryProvider({ directory: environment.dataDirectory }),
+      provider: createSqliteMemoryProvider({
+        directory: environment.dataDirectory,
+        ...(choice === "sqlite" ? {} : { file: choice.file }),
+      }),
       source: "built-in sqlite",
     }
   if (choice === "jsonl")
@@ -283,6 +727,13 @@ export async function openProvider(environment) {
     }
   if (choice === "in-memory")
     return { provider: createInMemoryProvider(), source: "built-in in-memory" }
+  if (choice === "postgres")
+    return {
+      provider: createPostgresMemoryProvider({
+        connectionString: environment.env?.REPLICA_LEARNING_DATABASE_URL,
+      }),
+      source: "built-in postgres",
+    }
   const factory = await loadFactory(environment, choice, "createMemoryProvider", "memory.provider")
   const provider = await factory({
     ...(choice.options ?? {}),
@@ -291,12 +742,459 @@ export async function openProvider(environment) {
   return { provider, source: `module ${choice.module}` }
 }
 
-/** Open the configured consolidator. The default is the recurrence consolidator. */
+/**
+ * Copy one stopped Hub SQLite store into PostgreSQL without removing the source. Its numeric
+ * scope and historical mappings must be intact before the destination is made visible.
+ */
+export async function importSqliteStore(environment, { clock = Date.now } = {}) {
+  const choice = environment.config.memory?.provider ?? "sqlite"
+  if (
+    !environment.hosted ||
+    !environment.scope ||
+    !environment.legacyScope ||
+    !environment.configFound ||
+    (choice !== "sqlite" && choice?.builtin !== "sqlite")
+  )
+    throw new LearningError(
+      "invalid_input",
+      "Import needs an existing Hub SQLite store, its numeric repository ID, and its old Hub scope.",
+    )
+  if (choice?.builtin === "sqlite" && typeof choice.file !== "string")
+    throw new LearningError("invalid_input", "A migrated SQLite provider needs its file name.")
+  const destination = createPostgresMemoryProvider({
+    connectionString: environment.env.REPLICA_LEARNING_DATABASE_URL,
+  })
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "replica-learning-import-"))
+  const file = choice === "sqlite" ? "learning.sqlite" : choice.file
+  const sourceOptions = { directory: environment.dataDirectory, file }
+  const snapshotPath = path.join(temporaryDirectory, file)
+  const copyEnvironment = { ...environment, dataDirectory: temporaryDirectory }
+  let source
+  async function fileDigest(filePath) {
+    const hash = createHash("sha256")
+    for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+    return hash.digest("hex")
+  }
+  async function snapshot() {
+    const scopes = await source.storedScopes()
+    if (scopes.some((scope) => canonicalJson(scope) !== canonicalJson(environment.scope)))
+      throw new LearningError(
+        "conflict",
+        "The SQLite store contains another repository scope. Reconcile it before import.",
+      )
+    return {
+      records: Object.fromEntries(
+        await Promise.all(
+          Object.keys(STREAMS).map(async (stream) => [
+            stream,
+            await source.readRecords(stream, { scope: environment.scope }),
+          ]),
+        ),
+      ),
+      memories: await source.readMemoryVersions({ scope: environment.scope }),
+      migrations: await source.scopeMigrations(environment.scope),
+    }
+  }
+  try {
+    await destination.hasSqliteImport(environment.scope)
+    await backupSqliteMemoryStore(sourceOptions, snapshotPath)
+    await chmod(snapshotPath, 0o600)
+    const originalDigest = await fileDigest(snapshotPath)
+    const { store } = await openLearningStore(copyEnvironment, { clock })
+    try {
+      const verified = await store.verify({
+        scope: environment.scope,
+        principal: { kind: "system", id: "system:sqlite-import" },
+      })
+      if (!verified.ok)
+        throw new LearningError(
+          "storage_corrupt",
+          `SQLite import refused: ${verified.problems.join("; ")}`,
+        )
+    } finally {
+      await store.close()
+    }
+    source = (await openProvider(copyEnvironment)).provider
+    const original = await snapshot()
+    if (
+      !original.migrations.some(
+        (migration) => canonicalJson(migration.oldScope) === canonicalJson(environment.legacyScope),
+      )
+    )
+      throw new LearningError(
+        "conflict",
+        "The SQLite store has no mapping for this Hub repository.",
+      )
+    return await destination.importSqlite({
+      scope: environment.scope,
+      ...original,
+      sourceDigest: digestOf(original),
+      beforeCommit: async () => {
+        const checkDirectory = await mkdtemp(path.join(temporaryDirectory, "recheck-"))
+        const checkPath = path.join(checkDirectory, "source.sqlite")
+        await backupSqliteMemoryStore(sourceOptions, checkPath)
+        if (
+          (await fileDigest(checkPath)) !== originalDigest ||
+          canonicalJson(await snapshot()) !== canonicalJson(original) ||
+          canonicalJson(await readConfig(environment.configPath)) !==
+            canonicalJson(environment.config)
+        )
+          throw new LearningError(
+            "conflict",
+            "The SQLite source changed during import. Try again offline.",
+          )
+      },
+    })
+  } finally {
+    try {
+      await source?.close()
+    } finally {
+      try {
+        await destination.close()
+      } finally {
+        await rm(temporaryDirectory, { recursive: true, force: true })
+      }
+    }
+  }
+}
+
+/**
+ * Copy one offline legacy store into SQLite without changing the source. The caller must stop
+ * older clients first; provider contracts cannot prevent an old client from writing later.
+ */
+export async function migrateScopeOffline(environment, { clock = Date.now, empty = false } = {}) {
+  const problem = await placementProblem(environment, environment.dataDirectory)
+  if (problem) throw new LearningError("invalid_input", problem)
+  if (!environment.scope || !environment.legacyScope)
+    throw new LearningError("invalid_input", "This store needs both old and new repository scopes.")
+  const lock = createFileLock({ path: path.join(environment.dataDirectory, ".config.lock") })
+  return lock.run(async () => {
+    const config = await readConfig(environment.configPath)
+    if (!config || canonicalJson(config) !== canonicalJson(environment.config))
+      throw new LearningError("conflict", "The learning configuration changed. Try again.")
+    if (config.memory?.migration) {
+      if (
+        config.memory.migration.repository !== environment.scope.repository ||
+        config.memory.provider?.builtin !== "sqlite"
+      )
+        throw new LearningError("conflict", "This configuration names another migrated store.")
+      if (empty) throw new LearningError("invalid_input", "This store has already been migrated.")
+      if (!environment.explicitLegacyScope) {
+        const { store } = await openLearningStore(environment, { clock })
+        let redactionFollowUps
+        try {
+          const context = {
+            scope: environment.scope,
+            principal: { kind: "system", id: "system:scope-migration" },
+          }
+          const verified = await store.verify(context)
+          if (!verified.ok) throw new LearningError("storage_corrupt", verified.problems.join("; "))
+          redactionFollowUps = (await store.status(context)).migrationRedactionFollowUps
+        } finally {
+          await store.close()
+        }
+        return {
+          file: path.join(environment.dataDirectory, config.memory.provider.file),
+          sourceProvider: config.memory.migration.sourceProvider,
+          alreadyMigrated: true,
+          ...(redactionFollowUps ? { redactionFollowUps } : {}),
+        }
+      }
+    }
+    const sourceEnvironment = config.memory?.migration
+      ? {
+          ...environment,
+          config: {
+            ...config,
+            memory: { ...config.memory, provider: config.memory.migration.sourceProvider },
+          },
+        }
+      : environment
+    const { provider: source, source: sourceDescription } = await openProvider(sourceEnvironment)
+    let destination
+    let file
+    let createdFile = false
+    let switched = false
+    let sourceClosed = false
+    try {
+      if (
+        !environment.hosted &&
+        sourceDescription.startsWith("module ") &&
+        typeof source.legacyScopes !== "function" &&
+        !environment.explicitLegacyScope &&
+        !empty
+      )
+        throw new LearningError(
+          "conflict",
+          "Name the old repository with --legacy-repository, or use --empty to confirm this is a new store.",
+        )
+      const scopes = typeof source.legacyScopes === "function" ? await source.legacyScopes() : []
+      if (config.memory?.migration)
+        destination = createSqliteMemoryProvider({
+          directory: environment.dataDirectory,
+          file: config.memory.provider.file,
+        })
+      const migrations = config.memory?.migration
+        ? await destination.scopeMigrations(environment.scope)
+        : typeof source.scopeMigrations === "function"
+          ? await source.scopeMigrations(environment.scope)
+          : []
+      const selectedScopeExists = scopes.some(
+        (scope) => canonicalJson(scope) === canonicalJson(environment.legacyScope),
+      )
+      const selectedScopeMigrated = migrations.some(
+        (migration) => canonicalJson(migration.oldScope) === canonicalJson(environment.legacyScope),
+      )
+      if (
+        (scopes.length ||
+          (environment.explicitLegacyScope && typeof source.legacyScopes === "function")) &&
+        !selectedScopeExists &&
+        !selectedScopeMigrated
+      )
+        throw new LearningError(
+          "conflict",
+          "No data matches that old repository name. Choose it with --legacy-repository github.com/owner/name.",
+        )
+      const confirmedConfig = environment.hosted
+        ? config
+        : {
+            ...config,
+            githubRepository: {
+              ...config.githubRepository,
+              legacyRepository: environment.legacyScope.repository,
+              legacyConfirmed: true,
+            },
+          }
+      if (typeof source.migrateScope === "function") {
+        if (sourceDescription.startsWith("module ") && typeof source.legacyScopes !== "function") {
+          const old = await readScope(source, environment.legacyScope)
+          const current = await readScope(source, environment.scope)
+          const oldHasRecords =
+            Object.values(old.records).some((records) => records.length) || old.memories.length > 0
+          const currentHasRecords =
+            Object.values(current.records).some((records) => records.length) ||
+            current.memories.length > 0
+          if (empty) {
+            if (oldHasRecords || currentHasRecords)
+              throw new LearningError(
+                "conflict",
+                "This store is not empty; its data was not changed.",
+              )
+            await writePrivateConfig(environment.configPath, confirmedConfig)
+            return { empty: true }
+          }
+          if (!oldHasRecords)
+            throw new LearningError(
+              "not_found",
+              "No old data matches that repository name; the provider was not changed.",
+            )
+        } else if (empty)
+          throw new LearningError("invalid_input", "--empty is not needed for this provider.")
+        const result = await migrateRepositoryScope({
+          provider: source,
+          oldScope: environment.legacyScope,
+          newScope: environment.scope,
+          clock,
+        })
+        if (!environment.hosted) await writePrivateConfig(environment.configPath, confirmedConfig)
+        return {
+          file: source.manifest().storage.location,
+          migrated: result.migrated,
+          ...(result.redactionFollowUps ? { redactionFollowUps: result.redactionFollowUps } : {}),
+        }
+      }
+      async function readScope(provider, scope) {
+        return {
+          records: Object.fromEntries(
+            await Promise.all(
+              Object.keys(STREAMS).map(async (stream) => [
+                stream,
+                await provider.readRecords(stream, { scope }),
+              ]),
+            ),
+          ),
+          memories: await provider.readMemoryVersions({ scope }),
+        }
+      }
+      const old = await readScope(source, environment.legacyScope)
+      const current = await readScope(source, environment.scope)
+      const oldHasRecords =
+        Object.values(old.records).some((records) => records.length) || old.memories.length > 0
+      const currentHasRecords =
+        Object.values(current.records).some((records) => records.length) ||
+        current.memories.length > 0
+      if (empty) {
+        if (scopes.length || oldHasRecords || currentHasRecords)
+          throw new LearningError("conflict", "This store is not empty; its data was not changed.")
+        if (environment.hosted)
+          throw new LearningError("invalid_input", "--empty is only for a new checkout store.")
+        await writePrivateConfig(environment.configPath, confirmedConfig)
+        return { empty: true }
+      }
+      if (!oldHasRecords)
+        throw new LearningError(
+          "not_found",
+          "No old data matches that repository name; the provider was not changed.",
+        )
+      if (config.memory?.migration) {
+        const previous = migrations.find(
+          (migration) =>
+            canonicalJson(migration.oldScope) === canonicalJson(environment.legacyScope),
+        )
+        if (previous) {
+          if (previous.sourceDigest !== digestOf(old))
+            throw new LearningError(
+              "conflict",
+              "The original source changed after migration. Keep it offline and investigate before retrying.",
+            )
+          return {
+            file: path.join(environment.dataDirectory, config.memory.provider.file),
+            sourceProvider: config.memory.migration.sourceProvider,
+            alreadyMigrated: true,
+            ...(previous.redactionFollowUps
+              ? { redactionFollowUps: previous.redactionFollowUps }
+              : {}),
+          }
+        }
+      }
+      if (currentHasRecords)
+        throw new LearningError("conflict", "The new repository scope already contains records.")
+      const originalStore = await createLearningStore({ provider: source, clock })
+      const verified = await originalStore.verify({
+        scope: environment.legacyScope,
+        principal: { kind: "system", id: "system:scope-migration" },
+      })
+      if (!verified.ok)
+        throw new LearningError(
+          "storage_corrupt",
+          `Scope migration refused: ${verified.problems.join("; ")}`,
+        )
+      if (config.memory?.migration) {
+        const result = await migrateRepositoryScope({
+          provider: destination,
+          oldScope: environment.legacyScope,
+          newScope: environment.scope,
+          clock,
+          sourceSnapshot: old,
+          beforeCommit: async () => {
+            if (
+              canonicalJson(await readScope(source, environment.legacyScope)) !==
+                canonicalJson(old) ||
+              canonicalJson(await readScope(source, environment.scope)) !== canonicalJson(current)
+            )
+              throw new LearningError(
+                "conflict",
+                "The source changed during migration. Try again offline.",
+              )
+            if (canonicalJson(await readConfig(environment.configPath)) !== canonicalJson(config))
+              throw new LearningError("conflict", "The learning configuration changed. Try again.")
+          },
+        })
+        await writePrivateConfig(environment.configPath, confirmedConfig)
+        return {
+          file: path.join(environment.dataDirectory, config.memory.provider.file),
+          sourceProvider: config.memory.migration.sourceProvider,
+          ...(result.redactionFollowUps ? { redactionFollowUps: result.redactionFollowUps } : {}),
+        }
+      }
+      file = `scope-migration-${randomBytes(12).toString("hex")}.sqlite`
+      const target = path.join(environment.dataDirectory, file)
+      const handle = await open(
+        target,
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0),
+        0o600,
+      )
+      createdFile = true
+      await handle.close()
+      destination = createSqliteMemoryProvider({ directory: environment.dataDirectory, file })
+      await destination.appendBatch(old.records)
+      for (const record of old.memories)
+        await destination.appendMemoryVersion(record, {
+          expectedPreviousDigest: record.previousDigest ?? null,
+        })
+      if (
+        canonicalJson(await readScope(destination, environment.legacyScope)) !== canonicalJson(old)
+      )
+        throw new LearningError("storage_corrupt", "The copied store does not match the source.")
+      const result = await migrateRepositoryScope({
+        provider: destination,
+        oldScope: environment.legacyScope,
+        newScope: environment.scope,
+        clock,
+      })
+      if (
+        canonicalJson(await readScope(source, environment.legacyScope)) !== canonicalJson(old) ||
+        canonicalJson(await readScope(source, environment.scope)) !== canonicalJson(current)
+      )
+        throw new LearningError(
+          "conflict",
+          "The source changed during migration. Try again offline.",
+        )
+      if (canonicalJson(await readConfig(environment.configPath)) !== canonicalJson(config))
+        throw new LearningError("conflict", "The learning configuration changed. Try again.")
+      await destination.close()
+      destination = null
+      await source.close?.()
+      sourceClosed = true
+      try {
+        await writePrivateConfig(environment.configPath, {
+          ...confirmedConfig,
+          memory: {
+            ...config.memory,
+            provider: { builtin: "sqlite", file },
+            migration: {
+              repository: environment.scope.repository,
+              sourceProvider: config.memory?.provider ?? "sqlite",
+            },
+          },
+        })
+      } catch (error) {
+        const observed = await readConfig(environment.configPath).catch(() => null)
+        switched = !observed || observed.memory?.provider?.file === file
+        throw error
+      }
+      switched = true
+      return {
+        file: target,
+        sourceProvider: config.memory?.provider ?? "sqlite",
+        ...(result.redactionFollowUps ? { redactionFollowUps: result.redactionFollowUps } : {}),
+      }
+    } finally {
+      try {
+        await destination?.close()
+      } finally {
+        try {
+          if (!sourceClosed) await source.close?.()
+        } finally {
+          if (createdFile && !switched)
+            for (const suffix of ["", "-wal", "-shm", "-journal"])
+              await unlink(path.join(environment.dataDirectory, file + suffix)).catch((error) => {
+                if (error.code !== "ENOENT") throw error
+              })
+        }
+      }
+    }
+  })
+}
+
+/**
+ * Open the configured consolidator. The default is the recurrence consolidator.
+ *
+ * A person working alone with a local store would rarely see the same feedback in two
+ * chats, so a local store suggests a theme from one. Hub keeps the package default, so a
+ * team's feedback must recur first. Either can be changed with consolidation.options.
+ */
 export async function openConsolidator(environment) {
   const choice = environment.config.consolidation?.consolidator ?? "recurrence"
   const options = environment.config.consolidation?.options ?? {}
   if (choice === "recurrence")
-    return { consolidator: createRecurrenceConsolidator(options), source: "built-in recurrence" }
+    return {
+      consolidator: createRecurrenceConsolidator({
+        ...(environment.hosted ? {} : { minEpisodes: 1 }),
+        ...options,
+      }),
+      source: "built-in recurrence",
+    }
   if (choice === "none") return { consolidator: createNoopConsolidator(), source: "built-in none" }
   const factory = await loadFactory(
     environment,
@@ -343,14 +1241,30 @@ export async function openLabeler(environment, { env = process.env, model } = {}
 
 async function readConfig(configPath) {
   let bytes
+  let handle
   try {
-    bytes = await readFile(configPath)
+    handle = await open(configPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+    const info = await handle.stat()
+    if (!info.isFile() || info.nlink !== 1)
+      throw new LearningError("storage_corrupt", `${configPath} must be a regular file.`)
+    bytes = await handle.readFile()
   } catch (error) {
     if (error.code === "ENOENT") return null
+    if (error.code === "ELOOP")
+      throw new LearningError("storage_corrupt", `${configPath} must not be a symbolic link.`)
     throw error
+  } finally {
+    await handle?.close()
   }
   const config = parseJson(decodeUtf8(bytes, configPath), configPath)
-  const allowed = ["schemaVersion", "memory", "consolidation", "labeling"]
+  const allowed = [
+    "schemaVersion",
+    "memory",
+    "consolidation",
+    "labeling",
+    "githubRepository",
+    "localRepository",
+  ]
   if (
     !config ||
     typeof config !== "object" ||
@@ -367,6 +1281,45 @@ async function readConfig(configPath) {
       "invalid_input",
       `${configPath} has unknown settings: ${unknown.join(", ")}.`,
     )
+  if (config.localRepository !== undefined) {
+    const identity = config.localRepository
+    if (
+      !identity ||
+      typeof identity !== "object" ||
+      Array.isArray(identity) ||
+      Object.keys(identity).some((key) => key !== "id") ||
+      typeof identity.id !== "string" ||
+      !UUID.test(identity.id)
+    )
+      throw new LearningError(
+        "invalid_input",
+        `${configPath} has an invalid local repository identity.`,
+      )
+  }
+  if (config.githubRepository !== undefined) {
+    const identity = config.githubRepository
+    if (
+      !identity ||
+      typeof identity !== "object" ||
+      Array.isArray(identity) ||
+      Object.keys(identity).some(
+        (key) => !["id", "remote", "legacyRepository", "legacyConfirmed"].includes(key),
+      ) ||
+      typeof identity.id !== "string" ||
+      !/^[1-9][0-9]*$/.test(identity.id) ||
+      typeof identity.remote !== "string" ||
+      legacyScopeFromName(identity.remote)?.host !== "github.com" ||
+      identity.remote !== identity.remote.toLowerCase() ||
+      typeof identity.legacyRepository !== "string" ||
+      !legacyScopeFromName(`github.com/${identity.legacyRepository}`) ||
+      identity.legacyRepository !== identity.legacyRepository.toLowerCase() ||
+      (identity.legacyConfirmed !== undefined && typeof identity.legacyConfirmed !== "boolean")
+    )
+      throw new LearningError(
+        "invalid_input",
+        `${configPath} has an invalid GitHub repository identity.`,
+      )
+  }
   return config
 }
 

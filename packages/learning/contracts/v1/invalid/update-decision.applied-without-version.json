@@ -1,0 +1,23 @@
+{
+  "kind": "updateDecision",
+  "reason": "An applied update names the version its wording became, so the history can link them.",
+  "expect": "must have required property 'appliedVersion'",
+  "record": {
+    "schemaVersion": "replica.update-decision/v1",
+    "id": "update_decision_4f8b2c6e0a1d3e5f7b9c1a3e",
+    "scope": {
+      "host": "github.com",
+      "repository": "acme/checkout-prototypes"
+    },
+    "proposalId": "update_7a3e91c04b2d58f6e1a0c3b9",
+    "memoryId": "memory_3c1f0a9b8e7d6c5b4a392817",
+    "decision": "applied",
+    "reason": "The suggested wording matches what reviewers asked for.",
+    "decidedBy": {
+      "kind": "human",
+      "id": "github:mona"
+    },
+    "decidedAt": "2026-10-14T09:30:00.000000Z",
+    "digest": "sha256:395093346b0e017af2b716634a027bd8ea01a50a253ffa42e728b6f0774e8742"
+  }
+}

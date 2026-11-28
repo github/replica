@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "replica.update-proposal/v1",
+  "id": "update_7a3e91c04b2d58f6e1a0c3b9",
+  "scope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "memoryId": "memory_3c1f0a9b8e7d6c5b4a392817",
+  "version": 2,
+  "versionDigest": "sha256:2f7c1b9e0d4a8c6e3b5f7a9d1c3e5b7f9a1c3e5d7b9f1a3c5e7d9b1f3a5c7e9d",
+  "issueKey": "label-placement",
+  "issue": "The learning does not say where labels go, so side labels broke narrow layouts.",
+  "content": "Show a visible label above every form field, never beside it, so forms fit narrow screens.",
+  "reasoning": "Two Builds placed labels beside fields and had to rework narrow layouts; naming the position removes the guess.",
+  "support": ["score_5d0e2a7c41b98f3e6a2d1c09", "score_9b1c4e7a2d5f8036c1e4a7b0"],
+  "counter": ["score_0e3a6c9f2b5d8e1a4c7f0b3d"],
+  "route": {
+    "kind": "fusion",
+    "fusionTier": "max"
+  },
+  "proposedBy": {
+    "kind": "agent",
+    "id": "agent:copilot"
+  },
+  "proposedAt": "2026-10-13T06:00:00.000000Z",
+  "digest": "sha256:921cbd69f8b73d20ba87763ad8e1b8eed37e0713f1303f076aa3bacd88c7cf31"
+}

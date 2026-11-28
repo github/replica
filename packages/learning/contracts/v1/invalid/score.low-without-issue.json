@@ -1,0 +1,32 @@
+{
+  "kind": "score",
+  "reason": "A score of 1 or 2 says what went wrong, so later proposals can group the same issue.",
+  "expect": "must have required property 'issue'",
+  "record": {
+    "schemaVersion": "replica.score/v1",
+    "id": "score_5d0e2a7c41b98f3e6a2d1c09",
+    "scope": {
+      "host": "github.com",
+      "repository": "acme/checkout-prototypes"
+    },
+    "usedLearningId": "used_86cb6647d216cf8e3de96d55",
+    "usageReportId": "usage_c980d22472110f3f8aa8184f",
+    "memoryId": "memory_3c1f0a9b8e7d6c5b4a392817",
+    "operationId": "5b1f8f0e-6a8c-4c2e-9d3a-0f6e2b7c9a41",
+    "rubricVersion": "replica.efficiency-rubric/v1",
+    "efficiency": 2,
+    "followed": "followed",
+    "reasoning": "Every field gained a visible label, but the labels sit beside the fields and the form needed rework to fit narrow screens.",
+    "inputs": ["build_diff"],
+    "route": {
+      "kind": "fusion",
+      "fusionTier": "max"
+    },
+    "scoredBy": {
+      "kind": "agent",
+      "id": "agent:copilot"
+    },
+    "scoredAt": "2026-10-12T10:20:00.000000Z",
+    "digest": "sha256:9292035a7e52df4de970a81f5ea80ea3044909180fdc960677a40c721190da97"
+  }
+}

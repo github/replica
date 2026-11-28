@@ -73,6 +73,27 @@ function run(options, input) {
 }
 
 describe("recurrence consolidator", () => {
+  it("does not use an older label after an independently imported edit", async () => {
+    const input = view([
+      { by: "ana-designer", prototype: 1, at: "2026-10-02T10:00:00.000000Z" },
+      { by: "ana-designer", prototype: 1, at: "2026-10-03T10:00:00.000000Z", labels: [] },
+    ])
+    for (const episode of input.episodes) {
+      episode.source.repositoryId = 42
+      episode.source.threadId = 101
+    }
+    const comments = input.events.filter((event) => event.type === "human_comment")
+    comments[1].payload.commentId = comments[0].payload.commentId
+    const first = {
+      ...input,
+      episodes: [input.episodes[0]],
+      events: input.events.filter((event) => event.episodeId === input.episodes[0].id),
+    }
+    const thresholds = { minEpisodes: 1, minPrototypes: 1, minReviewers: 1 }
+    assert.equal((await run(thresholds, first)).proposals.length, 1)
+    assert.deepEqual((await run(thresholds, input)).proposals, [])
+  })
+
   it("proposes a theme with distinct support and counts a repeat reviewer once", async () => {
     const result = await run(
       {},
@@ -91,13 +112,32 @@ describe("recurrence consolidator", () => {
       distinctBuilds: 3,
     })
     assert.equal(proposal.lifecycle.action, "new")
+    assert.equal(proposal.title, "Visible form labels")
     assert.equal(proposal.evidence.length, 3)
     assert.match(proposal.rationale.recurrence, /3 threads on 2 prototypes by 2 reviewers/)
   })
 
-  it("holds back a theme below any threshold and says which", async () => {
+  it("proposes a theme one reviewer raised twice on one prototype by default", async () => {
     const result = await run(
       {},
+      view([
+        { by: "ana-designer", prototype: 1 },
+        { by: "ana-designer", prototype: 1 },
+      ]),
+    )
+
+    assert.equal(result.proposals.length, 1)
+    assert.deepEqual(result.proposals[0].support, {
+      distinctEpisodes: 2,
+      distinctPrototypes: 1,
+      distinctReviewers: 1,
+      distinctBuilds: 1,
+    })
+  })
+
+  it("holds back a theme below any threshold and says which", async () => {
+    const result = await run(
+      { minReviewers: 2 },
       view([
         { by: "ana-designer", prototype: 1 },
         { by: "ana-designer", prototype: 2 },
@@ -145,31 +185,42 @@ describe("recurrence consolidator", () => {
     assert.match(result.proposals[0].rationale.contradictions, /1 reviewer/)
   })
 
-  it("counts only observed problems by default and only enabled signals", async () => {
+  it("counts questions, praise, and performance by default", async () => {
     const questions = await run(
       {},
       view([
         { by: "ana-designer", prototype: 1, labels: [{ observation: "question" }] },
-        { by: "ben-manager", prototype: 2, labels: [{ observation: "preference" }] },
+        { by: "ben-manager", prototype: 2, labels: [{ observation: "praise" }] },
+      ]),
+    )
+    assert.equal(questions.proposals.length, 1)
+    const performance = await run(
+      {},
+      view([
+        { by: "ana-designer", prototype: 1, labels: [{ signal: "performance" }] },
+        { by: "ben-manager", prototype: 2, labels: [{ signal: "performance" }] },
+      ]),
+    )
+    assert.equal(performance.proposals.length, 1)
+  })
+
+  it("leaves out observation kinds and signals a team turns off", async () => {
+    const questions = await run(
+      { observations: ["observed", "preference"] },
+      view([
+        { by: "ana-designer", prototype: 1, labels: [{ observation: "question" }] },
+        { by: "ben-manager", prototype: 2, labels: [{ observation: "praise" }] },
       ]),
     )
     assert.equal(questions.diagnostics[0].code, "not_observed")
-    const usability = await run(
-      {},
-      view([
-        { by: "ana-designer", prototype: 1, labels: [{ signal: "usability" }] },
-        { by: "ben-manager", prototype: 2, labels: [{ signal: "usability" }] },
-      ]),
-    )
-    assert.equal(usability.diagnostics[0].code, "signal_not_enabled")
-    const enabled = await run(
+    const performance = await run(
       { signals: ["usability"] },
       view([
-        { by: "ana-designer", prototype: 1, labels: [{ signal: "usability" }] },
-        { by: "ben-manager", prototype: 2, labels: [{ signal: "usability" }] },
+        { by: "ana-designer", prototype: 1, labels: [{ signal: "performance" }] },
+        { by: "ben-manager", prototype: 2, labels: [{ signal: "performance" }] },
       ]),
     )
-    assert.equal(enabled.proposals.length, 1)
+    assert.equal(performance.diagnostics[0].code, "signal_not_enabled")
   })
 
   it("skips accepted themes and returns rejected ones only with more support", async () => {

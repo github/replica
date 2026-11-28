@@ -84,7 +84,6 @@ cd packages/learning
 npm ci
 npm run schema:check
 npm test
-npm run demo
 ```
 
 `npm ci` also installs the optional Copilot SDK, which labels review comments; the tests replace it with a stand-in, so they need no Copilot access. After changing a schema in `contracts/v1`, run `npm run schema:generate` and commit the regenerated `src/contracts-validators.cjs`. Hub's `npm run lint` lints and checks the formatting of this package. A new memory provider must pass the conformance suite described in [the package guide](packages/learning/README.md).

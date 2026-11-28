@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/learning/v1/screenshot.schema.json",
+  "title": "Replica screenshot v1",
+  "description": "One screenshot an agent took for a usage report. The record holds no image; the host keeps the bytes by their SHA-256. Agent screenshots are never verified Build captures.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "scope",
+    "usageReportId",
+    "sha256",
+    "role",
+    "route",
+    "viewport",
+    "theme",
+    "capturedAt",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "replica.screenshot/v1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/scope"
+    },
+    "usageReportId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "sha256": {
+      "description": "SHA-256 of the PNG bytes.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "role": {
+      "enum": ["before", "after"]
+    },
+    "route": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        }
+      }
+    },
+    "theme": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "capturedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "consentGrantId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "digest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    }
+  }
+}

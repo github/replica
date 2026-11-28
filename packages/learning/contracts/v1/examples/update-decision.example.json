@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "replica.update-decision/v1",
+  "id": "update_decision_4f8b2c6e0a1d3e5f7b9c1a3e",
+  "scope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "proposalId": "update_7a3e91c04b2d58f6e1a0c3b9",
+  "memoryId": "memory_3c1f0a9b8e7d6c5b4a392817",
+  "decision": "applied",
+  "appliedVersion": 3,
+  "reason": "The suggested wording matches what reviewers asked for.",
+  "decidedBy": {
+    "kind": "human",
+    "id": "github:mona"
+  },
+  "decidedAt": "2026-10-14T09:30:00.000000Z",
+  "digest": "sha256:fddda0edca3fe83e5765b821ea1c0dd105627885bbf8f7216d648ce08f7e71c6"
+}

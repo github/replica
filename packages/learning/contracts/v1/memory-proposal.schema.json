@@ -17,6 +17,7 @@
   "properties": {
     "schemaVersion": { "const": "replica.memory-proposal/v1" },
     "kind": { "$ref": "common.schema.json#/$defs/memoryKind" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
     "content": { "type": "string", "minLength": 1, "maxLength": 4000 },
     "themeKey": { "$ref": "common.schema.json#/$defs/slug" },
     "appliesTo": {

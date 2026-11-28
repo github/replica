@@ -2,17 +2,23 @@ import { constants } from "node:fs"
 import { randomBytes } from "node:crypto"
 import { access, lstat, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
-import { decodeUtf8, parseJson } from "../canonical-json.mjs"
+import { canonicalJson, decodeUtf8, parseJson } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
+  DECISION_FENCE_STREAMS,
+  DELETE_CAPABILITY,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
   assertQuery,
+  assertDecisionFence,
+  assertSnapshotIds,
   assertStorable,
   assertStream,
   batchWrites,
+  decisionFenceDigest,
+  deletionPlan,
   matchesQuery,
   newRecords,
   redactionProblem,
@@ -22,7 +28,7 @@ import { NO_FOLLOW, assertOwnPath, openError } from "./files.mjs"
 import { createFileLock } from "./lock.mjs"
 
 /**
- * Stores learning records as append-only JSON Lines files in one private directory. It
+ * Stores learning records as JSON Lines files in one private directory. It
  * needs no service and no dependency, and a person can read its files, so it is the
  * reference provider. SQLite is the default.
  *
@@ -57,6 +63,16 @@ import { createFileLock } from "./lock.mjs"
  * committed one and cuts back any other, so no read sees part of a write. The parent of each
  * directory the provider creates is also synced when it creates it.
  *
+ * A deletion rewrites whole files instead, through a second journal, <directory>/v1/.replace:
+ *
+ * 1. Write each changed file's new copy beside it, and sync each copy and v1.
+ * 2. Write .replace, naming each copy, with the commit line, and sync it and v1. That sync is
+ *    the commit point.
+ * 3. Rename each copy over its file, sync v1, then delete .replace and sync v1.
+ *
+ * Recovery finishes the renames when .replace is complete, and otherwise deletes it and the
+ * copies, so a deletion is kept whole or not at all.
+ *
  * Compared with SQLite, reads and writes take turns, a redaction leaves the old events file's
  * bytes in free disk space where SQLite overwrites removed text, writes sync more often, and on
  * Windows a power failure can lose a newly created file's directory entry.
@@ -81,6 +97,7 @@ export function createJsonLinesMemoryProvider({
     staleMs: staleLockMs,
   })
   const pendingFile = path.join(storeDirectory, ".pending")
+  const replaceFile = path.join(storeDirectory, ".replace")
   // Whether this provider has synced every directory on the store's path since it last created
   // one. Another process may create part of the path and not have synced it yet.
   let pathSynced = false
@@ -238,7 +255,55 @@ export function createJsonLinesMemoryProvider({
       if (error.code === "ENOENT") return []
       throw error
     }
-    return names.filter((name) => REWRITE.test(name)).map((name) => path.join(storeDirectory, name))
+    return names
+      .filter((name) => REWRITE.test(name) || REPLACEMENT.test(name))
+      .map((name) => path.join(storeDirectory, name))
+  }
+
+  /**
+   * The copies a committed deletion still has to rename into place, by stream, or null when no
+   * deletion was committed. A .replace its writer never finished means no deletion.
+   *
+   * @returns {Promise<Record<string, string> | null>}
+   */
+  async function readReplacement() {
+    const handle = await openOwn(replaceFile, constants.O_RDONLY)
+    if (!handle) return null
+    let text
+    try {
+      text = await handle.readFile("utf8")
+    } finally {
+      await handle.close()
+    }
+    const [begun] = text.split("\n")
+    if (text !== `${begun}\n${COMMITTED}\n`) return null
+    try {
+      const { copies } = JSON.parse(begun)
+      if (
+        Object.entries(copies).every(
+          ([stream, copy]) =>
+            FILES.includes(stream) &&
+            typeof copy === "string" &&
+            REPLACEMENT.test(copy) &&
+            copy.startsWith(`${stream}.jsonl.`),
+        )
+      )
+        return copies
+    } catch {
+      // A complete .replace always parses, so this one was not written by this provider.
+    }
+    throw new LearningError("storage_corrupt", `${replaceFile} does not name a deletion.`)
+  }
+
+  /** Rename a committed deletion's copies into place, then forget the deletion. */
+  async function finishReplacement(copies) {
+    for (const [stream, copy] of Object.entries(copies)) {
+      const source = path.join(storeDirectory, copy)
+      if (await entryAt(source)) await rename(source, fileFor(stream))
+    }
+    await syncStoreDirectory()
+    await rm(replaceFile, { force: true })
+    await syncStoreDirectory()
   }
 
   /**
@@ -259,9 +324,12 @@ export function createJsonLinesMemoryProvider({
 
   /**
    * Finish a write that stopped: keep it if it was committed, and otherwise cut it back. Then
-   * delete any copies a redaction left. Runs under the lock, before every read and write.
+   * delete any copies a redaction or an uncommitted deletion left. Runs under the lock, before every read and write.
    */
   async function recover() {
+    const copies = await readReplacement()
+    if (copies) await finishReplacement(copies)
+    else await rm(replaceFile, { force: true })
     const journal = await readJournal()
     if (journal?.committed) await removePending()
     else if (journal) await undo(journal.lengths)
@@ -282,8 +350,8 @@ export function createJsonLinesMemoryProvider({
    * not been committed. A store whose directory does not exist yet reads as empty, and reading
    * it creates nothing and takes no lock.
    */
-  async function readLocked(read) {
-    if (!(await storeDirectoryExists())) return []
+  async function readLocked(read, empty = []) {
+    if (!(await storeDirectoryExists())) return empty
     return lock.run(async () => {
       await recover()
       return read()
@@ -456,6 +524,21 @@ export function createJsonLinesMemoryProvider({
     ]
   }
 
+  /** The caller holds the file lock while reading the complete eligibility state. */
+  async function fence(scope) {
+    const query = { scope }
+    assertQuery(query)
+    const records = {}
+    for (const stream of DECISION_FENCE_STREAMS)
+      records[stream] = (
+        await readStream(stream, (record) => matchesQuery(stream, record, query))
+      ).records
+    const memories = (
+      await readStream("memories", (record) => matchesQuery("memories", record, query))
+    ).records
+    return decisionFenceDigest(scope, { records, memories })
+  }
+
   async function appendLines(stream, records, current) {
     if (current.partialTail) {
       const handle = await openOwn(fileFor(stream), constants.O_WRONLY)
@@ -478,7 +561,177 @@ export function createJsonLinesMemoryProvider({
     }
   }
 
+  /**
+   * Replace whole stream files as one change, through .replace. Fails with
+   * storage_outcome_unknown when the disk reports an error once the change may be committed.
+   *
+   * @param {Map<string, object[]>} files each stream's complete new records
+   */
+  async function replaceFiles(files) {
+    const copies = {}
+    try {
+      for (const [stream, records] of files) {
+        const copy = `${stream}.jsonl.${randomBytes(8).toString("hex")}.del`
+        copies[stream] = copy
+        const handle = await open(path.join(storeDirectory, copy), "wx", 0o600)
+        try {
+          await handle.writeFile(records.map((record) => `${JSON.stringify(record)}\n`).join(""))
+          await handle.sync()
+        } finally {
+          await handle.close()
+        }
+      }
+      await syncStoreDirectory()
+      const handle = await open(replaceFile, "wx", 0o600)
+      try {
+        await handle.writeFile(`${JSON.stringify({ copies })}\n${COMMITTED}\n`)
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await syncStoreDirectory()
+    } catch (error) {
+      // Keep the copies while .replace may still commit the deletion, so recovery can finish it.
+      if (
+        !(await rm(replaceFile, { force: true }).then(
+          () => true,
+          () => false,
+        ))
+      )
+        throw new LearningError(
+          "storage_outcome_unknown",
+          "The disk reported an error while committing a deletion, so it may or may not be stored. Read the store back to see which.",
+          { cause: error.message },
+        )
+      for (const copy of Object.values(copies))
+        await rm(path.join(storeDirectory, copy), { force: true }).catch(() => {})
+      throw error
+    }
+    // The deletion is committed. If renaming fails, the next read or write finishes it.
+    await finishReplacement(copies).catch(() => {})
+  }
+
   return {
+    atomicDecisionFence: true,
+
+    async decisionFence(scope) {
+      assertQuery({ scope })
+      return readLocked(() => fence(scope), decisionFenceDigest(scope))
+    },
+
+    /**
+     * The given learning IDs and every learning linked to them by replacement, read by
+     * scanning the memories file. Refuses a history larger than 1,000 learnings.
+     */
+    async readDecisionMemoryIds(scope, ids) {
+      assertQuery({ scope })
+      return readLocked(async () => {
+        const links = new Map()
+        function link(from, to) {
+          if (!links.has(from)) links.set(from, new Set())
+          links.get(from).add(to)
+        }
+        const query = { scope }
+        const { records } = await readStream("memories", (record) =>
+          matchesQuery("memories", record, query),
+        )
+        for (const record of records)
+          for (const target of Array.isArray(record.supersedes) ? record.supersedes : [])
+            if (typeof target === "string") {
+              link(record.id, target)
+              link(target, record.id)
+            }
+        const selected = new Set(ids)
+        const pending = [...selected]
+        while (pending.length)
+          for (const id of links.get(pending.pop()) ?? [])
+            if (!selected.has(id)) {
+              selected.add(id)
+              if (selected.size > 1000)
+                throw new LearningError(
+                  "unsupported",
+                  "The learning replacement history is too large.",
+                )
+              pending.push(id)
+            }
+        return [...selected]
+      }, [...new Set(ids)])
+    },
+
+    /** The given episode IDs and every other episode of the same Hub review threads. */
+    async readRelatedEpisodeIds(scope, ids) {
+      assertQuery({ scope })
+      return readLocked(async () => {
+        const query = { scope }
+        const { records } = await readStream("episodes", (record) =>
+          matchesQuery("episodes", record, query),
+        )
+        const wanted = new Set(ids)
+        const threads = new Set(
+          records
+            .filter((record) => wanted.has(record.id))
+            .map(threadKey)
+            .filter(Boolean),
+        )
+        const related = new Set(ids)
+        for (const record of records) if (threads.has(threadKey(record))) related.add(record.id)
+        return [...related]
+      }, [...new Set(ids)])
+    },
+
+    /**
+     * The grants, withdrawals, and collections a decision about the given evidence needs,
+     * chosen the same way as the indexed reads of the database providers.
+     */
+    async readDecisionInputs(scope, { evidence, at, purpose, hubSources, eventIds }) {
+      assertQuery({ scope, ids: eventIds })
+      const empty = { grants: [], withdrawals: [], collections: [], origins: [] }
+      return readLocked(async () => {
+        const query = { scope }
+        async function read(stream) {
+          return (await readStream(stream, (record) => matchesQuery(stream, record, query))).records
+        }
+        const grants = (await read("grants")).filter(
+          (grant) =>
+            Array.isArray(grant.sources) &&
+            Array.isArray(grant.purposes) &&
+            grant.purposes.includes(purpose) &&
+            grant.grantedAt <= at &&
+            (!grant.expiresAt || at < grant.expiresAt) &&
+            evidence.some(
+              (item) =>
+                grant.sources.includes(item.source) &&
+                (!grant.evidenceFrom || item.at >= grant.evidenceFrom) &&
+                (!grant.evidenceUntil || item.at < grant.evidenceUntil),
+            ),
+        )
+        const grantIds = new Set(grants.map((grant) => grant.id))
+        const withdrawals = (await read("withdrawals")).filter((withdrawal) =>
+          grantIds.has(withdrawal.grantId),
+        )
+        const collections = await read("collections")
+        // The earliest stable collection for a source proves adoption.
+        const stableCollections = []
+        for (const source of hubSources) {
+          const first = collections.find(
+            (collection) =>
+              collection.reviewerIdentity === "stable-user-id" &&
+              (collection.source?.hubOrigin ?? null) === (source.hubOrigin ?? null) &&
+              (collection.source?.repositoryId ?? null) === (source.repositoryId ?? null),
+          )
+          if (first && !stableCollections.includes(first)) stableCollections.push(first)
+        }
+        assertSnapshotIds(stableCollections)
+        const snapshots = new Set(stableCollections.map((collection) => collection.snapshotId))
+        return {
+          grants,
+          withdrawals,
+          collections: collections.filter((collection) => snapshots.has(collection.snapshotId)),
+          origins: [],
+        }
+      }, empty)
+    },
+
     manifest() {
       return {
         schemaVersion: SCHEMA_VERSIONS.providerManifest,
@@ -486,7 +739,7 @@ export function createJsonLinesMemoryProvider({
         name: "JSON Lines files",
         version: PRODUCER.version,
         contract: { name: PROVIDER_CONTRACT.name, versions: [PROVIDER_CONTRACT.version] },
-        capabilities: [...REQUIRED_CAPABILITIES, REDACT_CAPABILITY],
+        capabilities: [...REQUIRED_CAPABILITIES, REDACT_CAPABILITY, DELETE_CAPABILITY],
         storage: { kind: "local", location: root },
         externalCalls: [],
         dataRetention:
@@ -502,7 +755,7 @@ export function createJsonLinesMemoryProvider({
         const created = await storeDirectoryExists()
         if (created) await assertPrivate(storeDirectory)
         await access(created ? storeDirectory : root, constants.W_OK)
-        if ((await abandonedRewrites()).length)
+        if ((await abandonedRewrites()).some((file) => REWRITE.test(path.basename(file))))
           return {
             ok: false,
             detail: `A redaction stopped before it finished and left a copy of the events file in ${storeDirectory}. It may hold removed text. The next write deletes it.`,
@@ -546,10 +799,15 @@ export function createJsonLinesMemoryProvider({
       )
     },
 
-    async appendMemoryVersion(record, { expectedPreviousDigest = null, audit = [] } = {}) {
+    async appendMemoryVersion(
+      record,
+      { expectedPreviousDigest = null, expectedDecisionFence, audit = [] } = {},
+    ) {
       assertStorable([record])
       assertStorable(audit)
       return withLock(async () => {
+        if (expectedDecisionFence !== undefined)
+          assertDecisionFence(expectedDecisionFence, await fence(record.scope))
         const current = await readStream("memories")
         const latest = current.records.filter((version) => version.id === record.id).at(-1) ?? null
         if ((latest?.digest ?? null) !== expectedPreviousDigest)
@@ -577,6 +835,58 @@ export function createJsonLinesMemoryProvider({
           (await readStream("memories", (record) => matchesQuery("memories", record, query)))
             .records,
       )
+    },
+
+    async legacyScopes() {
+      return readLocked(async () => {
+        const scopes = new Map()
+        for (const stream of FILES) {
+          for (const record of (await readStream(stream)).records) {
+            const scope = record.scope
+            if (
+              scope?.host === "github.com" &&
+              typeof scope.repository === "string" &&
+              !/^repositories\/[1-9][0-9]*$/.test(scope.repository)
+            )
+              scopes.set(JSON.stringify(scope), scope)
+          }
+        }
+        return [...scopes.values()]
+      })
+    },
+
+    /**
+     * Remove records and learning versions in scope, and add the audit entries, by rewriting
+     * each changed file through .replace. See the comment at the top for how it stays whole.
+     */
+    async deleteRecords(scope, selection, { audit = [] } = {}) {
+      const plan = deletionPlan(scope, selection)
+      assertStorable(audit)
+      const key = canonicalJson(scope)
+      function doomed(ids, record) {
+        return ids.has(record.id) && canonicalJson(record.scope) === key
+      }
+      return withLock(async () => {
+        const kept = new Map()
+        const counts = {}
+        for (const [stream, ids] of plan.records) {
+          const { records } = await readStream(stream)
+          const remaining = records.filter((record) => !doomed(ids, record))
+          counts[stream] = records.length - remaining.length
+          if (counts[stream]) kept.set(stream, remaining)
+        }
+        const versions = (await readStream("memories")).records
+        const remainingVersions = versions.filter((record) => !doomed(plan.memories, record))
+        const memories = versions.length - remainingVersions.length
+        if (memories) kept.set("memories", remainingVersions)
+        if (audit.length) {
+          const current = kept.get("audit") ?? (await readStream("audit")).records
+          const { fresh } = newRecords("audit", current, audit)
+          if (fresh.length) kept.set("audit", [...current, ...fresh])
+        }
+        if (kept.size) await replaceFiles(kept)
+        return { records: counts, memories }
+      })
     },
 
     /**
@@ -632,7 +942,21 @@ export function createJsonLinesMemoryProvider({
   }
 }
 
+/** The Hub review thread an episode came from, or null when it came from elsewhere. */
+function threadKey(record) {
+  const source = record.source
+  if (
+    source?.kind !== "hub_review_comments" ||
+    [source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId].some(
+      (value) => value === undefined,
+    )
+  )
+    return null
+  return canonicalJson([source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId])
+}
+
 const REWRITE = /^events\.jsonl\.[0-9a-f]{16}\.tmp$/
+const REPLACEMENT = /^[A-Za-z]+\.jsonl\.[0-9a-f]{16}\.del$/
 /** The line in .pending that marks its write committed: every file it names is synced. */
 const COMMITTED = '{"committed":true}'
 const FILES = [...Object.keys(STREAMS), "memories"]

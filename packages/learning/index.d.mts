@@ -9,7 +9,63 @@ export type MemoryKind =
   "fact" | "preference" | "rule" | "procedure" | "example" | "anti_pattern" | "design_principle"
 export type MemoryState = "proposed" | "accepted" | "rejected" | "retired"
 export type Stream =
-  "episodes" | "events" | "grants" | "withdrawals" | "collections" | "audit" | "exports"
+  | "episodes"
+  | "events"
+  | "grants"
+  | "withdrawals"
+  | "collections"
+  | "audit"
+  | "exports"
+  | "guidance"
+  | "deliveries"
+  | "usageReports"
+  | "usedLearnings"
+  | "screenshots"
+  | "scores"
+  | "updateProposals"
+  | "updateDecisions"
+
+/** The coding agent session asking for guidance or reporting its use. */
+export interface AgentSessionRef {
+  id: string
+  label?: string
+}
+
+/**
+ * A note a person left on the prototype in the Replica canvas, as its improvement_batch returns
+ * it. Other fields the canvas returns are ignored.
+ */
+export interface PickAndPolishNote {
+  localId: string
+  /** The original request; null once deleted. */
+  body?: string | null
+  anchor?: { route?: { pathname?: string }; tagName?: string; accessibleName?: string }
+  thread?: {
+    originalAuthor?: { login: string }
+    messages?: Array<{
+      id: string
+      role: "author" | "copilot"
+      body: string
+      author?: { login: string }
+    }>
+  } | null
+}
+
+/** A screenshot an agent took, as the store receives it; only its digest is recorded. */
+export interface UsageScreenshot {
+  route: string
+  viewport: { width: number; height: number }
+  theme: string
+  capturedAt: Timestamp
+  /** PNG bytes, at most 10 MB */
+  bytes: Uint8Array
+}
+
+/** What a deletion removed: records per stream, and learning versions. */
+export interface DeletionResult {
+  records: Partial<Record<Stream, number>>
+  memories: number
+}
 
 export interface Scope {
   /** lowercase Git or Hub host, such as github.com; the same owner/name on two hosts never shares records */
@@ -37,6 +93,8 @@ export interface Actor {
 export interface LearningContext {
   scope: Scope
   principal: Actor
+  /** Source repository name, authenticated by the host when it differs from the scope. */
+  sourceRepository?: string
 }
 
 export interface SourcePin {
@@ -229,12 +287,203 @@ export interface ExportManifest {
   digest: Digest
 }
 
+export interface AgentSession {
+  id: string
+  label?: string
+}
+
+/** One recall an agent asked for. */
+export interface Guidance {
+  schemaVersion: "replica.guidance/v1"
+  id: string
+  scope: Scope
+  requestedAt: Timestamp
+  requestedBy: Actor
+  via: "local" | "hub"
+  session?: AgentSession
+  digest: Digest
+}
+
+/** One learning a recall gave an agent, at its place in the guidance. */
+export interface DeliveredLearning {
+  schemaVersion: "replica.delivered-learning/v1"
+  id: string
+  scope: Scope
+  guidanceId: string
+  memoryId: string
+  contentDigest: Digest
+  sourceScope: Scope
+  position: number
+  text: string
+  deliveredAt: Timestamp
+  digest: Digest
+}
+
+/** An agent's report of which delivered learnings it used in a commit. */
+export interface UsageReport {
+  schemaVersion: "replica.usage-report/v1"
+  id: string
+  scope: Scope
+  reportId: string
+  guidanceIds: string[]
+  session?: AgentSession
+  commitSha: string
+  prototypeId?: string
+  contentDigest: Digest
+  reportedBy: Actor
+  reportedAt: Timestamp
+  digest: Digest
+}
+
+/** One delivered learning a usage report says the agent used. */
+export interface UsedLearning {
+  schemaVersion: "replica.used-learning/v1"
+  id: string
+  scope: Scope
+  usageReportId: string
+  deliveryId: string
+  memoryId: string
+  claimedBy: Actor
+  beforeScreenshotId?: string
+  afterScreenshotId?: string
+  reportedAt: Timestamp
+  digest: Digest
+}
+
+/** A screenshot as usageForCommit lists it, without the image. */
+export type UsedScreenshot = Pick<
+  ScreenshotRecord,
+  "sha256" | "route" | "viewport" | "theme" | "capturedAt" | "consentGrantId"
+>
+
+/** A screenshot's capture details. The image stays on the machine, named by sha256. */
+export interface ScreenshotRecord {
+  schemaVersion: "replica.screenshot/v1"
+  id: string
+  scope: Scope
+  usageReportId: string
+  sha256: Digest
+  role: "before" | "after"
+  route: string
+  viewport: { width: number; height: number }
+  theme: string
+  capturedAt: Timestamp
+  consentGrantId?: string
+  digest: Digest
+}
+
+/** How an evaluator scored one used learning, and the Copilot route it scored with. */
+export interface ScoreRecord {
+  schemaVersion: "replica.score/v1"
+  id: string
+  scope: Scope
+  usedLearningId: string
+  usageReportId: string
+  memoryId: string
+  operationId: string
+  rubricVersion: "replica.efficiency-rubric/v1"
+  efficiency: 1 | 2 | 3 | 4
+  followed: "followed" | "not_followed" | "unclear"
+  reasoning: string
+  /** Present for an efficiency of 1 or 2. */
+  issue?: string
+  inputs: Array<"screenshots" | "build_diff" | "reviewer_verification">
+  route: ScoreRoute
+  scoredBy: Actor
+  scoredAt: Timestamp
+  digest: Digest
+}
+
+/** Suggested new wording for one learning version, kept until a person decides. */
+export interface UpdateProposalRecord {
+  schemaVersion: "replica.update-proposal/v1"
+  id: string
+  scope: Scope
+  memoryId: string
+  version: number
+  versionDigest: Digest
+  issueKey: string
+  issue: string
+  title?: string
+  content: string
+  reasoning: string
+  /** Scores that showed the issue. */
+  support: string[]
+  /** Scores of the same version that went well. */
+  counter: string[]
+  route: ScoreRoute
+  proposedBy: Actor
+  proposedAt: Timestamp
+  digest: Digest
+}
+
+/** A person's decision on one update proposal. */
+export interface UpdateDecisionRecord {
+  schemaVersion: "replica.update-decision/v1"
+  id: string
+  scope: Scope
+  proposalId: string
+  memoryId: string
+  decision: "applied" | "dismissed"
+  /** The version the applied wording became. */
+  appliedVersion?: number
+  reason: string
+  decidedBy: Actor
+  decidedAt: Timestamp
+  digest: Digest
+}
+
+/**
+ * An update proposal as a person sees it, with its state. Its wording is withheld, and the
+ * proposal is stale, once a score behind it may no longer be read.
+ */
+export type LearningUpdate = {
+  id: string
+  memoryId: string
+  version: number
+  issueKey: string
+  support: string[]
+  counter: string[]
+  proposedAt: Timestamp
+  state: "open" | "applied" | "dismissed" | "stale"
+  decision?: {
+    reason: string
+    decidedBy: Actor
+    decidedAt: Timestamp
+    appliedVersion?: number
+    /** The host request that dismissed the proposal, when the host named one. */
+    operationId?: string
+  }
+} & (
+  | { withheld?: never; issue: string; title?: string; content: string; reasoning: string }
+  | { withheld: true }
+)
+
+export type ScoreRoute =
+  { kind: "fusion"; fusionTier: string } | { kind: "auto"; model: string; reasoningEffort?: string }
+
 /** Any record a provider stores in a stream. */
 export type StoredRecord =
-  Episode | EpisodeEvent | ConsentGrant | GrantWithdrawal | Collection | AuditEntry | ExportManifest
+  | Episode
+  | EpisodeEvent
+  | ConsentGrant
+  | GrantWithdrawal
+  | Collection
+  | AuditEntry
+  | ExportManifest
+  | Guidance
+  | DeliveredLearning
+  | UsageReport
+  | UsedLearning
+  | ScreenshotRecord
+  | ScoreRecord
+  | UpdateProposalRecord
+  | UpdateDecisionRecord
 
 export interface RecalledMemory {
   id: string
+  /** The repository the learning belongs to, another one's for a shared learning */
+  scope: Scope
   kind: MemoryKind
   content: string
   contentDigest: Digest
@@ -265,6 +514,10 @@ export interface StatusReport {
     recallable: number
   } | null
   attention: string[]
+  migrationRedactionFollowUps?: {
+    memoriesNeedingRebuild: string[]
+    exportsToFollowUp: Array<{ id: string; purpose: Purpose; destination: string }>
+  }
 }
 
 export interface HubReviewCollection {
@@ -300,6 +553,7 @@ export interface Support {
 export interface MemoryProposal {
   schemaVersion: "replica.memory-proposal/v1"
   kind: MemoryKind
+  title?: string
   content: string
   themeKey?: string
   appliesTo?: Trace[]
@@ -331,6 +585,7 @@ export interface MemoryRecord {
   scope: Scope
   kind: MemoryKind
   state: MemoryState
+  title?: string
   content: string
   themeKey?: string
   appliesTo?: Trace[]
@@ -361,6 +616,7 @@ export interface MemoryRecord {
     contentDigest: Digest
     reviewedDigest: Digest
     edited: boolean
+    decision?: "edit" | "reinstate"
     note?: string
     operationId?: string
   }
@@ -405,6 +661,30 @@ export interface ProviderQuery {
  * Conflicts throw an error with code "conflict"; bad queries throw code "invalid_input".
  */
 export interface MemoryProvider {
+  /** When true, decisionFence and expectedDecisionFence are checked atomically. */
+  readonly atomicDecisionFence?: true
+  /** Capture the scope's eligibility state before reading it for a decision. */
+  decisionFence?(scope: Scope): Promise<Digest>
+  /** Find the connected replacement histories for a decision. */
+  readDecisionMemoryIds?(scope: Scope, ids: string[]): Promise<string[]>
+  /** Find episodes from the same Hub review threads as the selected episodes. */
+  readRelatedEpisodeIds?(scope: Scope, ids: string[]): Promise<string[]>
+  /** Read the consent, identity, and migration inputs for selected evidence. */
+  readDecisionInputs?(
+    scope: Scope,
+    selection: {
+      evidence: Array<{ source: string; at: Timestamp }>
+      at: Timestamp
+      purpose: Purpose
+      hubSources: Array<Pick<SourcePin, "hubOrigin" | "repositoryId">>
+      eventIds: string[]
+    },
+  ): Promise<{
+    grants: ConsentGrant[]
+    withdrawals: GrantWithdrawal[]
+    collections: Collection[]
+    origins: Array<{ kind: "grant" | "event"; id: string; origin: string }>
+  }>
   manifest(): ProviderManifest
   health(): Promise<{ ok: boolean; detail: string }>
   /**
@@ -428,7 +708,11 @@ export interface MemoryProvider {
   /** Appends a version, and the audit entries that record it, in one atomic write. */
   appendMemoryVersion(
     record: MemoryRecord,
-    options: { expectedPreviousDigest: Digest | null; audit?: AuditEntry[] },
+    options: {
+      expectedPreviousDigest: Digest | null
+      expectedDecisionFence?: Digest
+      audit?: AuditEntry[]
+    },
   ): Promise<void>
   readMemoryVersions(query: Omit<ProviderQuery, "episodeIds">): Promise<MemoryRecord[]>
   /**
@@ -436,6 +720,15 @@ export interface MemoryProvider {
    * the same ID and digest, no payload, and a redaction note; see redactionProblem.
    */
   redactRecord?(stream: "events", record: StoredRecord): Promise<{ redacted: boolean }>
+  /**
+   * Only with the records.delete capability. Removes the named records and every version of
+   * the named learnings in one atomic write with the audit entries.
+   */
+  deleteRecords?(
+    scope: Scope,
+    targets: { records: Partial<Record<Stream, string[]>>; memories?: string[] },
+    options?: { audit?: AuditEntry[] },
+  ): Promise<DeletionResult>
   close?(): Promise<void>
 }
 
@@ -637,7 +930,7 @@ export type MemoryMetadata = Partial<
 export interface MemoryReading {
   record:
     | MemoryRecord
-    | Omit<MemoryRecord, "content" | "evidence" | "contradictions" | "appliesTo">
+    | Omit<MemoryRecord, "title" | "content" | "evidence" | "contradictions" | "appliesTo">
     | MemoryMetadata
   status: MemoryStatus
   withheld: boolean
@@ -680,7 +973,10 @@ export interface LearningStore {
       destination: string
     }>
   }>
-  /** Remove a review comment's text: every version of it and every label on them. */
+  /**
+   * Remove the text of a review comment or an agent session message: every version of it and
+   * every label on them.
+   */
   redactComment(
     context: LearningContext,
     eventId: string,
@@ -736,6 +1032,30 @@ export interface LearningStore {
       memoryIds: string[]
     }
   }>
+  /**
+   * Store an agent session as one episode of user and agent messages and an outcome. Sending
+   * the same sessionId again adds new messages and versions of changed ones.
+   */
+  importAgentSession(
+    context: LearningContext,
+    session: {
+      sessionId: string
+      task?: string
+      user?: string
+      startedAt?: string
+      messages: Array<{ role: "user" | "agent" | "tool"; text: string; at?: string }>
+      outcome?: { status: "success" | "failure" | "partial" | "unknown"; summary?: string }
+      /** Notes from the Replica canvas's improvement_batch. Each becomes its own episode. */
+      pickAndPolishNotes?: PickAndPolishNote[]
+    },
+    options: { grantIds: string[] },
+  ): Promise<{
+    episodeId: string
+    sessionId: string
+    addedEpisodes: number
+    addedEvents: number
+    skippedMessages: number
+  }>
   appendObservations(
     context: LearningContext,
     input: { episodes?: Partial<Episode>[]; events?: Partial<EpisodeEvent>[] },
@@ -789,6 +1109,22 @@ export interface LearningStore {
     id: string,
     input: { reason: string; operationId?: string },
   ): Promise<MemoryRecord>
+  editMemory(
+    context: LearningContext,
+    id: string,
+    input: {
+      expectedDigest: Digest
+      title?: string
+      content?: string
+      reason: string
+      operationId?: string
+    },
+  ): Promise<MemoryRecord>
+  reinstateMemory(
+    context: LearningContext,
+    id: string,
+    input: { expectedDigest: Digest; reason: string; operationId?: string },
+  ): Promise<MemoryRecord>
   supersedeMemory(
     context: LearningContext,
     oldIds: string[],
@@ -835,8 +1171,191 @@ export interface LearningStore {
        * human principal.
        */
       preview?: boolean
+      /** Where the agent asked from, "local" by default. */
+      via?: "local" | "hub"
+      session?: AgentSessionRef
+      /**
+       * Accepted learnings other repositories shared with this one, read by the host from
+       * their own stores. Each must be intact and from another scope. Only a preview takes
+       * them.
+       */
+      shared?: MemoryRecord[]
     },
-  ): Promise<{ memories: RecalledMemory[]; text: string; considered: number }>
+  ): Promise<{
+    /** Absent for a preview, which stores nothing. */
+    guidanceId?: string
+    memories: Array<RecalledMemory & { deliveryId?: string }>
+    text: string
+    considered: number
+  }>
+  /**
+   * Record which delivered learnings an agent says it used for a commit. Sending the same
+   * reportId with the same content again stores nothing new.
+   */
+  reportUsage(
+    context: LearningContext,
+    report: {
+      reportId: string
+      guidanceIds: string[]
+      commitSha: string
+      session?: AgentSessionRef
+      prototypeId?: string
+      used: Array<{ deliveryId: string; before?: UsageScreenshot; after?: UsageScreenshot }>
+      /**
+       * An active evaluation grant for agent screenshots. Required for screenshots when the
+       * screenshot store requiresGrant, as on a host.
+       */
+      consentGrantId?: string
+    },
+  ): Promise<{ id: string; reportId: string; stored: boolean }>
+  /**
+   * List what agents said they used for a commit. Title and text are null when the learning's
+   * evidence no longer allows review, so withdrawn consent hides the delivered wording.
+   */
+  usageForCommit(
+    context: LearningContext,
+    options: { commitSha: string },
+  ): Promise<
+    Array<{
+      id: string
+      reportId: string
+      prototypeId?: string
+      reportedAt: Timestamp
+      used: Array<{
+        id: string
+        memoryId: string
+        version: number | null
+        title: string | null
+        text: string | null
+        before?: UsedScreenshot
+        after?: UsedScreenshot
+      }>
+    }>
+  >
+  /**
+   * What an evaluator may read about one used learning. A screenshot whose consent no longer
+   * allows evaluation is left out; bytes are null when the store does not keep them.
+   */
+  evaluationInputs(
+    context: LearningContext,
+    request: { usedLearningId: string },
+  ): Promise<{
+    usedLearning: { id: string; memoryId: string; usageReportId: string }
+    learning: { version: number | null; title: string | null; text: string }
+    report: {
+      commitSha: string
+      prototypeId?: string
+      session?: AgentSessionRef
+      reportedAt: string
+    }
+    screenshots: Array<{
+      sha256: string
+      role: "before" | "after"
+      route: string
+      viewport: { width: number; height: number }
+      theme: string
+      capturedAt: string
+      bytes: Uint8Array | null
+    }>
+  }>
+  /**
+   * How agents' uses of one learning were scored, oldest first. Scores of a version whose
+   * evidence no longer permits review are left out.
+   */
+  outcomesFor(
+    context: LearningContext,
+    request: { memoryId: string },
+  ): Promise<
+    Array<{
+      id: string
+      usedLearningId: string
+      version: number
+      commitSha: string
+      prototypeId?: string
+      efficiency: 1 | 2 | 3 | 4
+      followed: "followed" | "not_followed" | "unclear"
+      reasoning: string
+      issue?: string
+      inputs: Array<"screenshots" | "build_diff" | "reviewer_verification">
+      scoredAt: string
+      before?: { sha256: string; route: string; consentGrantId?: string }
+      after?: { sha256: string; route: string; consentGrantId?: string }
+    }>
+  >
+  /** The score already kept for one scoring attempt, or null when it has none. */
+  scoreFor(
+    context: LearningContext,
+    request: { usedLearningId: string; operationId: string },
+  ): Promise<ScoreRecord | null>
+  /**
+   * Keep an evaluator's score for one used learning. A retry with the same operationId
+   * stores nothing new and returns the first score.
+   */
+  recordScore(
+    context: LearningContext,
+    score: {
+      usedLearningId: string
+      operationId: string
+      efficiency: 1 | 2 | 3 | 4
+      followed: "followed" | "not_followed" | "unclear"
+      reasoning: string
+      /** Required for an efficiency of 1 or 2. */
+      issue?: string
+      inputs?: Array<"screenshots" | "build_diff" | "reviewer_verification">
+      route: ScoreRoute
+    },
+  ): Promise<{ id: string; stored: boolean; score: ScoreRecord }>
+  /**
+   * Keep suggested new wording for the current version of an accepted learning. A retry with
+   * the same version, issue, and scores keeps the first proposal.
+   */
+  proposeUpdate(
+    context: LearningContext,
+    input: {
+      memoryId: string
+      versionDigest: Digest
+      issueKey: string
+      issue: string
+      title?: string
+      content: string
+      reasoning: string
+      support: string[]
+      counter?: string[]
+      route: ScoreRoute
+    },
+  ): Promise<{ id: string; stored: boolean; proposal: UpdateProposalRecord }>
+  /** One learning's update proposals, oldest first, each with its state. */
+  updatesFor(context: LearningContext, request: { memoryId: string }): Promise<LearningUpdate[]>
+  /**
+   * Make an open proposal's wording, or a person's edit of it, the learning's next version.
+   * Needs a person.
+   */
+  applyUpdate(
+    context: LearningContext,
+    proposalId: string,
+    /** Retrying with the same operation ID finishes an apply that stopped after the edit. */
+    input: { title?: string; content?: string; reason: string; operationId: string },
+  ): Promise<{ update: LearningUpdate; memory: MemoryRecord | null; stored: boolean }>
+  /** Dismiss an open proposal. Needs a person. */
+  dismissUpdate(
+    context: LearningContext,
+    proposalId: string,
+    /** A host names the dismissal so its recovery can tell it from a later one. */
+    input: { reason: string; operationId?: string },
+  ): Promise<{ update: LearningUpdate; stored: boolean }>
+  /**
+   * Remove a learning for good, with its deliveries, use, screenshots, scores, and update
+   * proposals. Needs a person.
+   */
+  deleteMemory(
+    context: LearningContext,
+    id: string,
+    options: { reason: string },
+  ): Promise<DeletionResult>
+  /** Remove guidance older than days (365 by default) that no usage report names. */
+  expireGuidance(context: LearningContext, options?: { days?: number }): Promise<DeletionResult>
+  /** Remove every record in this scope, including its audit trail. Needs a person. */
+  deleteRepository(context: LearningContext): Promise<DeletionResult>
   exportRecords(
     context: LearningContext,
     options: {
@@ -867,6 +1386,7 @@ export interface LearningStore {
 export declare const PURPOSES: readonly Purpose[]
 export declare const REQUIRED_CAPABILITIES: readonly string[]
 export declare const REDACT_CAPABILITY: "observation.redact"
+export declare const DELETE_CAPABILITY: "records.delete"
 /** Why a provider must refuse to replace a stored event with this redacted copy, or null. */
 export declare function redactionProblem(stored: unknown, record: unknown): LearningError | null
 export declare const PROVIDER_CONTRACT: {
@@ -893,13 +1413,31 @@ export declare class LearningError extends Error {
 }
 export declare class ProviderConflictError extends LearningError {}
 
+/** Where a store keeps screenshot images; records hold only their sha256. */
+export interface ScreenshotStore {
+  /** True when the host keeps the bytes, so screenshots need a consent grant. */
+  requiresGrant?: boolean
+  put(bytes: Uint8Array): Promise<Digest>
+  read(digest: Digest): Promise<Uint8Array | null>
+  remove(digest: Digest): Promise<void>
+}
+
 export declare function createLearningStore(options: {
   provider: MemoryProvider
   clock?: () => number
+  legacyScopes?: Scope[]
+  digestMappings?: Record<string, string>
+  /** Without it, a usage report with screenshots is refused. */
+  screenshots?: ScreenshotStore
 }): Promise<LearningStore>
+/** Keep screenshot images in a private directory on this machine. */
+export declare function createScreenshotStore(directory: string): ScreenshotStore
 export declare function createSqliteMemoryProvider(options: {
   directory: string
   file?: string
+}): MemoryProvider
+export declare function createPostgresMemoryProvider(options: {
+  connectionString: string
 }): MemoryProvider
 export declare function createJsonLinesMemoryProvider(options: {
   directory: string

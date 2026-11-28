@@ -4,8 +4,8 @@
  * Codes: invalid_input, invalid_record, scope_violation, purpose_not_granted, grant_inactive,
  * not_found, conflict, stale_review, identity_revalidation_required, invalid_transition,
  * human_required, provider_incompatible,
- * storage_corrupt, storage_outcome_unknown (the disk reported an error while a write committed,
- * so the write may or may not be stored, though never in part), unsupported, unauthorized (a
+ * storage_corrupt, storage_outcome_unknown (a write's commit could not be confirmed, so it may
+ * or may not be stored, though never in part), unsupported, unauthorized (a
  * service such as Copilot refused the credential), and unavailable (a service did not answer or
  * answered in a form the contract refuses).
  */

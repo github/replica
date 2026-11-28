@@ -214,6 +214,8 @@ describe("labelComments()", () => {
           "--dir",
           dataDirectory,
           "--repository",
+          "github.com/repositories/123456",
+          "--legacy-repository",
           "github.com/acme/checkout-prototypes",
           "--json",
         ],
@@ -662,6 +664,28 @@ describe("labelComments()", () => {
     ])
     for (const comment of request.threads.flatMap((thread) => thread.comments))
       if (comment.label) assert.equal(firstAsked.has(comment.id), false, comment.id)
+  })
+
+  it("reassesses prior labels and supersedes them with the new judgment", async () => {
+    const store = await storeWith()
+    await labelComments(store, COPILOT, { labeler: fakeLabeler() })
+    const previous = await labelsBy(store, "agent:copilot")
+    const labeler = fakeLabeler({
+      label: () => ({
+        theme: { key: "visible-form-labels", statement: "Use visible labels for form fields." },
+        signal: "usability",
+      }),
+    })
+
+    const result = await labelComments(store, COPILOT, { labeler, relabel: true })
+
+    assert.equal(result.considered, previous.length)
+    assert.equal(result.labeled, previous.length)
+    const latest = (await labelsBy(store, "agent:copilot")).filter((event) =>
+      previous.some((item) => item.id === event.supersedes),
+    )
+    assert.equal(latest.length, previous.length)
+    assert.ok(latest.every((event) => event.payload.signal === "usability"))
   })
 
   it("stops at the limit and says how many comments wait", async () => {
