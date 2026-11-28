@@ -26,7 +26,7 @@ import type { BuildPreviewRouteDependencies } from "../build-preview/types"
 
 const address = privatePreviewAddress("901", "1201")!
 const hubOrigin = "https://hub.example.com"
-const readerOrigin = "https://preview.example.net"
+const readerOrigin = "https://preview.hub.example.com"
 
 async function listen(app: RequestListener) {
   const server = createServer(app).listen(0, "127.0.0.1")
@@ -64,7 +64,7 @@ async function listen(app: RequestListener) {
   }
 }
 
-async function startHub(preview?: BuildPreviewRouteDependencies) {
+async function startHub(preview?: BuildPreviewRouteDependencies, inline = false) {
   const readerSecret = randomBytes(32).toString("base64url")
   const grant = randomBytes(32).toString("base64url")
   const access = randomBytes(32).toString("base64url")
@@ -80,7 +80,7 @@ async function startHub(preview?: BuildPreviewRouteDependencies) {
     authorizeFile: vi.fn<PrivatePreviewAuthority["authorizeFile"]>(),
   }
   const hasCurrentHubSession = vi.fn<(digest: string) => Promise<boolean>>().mockResolvedValue(true)
-  const settings = { hubOrigin, readerOrigin, readerSecret }
+  const settings = { hubOrigin, readerOrigin, readerSecret, inline }
   const request = await listen(
     createApp({
       logger: createLogger({ level: "silent" }),
@@ -110,11 +110,21 @@ function form(fields: Record<string, string>) {
   return new URLSearchParams(fields).toString()
 }
 
-function postHeaders(origin: string, session?: string) {
+function postHeaders(origin: string, session?: string): Record<string, string> {
   return {
     origin,
     "content-type": "application/x-www-form-urlencoded",
+    "sec-fetch-site": origin === hubOrigin ? "same-origin" : "same-site",
     ...(session ? { cookie: `__Host-hub_session=${session}` } : {}),
+  }
+}
+
+// The reader's same-site, top-level form return to Hub.
+function returnHeaders(session?: string) {
+  return {
+    ...postHeaders(readerOrigin, session),
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-dest": "document",
   }
 }
 
@@ -273,44 +283,32 @@ describe("private preview Hub routes", () => {
   })
 
   it.each([
-    { reason: "a different origin on the same site", origin: "https://other.example.com" },
+    { reason: "another origin on the same site", origin: "https://other.hub.example.com" },
     { reason: "the Reader origin", origin: readerOrigin },
     { reason: "no origin", origin: undefined },
   ])("rejects a launch POST from $reason", async ({ origin }) => {
     const { request, authority, buildId } = await startHub()
-    const headers: Record<string, string> = postHeaders(
-      hubOrigin,
-      randomBytes(32).toString("base64url"),
-    )
-    if (origin) headers.origin = origin
-    else delete headers.origin
+    const session = randomBytes(32).toString("base64url")
+    const headers = origin ? postHeaders(origin, session) : postHeaders(hubOrigin, session)
+    if (!origin) delete headers.origin
 
     const launch = await request(address.launch, headers, form({ start: "one-click", buildId }))
 
-    expect(launch.status).toBe(404)
+    expect(launch.status).toBe(origin ? 403 : 404)
     expect(authority.launch).not.toHaveBeenCalled()
     expect(authority.issue).not.toHaveBeenCalled()
   })
 
-  it("relays a Reader return to Hub without issuing access, then issues one bound handoff", async () => {
+  it("issues one bound handoff from the Reader's same-site return", async () => {
     const { request, grant, authority, buildId, deadline, proof } = await startHub()
     const session = randomBytes(32).toString("base64url")
     const challenge = randomBytes(32).toString("hex")
     const intent = proof.start(address, buildId, digest(session), deadline)
     const continuation = proof.attest(intent, address, () => challenge)!
 
-    const relay = await request(
-      address.launchReturn,
-      { ...postHeaders(readerOrigin), cookie: `__Host-hub_session=${session}` },
-      form({ continuation }),
-    )
-
-    expect(readAutoForm(relay, `${hubOrigin}${address.launch}`, "continuation")).toBe(continuation)
-    expect(authority.issue).not.toHaveBeenCalled()
-
     const handoff = await request(
-      address.launch,
-      postHeaders(hubOrigin, session),
+      address.launchReturn,
+      returnHeaders(session),
       form({ continuation }),
     )
 
@@ -324,8 +322,8 @@ describe("private preview Hub routes", () => {
     })
 
     const otherSession = await request(
-      address.launch,
-      postHeaders(hubOrigin, randomBytes(32).toString("base64url")),
+      address.launchReturn,
+      returnHeaders(randomBytes(32).toString("base64url")),
       form({ continuation }),
     )
     expect(otherSession.status).toBe(404)
@@ -333,27 +331,49 @@ describe("private preview Hub routes", () => {
   })
 
   it.each([
-    { reason: "from Hub itself", origin: hubOrigin, tamper: false },
-    { reason: "with a forged proof", origin: readerOrigin, tamper: true },
-  ])("does not relay a Reader return $reason", async ({ origin, tamper }) => {
-    const { request, buildId, deadline, proof } = await startHub()
-    const intent = proof.start(address, buildId, digest("session"), deadline)
+    { reason: "from Hub itself", headers: postHeaders(hubOrigin), tamper: false },
+    { reason: "from a prototype fetch", headers: postHeaders(readerOrigin), tamper: false },
+    { reason: "with a forged proof", headers: returnHeaders(), tamper: true },
+  ])("does not accept a Reader return $reason", async ({ headers, tamper }) => {
+    const { request, authority, buildId, deadline, proof } = await startHub()
+    const session = randomBytes(32).toString("base64url")
+    const intent = proof.start(address, buildId, digest(session), deadline)
     const continuation = proof.attest(intent, address, () => "b".repeat(64))!
     const value = tamper
       ? `${continuation.slice(0, -1)}${continuation.endsWith("A") ? "B" : "A"}`
       : continuation
 
-    const relay = await request(
+    const response = await request(
       address.launchReturn,
-      postHeaders(origin),
+      { ...headers, cookie: `__Host-hub_session=${session}` },
       form({ continuation: value }),
     )
 
-    expect(relay.status).toBe(404)
-    expect(relay.body).not.toContain("<form")
+    expect(response.status).toBe(404)
+    expect(response.body).not.toContain("<form")
+    expect(authority.issue).not.toHaveBeenCalled()
   })
 
-  it("renews an ended Reader session through Hub for the exact Build and destination", async () => {
+  it("does not accept a Reader state in the Hub-only launch form", async () => {
+    const { request, authority, buildId, deadline, proof } = await startHub()
+    const session = randomBytes(32).toString("base64url")
+    const continuation = proof.attest(
+      proof.start(address, buildId, digest(session), deadline),
+      address,
+      () => "b".repeat(64),
+    )!
+
+    const response = await request(
+      address.launch,
+      postHeaders(hubOrigin, session),
+      form({ continuation }),
+    )
+
+    expect(response.status).toBe(404)
+    expect(authority.issue).not.toHaveBeenCalled()
+  })
+
+  it("renews an ended Reader session from its same-site return for the exact Build and destination", async () => {
     const { request, grant, authority, buildId, deadline, proof } = await startHub()
     const session = randomBytes(32).toString("base64url")
     const challenge = randomBytes(32).toString("hex")
@@ -361,17 +381,9 @@ describe("private preview Hub routes", () => {
     vi.spyOn(Date, "now").mockReturnValueOnce(Date.now() - 5 * 60_000)
     const state = proof.startResume(address, buildId, challenge, "/checkout/?step=2")!
 
-    const relay = await request(
-      address.launchReturn,
-      postHeaders(readerOrigin),
-      form({ resume: state.token }),
-    )
-    expect(readAutoForm(relay, `${hubOrigin}${address.launch}`, "resume")).toBe(state.token)
-    expect(authority.issue).not.toHaveBeenCalled()
-
     const handoff = await request(
-      address.launch,
-      postHeaders(hubOrigin, session),
+      address.launchReturn,
+      returnHeaders(session),
       form({ resume: state.token }),
     )
 
@@ -396,14 +408,43 @@ describe("private preview Hub routes", () => {
     const state = proof.startResume(address, buildId, "c".repeat(64), "/")!
 
     const response = await request(
-      address.launch,
-      postHeaders(hubOrigin, session ? randomBytes(32).toString("base64url") : undefined),
+      address.launchReturn,
+      returnHeaders(session ? randomBytes(32).toString("base64url") : undefined),
       form({ resume: state.token }),
     )
 
     expect(response.status).toBe(expected)
     expect(response.headers.location).toBe(expected === 303 ? "/" : undefined)
     expect(response.body).not.toContain("<form")
+  })
+
+  it("keeps every other Hub response unframeable while the Reader shares Hub's site", async () => {
+    const { request } = await startHub()
+
+    for (const [path, accept] of [
+      ["/repositories/1/prototypes/2", "text/html"],
+      ["/api/workspace", "application/json"],
+    ] as const) {
+      const response = await request(path, { accept, "sec-fetch-site": "same-origin" })
+      expect(response.headers["content-security-policy"]).toBe("frame-ancestors 'none'")
+    }
+  })
+
+  it("rejects other same-site API requests while the Reader shares Hub's site", async () => {
+    const { request } = await startHub()
+    const cookie = `__Host-hub_session=${randomBytes(32).toString("base64url")}`
+
+    for (const [path, body] of [
+      ["/api/workspace", undefined],
+      [address.launch, form({ start: "one-click", buildId: randomUUID() })],
+    ] as const) {
+      const response = await request(
+        path,
+        { origin: readerOrigin, cookie, "sec-fetch-site": "same-site" },
+        body,
+      )
+      expect(response.status).toBe(403)
+    }
   })
 
   it("does not serve canonical preview files on the Hub origin", async () => {
@@ -466,6 +507,9 @@ describe("private preview Hub routes", () => {
     )
     expect(responses.map(({ status }) => status)).toEqual([200, 200])
     expect(responses.map(({ body }) => body)).toEqual([bytes.toString(), bytes.toString()])
+    for (const { headers } of responses) {
+      expect(headers["content-security-policy"]).toContain(`frame-ancestors ${hubOrigin}`)
+    }
 
     const launchHeaders = postHeaders(hubOrigin, randomBytes(32).toString("base64url"))
     const body = form({ start: "one-click", buildId })
@@ -519,6 +563,171 @@ describe("private preview Hub routes", () => {
     expect(backend.status).toBe(200)
     expect(JSON.parse(backend.body)).toEqual({ access, startPage: "/", buildId })
     expect(authority.exchange).toHaveBeenCalledWith(grant, address, challengeDigest)
+  })
+})
+
+describe("inline private preview Hub routes", () => {
+  const frameHeaders = { "sec-fetch-dest": "iframe", "sec-fetch-site": "same-origin" }
+
+  function inlinePath(buildId: string) {
+    return `${address.inline}/${buildId}`
+  }
+
+  it("does not serve the launch shell unless inline playback is enabled", async () => {
+    const { request, authority, buildId } = await startHub()
+
+    const shell = await request(inlinePath(buildId), {
+      ...frameHeaders,
+      cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}`,
+    })
+
+    expect(shell.status).toBe(404)
+    expect(authority.launch).not.toHaveBeenCalled()
+  })
+
+  it("lets only Hub frame the launch shell for the exact allowed Build", async () => {
+    const { request, authority, buildId, deadline, proof } = await startHub(undefined, true)
+    const session = randomBytes(32).toString("base64url")
+
+    const shell = await request(inlinePath(buildId), {
+      ...frameHeaders,
+      cookie: `__Host-hub_session=${session}`,
+    })
+
+    expect(shell.status).toBe(200)
+    expect(shell.headers["x-frame-options"]).toBeUndefined()
+    expect(shell.headers["cache-control"]).toContain("no-store")
+    expect(shell.headers["referrer-policy"]).toBe("origin")
+    const directives = String(shell.headers["content-security-policy"])
+      .split(";")
+      .map((directive) => directive.trim())
+    expect(directives).toEqual(
+      expect.arrayContaining([
+        "default-src 'none'",
+        "connect-src 'self'",
+        `frame-src ${readerOrigin}`,
+        `form-action ${readerOrigin}`,
+        "base-uri 'none'",
+        `frame-ancestors ${hubOrigin}`,
+      ]),
+    )
+    expect(directives.filter((directive) => directive.startsWith("frame-ancestors"))).toHaveLength(
+      1,
+    )
+    expect(shell.body).toContain(`action="${readerOrigin}${address.begin}"`)
+    expect(shell.body).toContain(`action="${readerOrigin}${address.exchange}"`)
+    expect(shell.body).toContain(`"${inlinePath(buildId)}/grant"`)
+    expect(shell.body).toContain(
+      'sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"',
+    )
+    expect(shell.body).not.toContain(session)
+    expect(authority.launch).toHaveBeenCalledExactlyOnceWith(digest(session), address, buildId)
+    const intent = shell.body.match(/name="intent" value="([^"]+)"/)![1]!
+    const continuation = proof.attest(intent, address, () => "d".repeat(64))!
+    expect(proof.read(continuation, address, digest(session))).toMatchObject({
+      buildId,
+      expiresAt: deadline,
+    })
+  })
+
+  it.each([
+    { reason: "an outside page", headers: { ...frameHeaders, "sec-fetch-site": "cross-site" } },
+    { reason: "a top-level visit", headers: { ...frameHeaders, "sec-fetch-dest": "document" } },
+    { reason: "a request without fetch metadata", headers: {} },
+  ])("does not render the launch shell for $reason", async ({ headers }) => {
+    const { request, authority, buildId } = await startHub(undefined, true)
+
+    const shell = await request(inlinePath(buildId), {
+      ...headers,
+      cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}`,
+    })
+
+    expect(shell.status).toBe(404)
+    expect(shell.headers["content-security-policy"]).toContain("frame-ancestors 'none'")
+    expect(authority.launch).not.toHaveBeenCalled()
+  })
+
+  it("rejects a same-site frame of the launch shell", async () => {
+    const { request, authority, buildId } = await startHub(undefined, true)
+
+    const shell = await request(inlinePath(buildId), {
+      ...frameHeaders,
+      "sec-fetch-site": "same-site",
+      cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}`,
+    })
+
+    expect(shell.status).toBe(403)
+    expect(authority.launch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { status: "denied", expected: 404 },
+    { status: "incompatible", expected: 409 },
+  ] as const)(
+    "falls back without a shell when Hub reports the Build $status",
+    async ({ status, expected }) => {
+      const { request, authority, buildId } = await startHub(undefined, true)
+      authority.launch.mockResolvedValue(status)
+
+      const shell = await request(inlinePath(buildId), {
+        ...frameHeaders,
+        cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}`,
+      })
+
+      expect(shell.status).toBe(expected)
+      expect(shell.body).not.toContain("<iframe")
+    },
+  )
+
+  it("returns each shell grant only to a same-origin Hub request for the exact Build", async () => {
+    const { request, grant, authority, buildId, deadline, proof, hasCurrentHubSession } =
+      await startHub(undefined, true)
+    const session = randomBytes(32).toString("base64url")
+    const continuation = proof.attest(
+      proof.start(address, buildId, digest(session), deadline),
+      address,
+      () => "e".repeat(64),
+    )!
+    const { id } = proof.read(continuation, address)!
+
+    const otherBuild = await request(
+      `${inlinePath(randomUUID())}/grant`,
+      postHeaders(hubOrigin, session),
+      form({ continuation }),
+    )
+    const fromReader = await request(
+      `${inlinePath(buildId)}/grant`,
+      postHeaders(readerOrigin, session),
+      form({ continuation }),
+    )
+    expect(otherBuild.status).toBe(404)
+    expect(fromReader.status).toBe(403)
+    expect(authority.issue).not.toHaveBeenCalled()
+
+    const issued = await request(
+      `${inlinePath(buildId)}/grant`,
+      postHeaders(hubOrigin, session),
+      form({ continuation }),
+    )
+    expect(issued.status).toBe(200)
+    expect(issued.headers["cache-control"]).toContain("no-store")
+    expect(JSON.parse(issued.body)).toEqual({ grant: `${id}.${grant}` })
+    expect(authority.issue).toHaveBeenCalledExactlyOnceWith(
+      digest(session),
+      address,
+      "e".repeat(64),
+      { id, buildId, expiresAt: deadline },
+    )
+
+    authority.issue.mockResolvedValue(null)
+    hasCurrentHubSession.mockResolvedValue(false)
+    const state = proof.startResume(address, buildId, "f".repeat(64), "/")!
+    const signedOut = await request(
+      `${inlinePath(buildId)}/grant`,
+      postHeaders(hubOrigin, session),
+      form({ resume: state.token }),
+    )
+    expect(signedOut.status).toBe(401)
   })
 })
 

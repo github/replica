@@ -14,7 +14,11 @@ import { authenticationSecurity } from "../../integrations/express/authenticatio
 import { secureHubSessionCookieName } from "../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../integrations/express/read-cookie/index.ts"
 import { sendPrivatePreviewForm } from "../../integrations/express/send-private-preview-form/index.ts"
-import { privatePreviewAddress } from "../../utils/private-preview-address/index.ts"
+import {
+  privatePreviewAddress,
+  type PrivatePreviewAddress,
+} from "../../utils/private-preview-address/index.ts"
+import { renderInlineLaunch } from "./render-inline-launch/index.ts"
 import { privatePreviewSessionEndedHeader } from "../../utils/private-preview-session-ended-header/index.ts"
 import type { PrivatePreviewRouteDependencies } from "./types.ts"
 
@@ -29,11 +33,7 @@ const resumeForm = z.strictObject({
   resume: z.string().max(maximumResumeTokenLength).regex(resumeTokenPattern),
 })
 const returnForm = z.union([continuationForm, resumeForm])
-const launchForm = z.union([
-  z.strictObject({ start: z.literal("one-click"), buildId: z.uuid() }),
-  continuationForm,
-  resumeForm,
-])
+const launchForm = z.strictObject({ start: z.literal("one-click"), buildId: z.uuid() })
 const formParser = express.urlencoded({
   extended: false,
   limit: "4kb",
@@ -51,6 +51,8 @@ const fileBody = z.strictObject({
   path: z.string().max(2048),
   allowEntryPointFallback: z.boolean(),
 })
+const incompatibleMessage =
+  "This Build does not support private previews. Publish a Build compiled for the private preview path."
 
 export function mountPrivatePreview(
   app: Express,
@@ -80,9 +82,20 @@ export function mountPrivatePreview(
       : null
   }
 
-  function requireFormFrom(origin: string) {
+  function inlineBuildId(request: Request) {
+    const { buildId } = request.params
+    return typeof buildId === "string" && z.uuid().safeParse(buildId).success
+      ? buildId.toLowerCase()
+      : null
+  }
+
+  function requireFormFrom(origin: string, site: "same-origin" | "same-site") {
     return (request: Request, response: Response, next: express.NextFunction) => {
-      if (request.get("origin") !== origin || !request.is("application/x-www-form-urlencoded")) {
+      if (
+        request.get("origin") !== origin ||
+        request.get("sec-fetch-site") !== site ||
+        !request.is("application/x-www-form-urlencoded")
+      ) {
         response.sendStatus(404)
         return
       }
@@ -90,13 +103,82 @@ export function mountPrivatePreview(
     }
   }
 
+  // Checks the signed state, the exact Build and current access, then issues one bound handoff.
+  async function issueHandoff(
+    sessionDigest: string,
+    address: PrivatePreviewAddress,
+    form: z.infer<typeof returnForm>,
+    buildId?: string,
+  ): Promise<{ ticket: string } | "signed-out" | null> {
+    const handoff =
+      "continuation" in form
+        ? proof.read(form.continuation, address, sessionDigest)
+        : proof.readResume(form.resume, address)
+    if (!handoff || (buildId && handoff.buildId !== buildId)) return null
+    const { id, challenge } = handoff
+    // The reader enforces its own renewal deadline at exchange, using the clock that signed it.
+    const expiresAt = "resume" in form ? await authority.launchDeadline() : handoff.expiresAt
+    const grant = await authority.issue(sessionDigest, address, challenge, {
+      id,
+      buildId: handoff.buildId,
+      expiresAt,
+    })
+    if (grant) return { ticket: `${id}.${grant}` }
+    // Renewal falls through to normal sign-in when the Hub session itself has ended.
+    return "resume" in form && !(await hasCurrentHubSession(sessionDigest)) ? "signed-out" : null
+  }
+
   router.post(
     "/launch/:repositoryId/:runId",
-    requireFormFrom(settings.hubOrigin),
+    requireFormFrom(settings.hubOrigin, "same-origin"),
     formParser,
     async (request, response) => {
       const address = launchAddress(request)
       const form = launchForm.safeParse(request.body)
+      if (!address || !form.success) return response.sendStatus(404)
+      const session = readCookie(request, secureHubSessionCookieName)
+      if (!session) {
+        return response
+          .status(401)
+          .type("text")
+          .send("Sign in to Hub, then reopen this prototype. If already signed in, sign out first.")
+      }
+      try {
+        const sessionDigest = hashAuthenticationValue(session)
+        const { buildId } = form.data
+        const status = await authority.launch(sessionDigest, address, buildId)
+        if (status === "denied") return response.sendStatus(404)
+        if (status === "incompatible")
+          return response.status(409).type("text").send(incompatibleMessage)
+        return sendPrivatePreviewForm(
+          response,
+          settings.readerOrigin,
+          address.begin,
+          "intent",
+          proof.start(address, buildId, sessionDigest, await authority.launchDeadline()),
+        )
+      } catch {
+        return response.sendStatus(503)
+      }
+    },
+  )
+
+  // The reader shares Hub's site, so its top-level return carries the Hub session directly.
+  router.post(
+    "/launch/:repositoryId/:runId/return",
+    requireFormFrom(settings.readerOrigin, "same-site"),
+    (request, response, next) => {
+      if (
+        request.get("sec-fetch-mode") !== "navigate" ||
+        request.get("sec-fetch-dest") !== "document"
+      )
+        return response.sendStatus(404)
+      next()
+    },
+    formParser,
+    async (request, response) => {
+      const address = launchAddress(request)
+      const form = returnForm.safeParse(request.body)
       if (!address || !form.success) return response.sendStatus(404)
       const session = readCookie(request, secureHubSessionCookieName)
       if (!session) {
@@ -107,53 +189,15 @@ export function mountPrivatePreview(
           .send("Sign in to Hub, then reopen this prototype. If already signed in, sign out first.")
       }
       try {
-        const sessionDigest = hashAuthenticationValue(session)
-        if ("start" in form.data) {
-          const { buildId } = form.data
-          const status = await authority.launch(sessionDigest, address, buildId)
-          if (status === "denied") return response.sendStatus(404)
-          if (status === "incompatible") {
-            return response
-              .status(409)
-              .type("text")
-              .send(
-                "This Build does not support private previews. Publish a Build compiled for the private preview path.",
-              )
-          }
-          return sendPrivatePreviewForm(
-            response,
-            settings.readerOrigin,
-            address.begin,
-            "intent",
-            proof.start(address, buildId, sessionDigest, await authority.launchDeadline()),
-          )
-        }
-        const handoff =
-          "continuation" in form.data
-            ? proof.read(form.data.continuation, address, sessionDigest)
-            : proof.readResume(form.data.resume, address)
+        const handoff = await issueHandoff(hashAuthenticationValue(session), address, form.data)
+        if (handoff === "signed-out") return response.redirect(303, "/")
         if (!handoff) return response.sendStatus(404)
-        const { id, buildId, challenge } = handoff
-        // The reader enforces its own renewal deadline at exchange, using the clock that signed it.
-        const expiresAt =
-          "resume" in form.data ? await authority.launchDeadline() : handoff.expiresAt
-        const grant = await authority.issue(sessionDigest, address, challenge, {
-          id,
-          buildId,
-          expiresAt,
-        })
-        if (!grant) {
-          // Renewal falls through to normal sign-in when the Hub session itself has ended.
-          if ("resume" in form.data && !(await hasCurrentHubSession(sessionDigest)))
-            return response.redirect(303, "/")
-          return response.sendStatus(404)
-        }
         return sendPrivatePreviewForm(
           response,
           settings.readerOrigin,
           address.exchange,
           "grant",
-          `${id}.${grant}`,
+          handoff.ticket,
         )
       } catch {
         return response.sendStatus(503)
@@ -161,28 +205,62 @@ export function mountPrivatePreview(
     },
   )
 
-  router.post(
-    "/launch/:repositoryId/:runId/return",
-    requireFormFrom(settings.readerOrigin),
-    formParser,
-    (request, response) => {
+  if (settings.inline) {
+    // Only the Build page may frame this shell, and only by requesting it from Hub itself.
+    router.get("/inline/:repositoryId/:runId/:buildId", async (request, response) => {
       const address = launchAddress(request)
-      const form = returnForm.safeParse(request.body)
-      if (!address || !form.success) return response.sendStatus(404)
-      const valid =
-        "continuation" in form.data
-          ? proof.read(form.data.continuation, address)
-          : proof.readResume(form.data.resume, address)
-      if (!valid) return response.sendStatus(404)
-      // A cross-site return cannot carry the Hub session cookie or issue access. It only relays
-      // the signed state to a same-origin Hub POST, which checks the session and current access.
-      const [name, value] =
-        "continuation" in form.data
-          ? (["continuation", form.data.continuation] as const)
-          : (["resume", form.data.resume] as const)
-      return sendPrivatePreviewForm(response, settings.hubOrigin, address.launch, name, value)
-    },
-  )
+      const buildId = inlineBuildId(request)
+      const session = readCookie(request, secureHubSessionCookieName)
+      if (
+        !address ||
+        !buildId ||
+        request.get("sec-fetch-site") !== "same-origin" ||
+        request.get("sec-fetch-dest") !== "iframe"
+      )
+        return response.sendStatus(404)
+      if (!session) return response.sendStatus(401)
+      try {
+        const sessionDigest = hashAuthenticationValue(session)
+        const status = await authority.launch(sessionDigest, address, buildId)
+        if (status !== "allowed") return response.sendStatus(status === "denied" ? 404 : 409)
+        return renderInlineLaunch(
+          response,
+          settings,
+          address,
+          `${address.inline}/${buildId}/grant`,
+          proof.start(address, buildId, sessionDigest, await authority.launchDeadline()),
+        )
+      } catch {
+        return response.sendStatus(503)
+      }
+    })
+
+    router.post(
+      "/inline/:repositoryId/:runId/:buildId/grant",
+      requireFormFrom(settings.hubOrigin, "same-origin"),
+      formParser,
+      async (request, response) => {
+        const address = launchAddress(request)
+        const buildId = inlineBuildId(request)
+        const form = returnForm.safeParse(request.body)
+        if (!address || !buildId || !form.success) return response.sendStatus(404)
+        const session = readCookie(request, secureHubSessionCookieName)
+        if (!session) return response.sendStatus(401)
+        try {
+          const handoff = await issueHandoff(
+            hashAuthenticationValue(session),
+            address,
+            form.data,
+            buildId,
+          )
+          if (handoff === "signed-out") return response.sendStatus(401)
+          return handoff ? response.json({ grant: handoff.ticket }) : response.sendStatus(404)
+        } catch {
+          return response.sendStatus(503)
+        }
+      },
+    )
+  }
 
   function isReader(request: Request, response: Response) {
     const authorization = Buffer.from(request.get("authorization") ?? "")

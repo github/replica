@@ -82,8 +82,12 @@ export function prototypeShowData(
     maximizeHubLabel: "Maximize Hub UI",
     dragControlsLabel: "Move preview controls. Drag or use arrow keys.",
     // The restore control lives on the preview, so stay expanded without one.
-    minimizedPreview: Boolean(previewBuild?.previewUrl) && search.get("view") === "minimized",
+    minimizedPreview:
+      !selectedBuild?.inlinePreviewUrl &&
+      Boolean(previewBuild?.previewUrl) &&
+      search.get("view") === "minimized",
     privatePreviewUrl: selectedBuild?.privatePreviewUrl,
+    inlinePreviewUrl: selectedBuild?.inlinePreviewUrl,
     privatePreviewBuildId: selectedBuild?.privatePreviewBuildId,
     privatePreviewLinkLabel: "Private Hub link",
     copyPrivatePreviewLinkLabel: "Copy private Hub link",

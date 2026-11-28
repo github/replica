@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../../../../domains/authentication/hash-authentication-value/index.ts"
 import { PrototypeViewError } from "../../../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
+import { protectedHubSessionCookieSetting } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readHubSessionCookie } from "../../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
@@ -92,7 +93,16 @@ export function get(
         }
       }
 
-      if (query.data.view !== "minimized" && !query.data.from && request.method === "GET") {
+      // With a same-site reader, only a request known to come from Hub may record the introduction.
+      const mayRecordIntroduction =
+        request.app.get(protectedHubSessionCookieSetting) !== true ||
+        request.get("sec-fetch-site") === "same-origin"
+      if (
+        mayRecordIntroduction &&
+        query.data.view !== "minimized" &&
+        !query.data.from &&
+        request.method === "GET"
+      ) {
         const body = await product.readPrototypeWithIntroduction(
           {
             buildNumber,

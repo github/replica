@@ -59,7 +59,8 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   const [workspaceControlsToolbar, setWorkspaceControlsToolbar] = useState<HTMLSpanElement | null>(
     null,
   )
-  const minimized = controlledMinimized ?? localMinimized
+  // Inline private playback has no minimized view, so it always stays expanded.
+  const minimized = !data.inlinePreviewUrl && (controlledMinimized ?? localMinimized)
   const [infoMode, setInfoMode] = useState<"view" | "edit" | null>(
     initialInfoOpen ? (data.alert && canEditDetails ? "edit" : "view") : null,
   )
@@ -303,8 +304,23 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                 <HubAlert variant="warning" title={data.notificationErrorLabel} layout="compact" />
               ) : null}
 
-              {data.selectedBuild && !minimized ? privatePreviewActions : null}
-              {data.selectedBuild ? (
+              {data.inlinePreviewUrl ? (
+                <>
+                  {privatePreviewActions}
+                  <div className="review-shell__inline-preview">
+                    <iframe
+                      key={data.inlinePreviewUrl}
+                      src={data.inlinePreviewUrl}
+                      title={`${data.prototypeName} private preview`}
+                      sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+                    />
+                    {conversation}
+                  </div>
+                </>
+              ) : data.selectedBuild && !minimized ? (
+                privatePreviewActions
+              ) : null}
+              {data.inlinePreviewUrl ? null : data.selectedBuild ? (
                 <PrototypePreview
                   address={address}
                   externalAddress={externalAddress}

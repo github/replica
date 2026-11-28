@@ -3,7 +3,11 @@ import { resolve } from "node:path"
 
 import { authenticationSecurity } from "../integrations/express/authentication-security/index.ts"
 import { handleError } from "../integrations/express/handle-error/index.ts"
-import { secureHubSessionCookieSetting } from "../integrations/express/hub-session-cookie-name/index.ts"
+import {
+  protectedHubSessionCookieSetting,
+  secureHubSessionCookieSetting,
+} from "../integrations/express/hub-session-cookie-name/index.ts"
+import { rejectSameSiteApiRequests } from "../integrations/express/reject-same-site-api-requests/index.ts"
 import { respondNotFound } from "../integrations/express/respond-not-found/index.ts"
 import { createRequestLogger } from "../integrations/pino/create-request-logger/index.ts"
 import { routes } from "../routes/index.ts"
@@ -34,6 +38,16 @@ export function createApp({
   app.set("trust proxy", trustedProxyHops)
   app.set(secureHubSessionCookieSetting, authentication?.signOut.secureCookie === true)
   app.use(createRequestLogger(logger))
+  if (privatePreview) {
+    app.set(protectedHubSessionCookieSetting, true)
+    // Same-site prototype code would otherwise frame signed-in Hub pages. Routes that may be
+    // framed, such as the inline launch shell and legacy Build origins, replace this policy.
+    app.use((_request, response, next) => {
+      response.setHeader("Content-Security-Policy", "frame-ancestors 'none'")
+      next()
+    })
+    app.use("/api", rejectSameSiteApiRequests(privatePreview.settings.readerOrigin))
+  }
   app.use(
     [
       "/api/canvas",

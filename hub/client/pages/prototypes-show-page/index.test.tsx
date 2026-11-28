@@ -428,6 +428,7 @@ function TestPage({
   branchSubmissionMode = PROTOTYPES_SHOW_PAGE_DATA.branchSubmissionMode,
   controlsIdentity,
   privatePreviewUrl,
+  inlinePreviewUrl,
   privatePreviewBuildId,
   privateReviewLink,
 }: {
@@ -443,6 +444,7 @@ function TestPage({
   branchSubmissionMode?: PrototypesShowPageData["branchSubmissionMode"]
   controlsIdentity?: string
   privatePreviewUrl?: string
+  inlinePreviewUrl?: string
   privatePreviewBuildId?: string
   privateReviewLink?: string
 }) {
@@ -476,6 +478,7 @@ function TestPage({
         branchSubmissionMode,
         controlsIdentity,
         privatePreviewUrl,
+        inlinePreviewUrl,
         privatePreviewBuildId,
         privateReviewLink,
         showPrototypeInfo,
@@ -1382,6 +1385,67 @@ describe("PrototypesShowPage()", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "Copy private Hub link" }))
     expect(writeText).toHaveBeenNthCalledWith(2, privateReviewLink)
+  })
+
+  it("plays an eligible private Build inline and keeps the exact-Build new-tab fallback", () => {
+    const build = PROTOTYPES_SHOW_PAGE_DATA.selectedBuild!
+    const privatePreviewBuildId = "00000000-0000-4000-8000-000000000003"
+    const privatePreviewUrl = new URL(
+      "/api/private-preview/launch/2001/4001",
+      window.location.origin,
+    ).toString()
+    const inlinePreviewUrl = `/api/private-preview/inline/2001/4001/${privatePreviewBuildId}`
+    function page(inline?: string) {
+      return (
+        <HubThemeProvider>
+          <TestPage
+            privatePreviewUrl={privatePreviewUrl}
+            privatePreviewBuildId={privatePreviewBuildId}
+            inlinePreviewUrl={inline}
+          />
+        </HubThemeProvider>
+      )
+    }
+
+    const { rerender } = render(page(inlinePreviewUrl))
+
+    const frame = screen.getByTitle(`${PROTOTYPES_SHOW_PAGE_DATA.prototypeName} private preview`)
+    expect(frame).toHaveAttribute("src", inlinePreviewUrl)
+    expect(frame).toHaveAttribute(
+      "sandbox",
+      "allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts",
+    )
+    expect(screen.queryByTitle(build.frameTitle)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Minimize Hub UI" })).not.toBeInTheDocument()
+    const form = screen
+      .getByRole("button", { name: "Open private preview in new tab" })
+      .closest("form")!
+    expect(form).toHaveAttribute("action", privatePreviewUrl)
+    expect(form).toHaveAttribute("target", "_blank")
+    expect(new FormData(form).get("buildId")).toBe(privatePreviewBuildId)
+
+    rerender(page())
+    expect(
+      screen.queryByTitle(`${PROTOTYPES_SHOW_PAGE_DATA.prototypeName} private preview`),
+    ).not.toBeInTheDocument()
+    expect(screen.getByTitle(build.frameTitle)).toHaveAttribute("src", build.previewUrl)
+  })
+
+  it("falls back to the screenshot and new tab when a private Build is not inline", () => {
+    render(
+      <HubThemeProvider>
+        <TestPage
+          selectedBuild={null}
+          privatePreviewUrl="https://hub.example.com/api/private-preview/launch/2001/4001"
+          privatePreviewBuildId="00000000-0000-4000-8000-000000000003"
+        />
+      </HubThemeProvider>,
+    )
+
+    expect(document.querySelector("iframe")).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Open private preview in new tab" }),
+    ).toBeInTheDocument()
   })
 
   it("copies the current route inside a Hub link without reloading the preview", () => {

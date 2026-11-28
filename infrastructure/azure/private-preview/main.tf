@@ -78,6 +78,14 @@ variable "image" {
 
 locals {
   reader_name = "${var.name}-preview"
+  reader_artifacts_without_listing = trimspace(<<-EOT
+    (
+      (
+        !(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'} AND SubOperationMatches{'Blob.List'})
+      )
+    )
+  EOT
+  )
   tags = {
     application  = "replica-hub"
     installation = var.name
@@ -96,10 +104,13 @@ resource "azurerm_storage_container" "reader" {
   }
 }
 
+# The shared reader reads any published Build by its opaque key, but cannot list the container.
 resource "azurerm_role_assignment" "reader_artifacts" {
   scope                = "${var.storage_account_id}/blobServices/default/containers/${azurerm_storage_container.reader.name}"
   role_definition_name = "Storage Blob Data Reader"
   principal_id         = azurerm_user_assigned_identity.reader.principal_id
+  condition_version    = "2.0"
+  condition            = local.reader_artifacts_without_listing
 
   lifecycle {
     prevent_destroy = true

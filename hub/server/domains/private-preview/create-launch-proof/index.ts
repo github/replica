@@ -75,6 +75,10 @@ export function createLaunchProof({
     return mac("session", `${id}:${digest}`)
   }
 
+  function bindAccess(address: PrivatePreviewAddress, access: string) {
+    return mac("access", `${address.repositoryId}/${address.runId}:${access}`)
+  }
+
   return {
     start(address: PrivatePreviewAddress, buildId: string, sessionDigest: string, expiresAt: Date) {
       const id = randomUUID()
@@ -134,6 +138,23 @@ export function createLaunchProof({
         challenge: data.challenge,
         page: data.page,
       }
+    },
+    /** Signs a reader session for one mount so another cookie for that path cannot shadow it. */
+    sealAccess(address: PrivatePreviewAddress, access: string) {
+      return `${access}.${bindAccess(address, access)}`
+    },
+    openAccess(value: string, address: PrivatePreviewAddress) {
+      const [access, signature, extra] = value.split(".")
+      if (
+        !access ||
+        !signature ||
+        extra !== undefined ||
+        !previewTokenPattern.test(access) ||
+        !previewTokenPattern.test(signature) ||
+        !timingSafeEqual(Buffer.from(bindAccess(address, access)), Buffer.from(signature))
+      )
+        return null
+      return access
     },
     identifyBuild(address: PrivatePreviewAddress, buildId: string, deadline: number) {
       return seal("build-marker", {

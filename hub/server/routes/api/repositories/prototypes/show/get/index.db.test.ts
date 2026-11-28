@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest"
 import { getDatabaseUrl } from "../../../../../../../test/database/get-database-url"
 import { waitForBlockedQuery } from "../../../../../../../test/database/wait-for-blocked-query"
 import { createApp } from "../../../../../../create-app"
+import { protectedHubSessionCookieSetting } from "../../../../../../integrations/express/hub-session-cookie-name"
 import { prisma } from "../../../../../../integrations/prisma"
 import { createAuthenticationRouteDependencies } from "../../../../auth/create-authentication-route-dependencies"
 import { createProductRouteDependencies } from "../../../../product/create-product-route-dependencies"
@@ -123,14 +124,15 @@ async function withServer(
   restore: AuthenticationRouteDependencies["currentSession"]["restore"],
   operation: (baseUrl: string) => Promise<void>,
   options: { scopeGitHubMembers: boolean } = { scopeGitHubMembers: false },
+  protectedSession = false,
 ) {
   const authentication: AuthenticationRouteDependencies = {
     currentSession: { restore },
     signOut: { applicationOrigin: "http://127.0.0.1:5173", secureCookie: false, end: vi.fn() },
   }
-  const server = createServer(
-    createApp({ authentication, product: createProductRouteDependencies(options) }),
-  )
+  const app = createApp({ authentication, product: createProductRouteDependencies(options) })
+  if (protectedSession) app.set(protectedHubSessionCookieSetting, true)
+  const server = createServer(app)
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   try {
@@ -365,6 +367,32 @@ describe("prototype detail API", () => {
       expect(normal.status).toBe(200)
       expect(await normal.json()).toMatchObject({ showPrototypeInfo: true })
     })
+  })
+
+  it("records an introduction only from Hub itself while the private reader shares its site", async () => {
+    const { restore, token } = await createViewer()
+    const prototype = await createPrototype()
+    await withServer(
+      restore,
+      async (baseUrl) => {
+        const url = `${baseUrl}/api/repositories/${prototype.repositoryId}/prototypes/${prototype.id}`
+        const legacy = await fetch(url, { headers: { cookie: `hub_session=${token}` } })
+        expect(legacy.status).toBe(401)
+
+        const cookie = `__Host-hub_session=${token}`
+        const unknownSource = await fetch(url, { headers: { cookie } })
+        expect(unknownSource.status).toBe(200)
+        expect(await unknownSource.json()).toMatchObject({ showPrototypeInfo: false })
+        expect(await prisma.prototypeIntroduction.count()).toBe(0)
+
+        const fromHub = await fetch(url, { headers: { cookie, "sec-fetch-site": "same-origin" } })
+        expect(fromHub.status).toBe(200)
+        expect(await fromHub.json()).toMatchObject({ showPrototypeInfo: true })
+        expect(await prisma.prototypeIntroduction.count()).toBe(1)
+      },
+      undefined,
+      true,
+    )
   })
 
   it("does not consume an introduction for a HEAD request", async () => {
