@@ -1303,7 +1303,6 @@ describe("authenticationRoutes()", () => {
   })
 
   it.each([
-    { scenario: "legacy when protected is absent", order: ["legacy"], selected: "legacy" },
     { scenario: "protected after legacy", order: ["legacy", "protected"], selected: "protected" },
     { scenario: "protected before legacy", order: ["protected", "legacy"], selected: "protected" },
   ] as const)("restores $scenario without reissuing a cookie", async ({ order, selected }) => {
@@ -1337,6 +1336,24 @@ describe("authenticationRoutes()", () => {
         expect(restoreSession).toHaveBeenCalledExactlyOnceWith(
           createHash("sha256").update(sessions[selected]).digest("hex"),
         )
+      },
+      { trustedProxyHops: 1 },
+    )
+  })
+
+  // A same-site host can set the unprefixed name, whether or not the private reader is enabled.
+  it("ignores a legacy-only session cookie on HTTPS", async () => {
+    const { dependencies, restoreSession } = routeDependencies(httpsApplicationOrigin)
+
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await requestThroughProxy(`${baseUrl}/api/auth/session`, {
+          cookie: `hub_session=${randomBytes(32).toString("base64url")}`,
+        })
+
+        expect(response.statusCode).toBe(401)
+        expect(restoreSession).not.toHaveBeenCalled()
       },
       { trustedProxyHops: 1 },
     )

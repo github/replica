@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { authenticationSecurity } from "../integrations/express/authentication-security/index.ts"
 import { handleError } from "../integrations/express/handle-error/index.ts"
 import {
-  protectedHubSessionCookieSetting,
+  sameSitePreviewReaderSetting,
   secureHubSessionCookieSetting,
 } from "../integrations/express/hub-session-cookie-name/index.ts"
 import { rejectSameSiteApiRequests } from "../integrations/express/reject-same-site-api-requests/index.ts"
@@ -39,7 +39,7 @@ export function createApp({
   app.set(secureHubSessionCookieSetting, authentication?.signOut.secureCookie === true)
   app.use(createRequestLogger(logger))
   if (privatePreview) {
-    app.set(protectedHubSessionCookieSetting, true)
+    app.set(sameSitePreviewReaderSetting, true)
     // Same-site prototype code would otherwise frame signed-in Hub pages. Routes that may be
     // framed, such as the inline launch shell and legacy Build origins, replace this policy.
     app.use((_request, response, next) => {

@@ -496,7 +496,7 @@ describe("createApp()", () => {
 
       const review = await fetch(
         `${base}/api/repositories/${repositoryId}/prototypes/${prototypeId}/review-comments`,
-        { headers: { cookie: "hub_session=local-session" } },
+        { headers: { cookie: "__Host-hub_session=local-session" } },
       )
       expect(review.status).toBe(200)
       expect(await review.json()).toEqual({ comments: [], nextCursor: null, hasMore: false })
@@ -504,7 +504,7 @@ describe("createApp()", () => {
       expect(readPublicLink).toHaveBeenCalledOnce()
 
       const workspace = await fetch(`${base}/api/workspace`, {
-        headers: { cookie: "hub_session=local-session" },
+        headers: { cookie: "__Host-hub_session=local-session" },
       })
       expect(workspace.status).toBe(200)
       expect(await workspace.json()).toMatchObject({

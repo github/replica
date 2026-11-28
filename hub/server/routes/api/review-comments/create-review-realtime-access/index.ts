@@ -25,8 +25,6 @@ export function readReviewChannel(channel: string) {
 export function createReviewRealtimeAccess(
   authentication: AuthenticationRouteDependencies,
   product: ProductRouteDependencies,
-  // Raw upgrade requests have no Express app, so the private reader's cookie rule is passed in.
-  { protectedSessionOnly = false }: { protectedSessionOnly?: boolean } = {},
 ): Pick<
   RealtimeOptions<string>,
   "authenticate" | "authorizeSubscription" | "revalidateSubscriptions"
@@ -34,11 +32,7 @@ export function createReviewRealtimeAccess(
   return {
     async authenticate(request, signal) {
       if (request.headers.origin !== authentication.signOut.applicationOrigin) return null
-      const cookie = readHubSessionCookie(
-        request,
-        authentication.signOut.secureCookie,
-        protectedSessionOnly,
-      )
+      const cookie = readHubSessionCookie(request, authentication.signOut.secureCookie)
       if (!cookie || signal.aborted) return null
       const digest = hashAuthenticationValue(cookie)
       const current = await authentication.currentSession.restore(digest)

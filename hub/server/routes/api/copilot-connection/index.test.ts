@@ -103,8 +103,9 @@ async function withServer(
   }
 }
 
+// HTTP reads hub_session and HTTPS reads only __Host-hub_session, so send both names.
 function sessionHeaders(headers: Record<string, string> = {}) {
-  return { cookie: `hub_session=${sessionValue}`, ...headers }
+  return { cookie: `hub_session=${sessionValue}; __Host-hub_session=${sessionValue}`, ...headers }
 }
 
 describe("copilotConnectionRoutes()", () => {

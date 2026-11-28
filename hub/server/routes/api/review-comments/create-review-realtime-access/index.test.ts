@@ -50,7 +50,7 @@ describe("createReviewRealtimeAccess()", () => {
     },
   )
 
-  it("ignores a legacy-only session cookie while the private reader shares Hub's site", async () => {
+  it("ignores a legacy-only session cookie on HTTPS", async () => {
     const applicationOrigin = "https://hub.example.test"
     const restore = vi.fn()
     const access = createReviewRealtimeAccess(
@@ -59,7 +59,6 @@ describe("createReviewRealtimeAccess()", () => {
         signOut: { applicationOrigin, secureCookie: true, end: vi.fn() },
       },
       {} as ProductRouteDependencies,
-      { protectedSessionOnly: true },
     )
     const request = new IncomingMessage(new Socket())
     request.headers = { origin: applicationOrigin, cookie: "hub_session=legacy-session" }
