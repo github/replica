@@ -52,6 +52,16 @@ export function createScreenshotStore(directory) {
     return path.join(root, `${digest.slice("sha256:".length)}.${owner}.owner`)
   }
 
+  /** True when any repository's marker still claims the image. */
+  async function marked(digest) {
+    const prefix = `${digest.slice("sha256:".length)}.`
+    const names = await readdir(root).catch((error) => {
+      if (error.code === "ENOENT") return []
+      throw error
+    })
+    return names.some((name) => name.startsWith(prefix) && name.endsWith(".owner"))
+  }
+
   function ensureRoot() {
     mkdirSync(root, { recursive: true, mode: 0o700 })
     assertOwnPath(path.dirname(root), root, lstatSync(root), { directory: true })
@@ -87,7 +97,7 @@ export function createScreenshotStore(directory) {
       assertScreenshot(bytes)
       const digest = screenshotDigest(bytes)
       ensureRoot()
-      // The marker comes first, so a removal that starts after it keeps the image.
+      // The marker comes before the image check; remove relies on that order.
       const marker = markerFor(digest, scope)
       try {
         await (
@@ -144,16 +154,22 @@ export function createScreenshotStore(directory) {
         assertOwnPath(root, marker, kind)
         await rm(marker)
       }
-      const prefix = `${digest.slice("sha256:".length)}.`
-      const names = await readdir(root).catch((error) => {
-        if (error.code === "ENOENT") return []
-        throw error
-      })
-      if (names.some((name) => name.startsWith(prefix) && name.endsWith(".owner"))) return
+      if (await marked(digest)) return
       const existing = lstatSync(target, { throwIfNoEntry: false })
       if (!existing) return
       assertOwnPath(root, target, existing)
-      await rm(target)
+      // Another process may store the image between the check above and the delete.
+      // Moving the image aside first means a put that found it has already left its
+      // marker for the second check, and a later put finds no image and writes one.
+      const aside = path.join(root, `.${randomBytes(8).toString("hex")}.removing`)
+      try {
+        await rename(target, aside)
+      } catch (error) {
+        if (error.code === "ENOENT") return
+        throw error
+      }
+      if (await marked(digest)) await rename(aside, target)
+      else await rm(aside)
     },
   }
 }
