@@ -111,7 +111,8 @@ const pickAndPolishNote = z.object({
  *   getLearning(input: object): Promise<unknown>
  *   reviewLearnings?(): Promise<unknown>
  * }} backend
- *   reviewLearnings is optional. Only a host that can show the person a form offers it.
+ *   reviewLearnings is optional. It can show a form or return commands for the person
+ *   to run when the client cannot show forms.
  * @param {{
  *   name?: string
  *   version?: string

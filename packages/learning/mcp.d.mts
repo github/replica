@@ -43,8 +43,8 @@ export interface LearningMcpBackend {
   }): Promise<MemoryReading[]>
   getLearning(input: { id: string }): Promise<unknown>
   /**
-   * Optional. Asks the person, never the agent, to decide on what waits for review.
-   * Offer it only when the host can show the person a form.
+   * Optional. Offers the person a way to decide on pending suggestions, through a form
+   * when supported or commands they can run. It never accepts a decision from the agent.
    */
   reviewLearnings?(): Promise<unknown>
 }
