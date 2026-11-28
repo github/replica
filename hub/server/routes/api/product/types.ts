@@ -20,6 +20,7 @@ import type {
   ReviewRouteActor,
 } from "../../../domains/review-comments/types.ts"
 import type { RepositoryReviewAccess } from "../../../domains/review-comments/authorize-repository-review/index.ts"
+import type { ArtifactReadResult } from "../../../domains/artifacts/create-artifact-storage/types.ts"
 import type { RepositoryPermission } from "../../../integrations/github/read-repository-permission/types.ts"
 import type { findDefaultTemplateBuild } from "../../../repositories/build-artifacts/find-default-template-build/index.ts"
 import type { AnalyticsRouteDependencies } from "../repositories/analytics/types.ts"
@@ -116,6 +117,16 @@ export interface ProductRouteDependencies {
     buildNumber: number,
     target: BuildPreviewTarget,
   ): ReturnType<typeof findBuildPreviewTarget>
+  /**
+   * Reads one stored file of a successful Build after reserving its recorded size; a refused
+   * reservation reports the file as unavailable without reading storage.
+   */
+  readBuildArtifact?(
+    this: void,
+    buildId: string,
+    path: string,
+    reserveBytes: (byteLength: number) => boolean,
+  ): Promise<ArtifactReadResult>
 }
 
 export interface WorkspaceProductRouteDependencies extends ProductRouteDependencies {

@@ -25,8 +25,8 @@ export async function findRepositoryIndex(
     repositoryId: string,
     prototypeId: string,
     buildNumber: number,
-    target: "desktop",
-  ) => string,
+    target: "preview" | "desktop",
+  ) => string | null,
 ) {
   const repository = await database.repository.findFirst({
     where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
@@ -222,6 +222,12 @@ export async function findRepositoryIndex(
     addAuthor(record.author)
     const latestBuild = latestBuilds.get(record.id)
     const preview = previews.get(record.id)
+    function previewUrl(target: "preview" | "desktop") {
+      return preview && buildArtifactUrl
+        ? buildArtifactUrl(preview.id, record.repositoryId, record.id, preview.number, target)
+        : null
+    }
+    const desktopScreenshotUrl = preview?.hasScreenshot ? previewUrl("desktop") : null
     return {
       id: record.id,
       repositoryId: record.repositoryId,
@@ -236,21 +242,11 @@ export async function findRepositoryIndex(
           : null,
       canEdit: false,
       latestBuild: latestBuild ? { number: latestBuild.number, state: latestBuild.state } : null,
-      reviewBuild: preview
-        ? {
-            number: preview.number,
-            desktopScreenshotUrl:
-              preview.hasScreenshot && buildArtifactUrl
-                ? buildArtifactUrl(
-                    preview.id,
-                    record.repositoryId,
-                    record.id,
-                    preview.number,
-                    "desktop",
-                  )
-                : null,
-          }
-        : null,
+      // A Build without a screenshot is a review Build only when Hub can open its preview.
+      reviewBuild:
+        preview && (desktopScreenshotUrl || previewUrl("preview"))
+          ? { number: preview.number, desktopScreenshotUrl }
+          : null,
       builds: [],
     }
   })

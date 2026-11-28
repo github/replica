@@ -254,9 +254,8 @@ try {
                 localAnalyticsAdministration,
               ),
               localAnalyticsAdministration,
-              applicationOrigin: previewConfigured
-                ? authenticationEnvironment.HUB_APPLICATION_ORIGIN
-                : undefined,
+              applicationOrigin: authenticationEnvironment.HUB_APPLICATION_ORIGIN,
+              artifactStorage: storage,
               scopeGitHubMembers: authenticationConfiguration.githubConfigured,
               githubRepositoryCredentials: repositoryCredentials,
               githubReviewDirectory: repositoryCredentials

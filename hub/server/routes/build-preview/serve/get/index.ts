@@ -11,6 +11,7 @@ import { readTemplateScreenshotPath } from "../../../../domains/build-preview/te
 import { reserveBuildPreviewBytes } from "../../../../domains/build-preview/reserve-build-preview-bytes/index.ts"
 import { readSharePreviewSession } from "../../../../domains/public-sharing/read-share-preview-session/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
+import { trackResponseReservations } from "../../../../integrations/express/track-response-reservations/index.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
 
 function setSecurityHeaders(
@@ -63,21 +64,7 @@ export function get(
   }
 
   return async (request, response, next) => {
-    const reservations = new Set<() => void>()
-    let handlingRequest = true
-    let responseEnded = response.destroyed || response.writableFinished
-    function releaseReservations() {
-      if (handlingRequest || !responseEnded) return
-      response.off("finish", onResponseEnd)
-      response.off("close", onResponseEnd)
-      for (const release of reservations) release()
-    }
-    function onResponseEnd() {
-      responseEnded = true
-      releaseReservations()
-    }
-    response.once("finish", onResponseEnd)
-    response.once("close", onResponseEnd)
+    const reservations = trackResponseReservations(response, reserveBuildPreviewBytes)
     try {
       const buildId = readPreviewBuildId(request.get("host"), dependencies.previewBaseOrigin)
       if (!buildId) {
@@ -147,18 +134,7 @@ export function get(
         },
         {
           ...dependencies,
-          reserveBytes(byteLength) {
-            if (responseEnded) return null
-            const reservation = reserveBuildPreviewBytes(byteLength)
-            if (!reservation) return null
-            const release = reservation
-            function trackedRelease() {
-              reservations.delete(trackedRelease)
-              release()
-            }
-            reservations.add(trackedRelease)
-            return trackedRelease
-          },
+          reserveBytes: reservations.reserve,
         },
       )
       if (response.destroyed) return
@@ -196,8 +172,7 @@ export function get(
     } catch (error) {
       next(error)
     } finally {
-      handlingRequest = false
-      releaseReservations()
+      reservations.settle()
     }
   }
 }

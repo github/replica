@@ -40,7 +40,11 @@ Keep the reader off until the separate-site deployment and browser handoff are v
 
 ## Legacy isolated access flow
 
-The prototype response keeps Build selection on `/repositories/:repositoryId/prototypes/:prototypeId?build=N`. A Build with `dist/index.html` receives an authenticated Hub access URL. Screenshot records receive equivalent desktop and narrow URLs.
+The prototype response keeps Build selection on `/repositories/:repositoryId/prototypes/:prototypeId?build=N`. A Build with `dist/index.html` receives an authenticated Hub access URL when `HUB_PREVIEW_ORIGIN` is configured.
+
+Build screenshots do not need the isolated origin. When Hub has artifact storage, prototype tiles and prototype details receive screenshot URLs at `/api/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber/screenshots/:size` on the Hub origin. Hub checks the live session and repository visibility, then serves the stored bytes as `image/png`. Import checks only the PNG signature, so the response headers provide the isolation: `private, no-store`, `nosniff`, a same-origin resource policy, and a sandboxing content security policy. Screenshots therefore appear in installations, such as Azure Container Apps, that do not configure wildcard preview hosts.
+
+Preview access follows these steps:
 
 1. The browser requests the access URL on the Hub origin with its Hub session.
 2. Hub checks the live session again after locating the requested successful Build artifact.
@@ -60,9 +64,9 @@ With the optional private reader configured, the prototype view offers a separat
 
 Package paths remain relative and may not contain empty, dot, dot-dot, control, surrogate, absolute, or backslash segments. `/` serves `dist/index.html`, and directory-style requests first look for their nested `index.html`. A missing extensionless browser route falls back to the application entry point. A dotted route receives the same fallback only when the saved template manifest declares it; missing asset paths return 404. The prototype's normalized start page is used after grant exchange.
 
-Content types come from the checked package path, with unknown extensions served as `application/octet-stream`. HTML is private and revalidated. Immutable assets use a private one-year cache. Desktop and narrow screenshots are served from their package paths through the same Build authorization.
+Content types come from the checked package path, with unknown extensions served as `application/octet-stream`. HTML is private and revalidated. Immutable assets use a private one-year cache. Template screenshots, and screenshots requested through a Build access grant, are served from their package paths through the same Build authorization.
 
-Each serving process has a 100 MiB source-byte allowance for preview reads. Hub shares its allowance across legacy Build origins, template previews, and public links. The standalone reader has its own allowance. The serving process reserves each file's recorded size before reading storage and keeps that reservation until the read settles and the HTTP response finishes or disconnects. A request returns 503 without reading the file when the allowance is full. Small and empty files reserve at least 64 KiB each. Temporary template-manifest reads release their reservation before reading the selected HTML file.
+Each serving process has a 100 MiB source-byte allowance for preview reads. Hub shares its allowance across legacy Build origins, template previews, public links, and Hub-origin Build screenshots. The standalone reader has its own allowance. The serving process reserves each file's recorded size before reading storage and keeps that reservation until the read settles and the HTTP response finishes or disconnects. A request returns 503 without reading the file when the allowance is full. Small and empty files reserve at least 64 KiB each. Temporary template-manifest reads release their reservation before reading the selected HTML file.
 
 This allowance bounds concurrent buffered preview files, not total process memory. Storage downloads can hold chunks and their combined buffer at once, and HTML bridge injection needs additional strings and encoded bytes. Imports and other runtime work need separate headroom within the deployment's memory allocation.
 

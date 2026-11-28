@@ -3,6 +3,7 @@ import { createAnalyticsDestinationService } from "../../../../domains/analytics
 import { createHostedAnalyticsAuthorization } from "../../../../domains/analytics/hosted-authorization/index.ts"
 import { recordAnalyticsEvent } from "../../../../domains/analytics/record-event/index.ts"
 import type { AnalyticsSettings } from "../../../../domains/analytics/types.ts"
+import type { ArtifactStorage } from "../../../../domains/artifacts/create-artifact-storage/types.ts"
 import { restoreHubSession } from "../../../../domains/admission/restore-hub-session/index.ts"
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
 import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
@@ -25,6 +26,7 @@ import type {
   RepositoryPermissionInput,
 } from "../../../../integrations/github/read-repository-permission/types.ts"
 import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit/index.ts"
+import { findBuildArtifact } from "../../../../repositories/build-artifacts/find-build-artifact/index.ts"
 import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target/index.ts"
 import { findDefaultTemplateBuild } from "../../../../repositories/build-artifacts/find-default-template-build/index.ts"
 import { lockGitHubRepositoryAccessState } from "../../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts"
@@ -66,6 +68,8 @@ interface CreateProductRouteDependenciesOptions {
   analyticsSettings?: AnalyticsSettings
   localAnalyticsAdministration?: boolean
   applicationOrigin?: string
+  /** Lets Hub serve Build screenshots from its own origin. */
+  artifactStorage?: ArtifactStorage
   githubRepositoryCredentials?: RepositoryPermissionInput["credentials"]
   requestGitHub?: typeof fetch
   scopeGitHubMembers?: boolean
@@ -92,6 +96,7 @@ export function createProductRouteDependencies({
   analyticsSettings,
   localAnalyticsAdministration = false,
   applicationOrigin,
+  artifactStorage,
   githubRepositoryCredentials,
   requestGitHub,
   scopeGitHubMembers = false,
@@ -269,8 +274,9 @@ export function createProductRouteDependencies({
       }
       return true
     })
+  // Hub serves screenshots under isolating headers; only the dist needs an isolated Build origin.
   const buildArtifactUrl =
-    applicationOrigin && previewBaseOrigin
+    applicationOrigin && artifactStorage
       ? (
           buildId: string,
           repositoryId: string,
@@ -278,10 +284,12 @@ export function createProductRouteDependencies({
           buildNumber: number,
           target: "preview" | "desktop" | "narrow",
         ) => {
-          const url = new URL(
-            `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/${buildNumber}/access`,
-            applicationOrigin,
-          )
+          const buildPath = `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/${buildNumber}`
+          if (target !== "preview") {
+            return new URL(`${buildPath}/screenshots/${target}`, applicationOrigin).toString()
+          }
+          if (!previewBaseOrigin) return null
+          const url = new URL(`${buildPath}/access`, applicationOrigin)
           url.searchParams.set("target", target)
           url.searchParams.set(
             "preview_origin",
@@ -590,5 +598,28 @@ export function createProductRouteDependencies({
     },
     findBuildPreviewTarget: (repositoryId, prototypeId, buildNumber, target) =>
       findBuildPreviewTarget(prisma, { repositoryId, prototypeId, buildNumber, target }),
+    ...(artifactStorage
+      ? {
+          readBuildArtifact: async (
+            buildId: string,
+            path: string,
+            reserveBytes: (byteLength: number) => boolean,
+          ) => {
+            const artifact = await findBuildArtifact(prisma, buildId, path)
+            if (!artifact) return { status: "not-found" as const }
+            if (!reserveBytes(artifact.byteLength)) return { status: "unavailable" as const }
+            const stored = await artifactStorage.read(artifact.storageKey)
+            if (stored.status !== "ok") {
+              return {
+                status: stored.status === "not-found" ? "not-found" : "unavailable",
+              } as const
+            }
+            // A read larger than its reservation would exceed the shared allowance.
+            return stored.bytes.byteLength > artifact.byteLength
+              ? ({ status: "unavailable" } as const)
+              : stored
+          },
+        }
+      : {}),
   }
 }
