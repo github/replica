@@ -13,29 +13,49 @@ function enabledEnvironment(hubOrigin: string, readerOrigin: string) {
 }
 
 describe("readPrivatePreviewSettings()", () => {
-  it("accepts exact HTTPS origins on separate sites", () => {
-    const hubOrigin = "https://hub.example.com"
-    const readerOrigin = "https://preview.example.net"
+  it.each([
+    ["https://replica.example.com", "https://preview.replica.example.com"],
+    [
+      "https://sample-hub.eastus2.azurecontainerapps.io",
+      "https://sample-reader.westus2.azurecontainerapps.io",
+    ],
+  ])("accepts a different HTTPS hostname on the same site (%s, %s)", (hubOrigin, readerOrigin) => {
     const environment = enabledEnvironment(hubOrigin, readerOrigin)
 
     expect(readPrivatePreviewSettings(environment)).toEqual({
       hubOrigin,
       readerOrigin,
       readerSecret: environment.HUB_PRIVATE_PREVIEW_READER_SECRET,
+      inline: false,
     })
   })
 
   it.each([
     ["https://hub.example.com", "https://hub.example.com"],
-    ["https://hub.example.com", "https://preview.example.com"],
-    [
-      "https://sample-hub.eastus2.azurecontainerapps.io",
-      "https://sample-reader.eastus2.azurecontainerapps.io",
-    ],
-  ])("rejects origins on the same site (%s, %s)", (hubOrigin, readerOrigin) => {
+    ["https://hub.example.com", "https://hub.example.com:8443"],
+    ["https://hub.example.com", "https://preview.example.net"],
+    ["https://sample.github.io", "https://preview.github.io"],
+  ])("rejects the same hostname or another site (%s, %s)", (hubOrigin, readerOrigin) => {
     expect(() => readPrivatePreviewSettings(enabledEnvironment(hubOrigin, readerOrigin))).toThrow(
-      "separate site",
+      "same site",
     )
+  })
+
+  it("enables inline playback only when explicitly configured", () => {
+    const environment = enabledEnvironment(
+      "https://replica.example.com",
+      "https://preview.replica.example.com",
+    )
+
+    expect(
+      readPrivatePreviewSettings({ ...environment, HUB_PRIVATE_PREVIEW_INLINE_ENABLED: "true" }),
+    ).toMatchObject({ inline: true })
+    expect(() =>
+      readPrivatePreviewSettings({ ...environment, HUB_PRIVATE_PREVIEW_INLINE_ENABLED: "yes" }),
+    ).toThrow("HUB_PRIVATE_PREVIEW_INLINE_ENABLED")
+    expect(() =>
+      readPrivatePreviewSettings({ HUB_PRIVATE_PREVIEW_INLINE_ENABLED: "true" }),
+    ).toThrow("HUB_PRIVATE_PREVIEW_ENABLED")
   })
 
   it("is disabled by default and ignores reader settings when explicitly disabled", () => {
@@ -58,8 +78,8 @@ describe("readPrivatePreviewSettings()", () => {
     expect(() =>
       readPrivatePreviewSettings({
         HUB_PRIVATE_PREVIEW_ENABLED: "true",
-        HUB_APPLICATION_ORIGIN: "https://hub.example.com",
-        HUB_PRIVATE_PREVIEW_ORIGIN: "https://preview.example.net",
+        HUB_APPLICATION_ORIGIN: "https://replica.example.com",
+        HUB_PRIVATE_PREVIEW_ORIGIN: "https://preview.replica.example.com",
       }),
     ).toThrow("HUB_PRIVATE_PREVIEW_READER_SECRET")
   })

@@ -150,7 +150,9 @@ async function startHub(
       return fetch(`http://127.0.0.1:${port}${path}`, {
         redirect: "manual",
         headers: {
-          ...(viewer ? { cookie: `hub_session=${viewer}`, origin: preview.applicationOrigin } : {}),
+          ...(viewer
+            ? { cookie: `__Host-hub_session=${viewer}`, origin: preview.applicationOrigin }
+            : {}),
           ...(body ? { "content-type": "application/json" } : {}),
         },
         method,

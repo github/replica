@@ -30,6 +30,20 @@
   grid-row: 1;
 }
 
+.review-shell__inline-preview {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--hub-canvas-default);
+}
+
+.review-shell__inline-preview > iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
 .review-shell__empty {
   display: flex;
   flex-direction: column;

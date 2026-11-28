@@ -11,8 +11,9 @@ import { createPrivatePreviewReader } from "."
 const address = privatePreviewAddress("901", "1201")!
 const settings = {
   hubOrigin: "https://hub.example.com",
-  readerOrigin: "https://preview.example.net",
+  readerOrigin: "https://preview.hub.example.com",
   readerSecret: randomBytes(32).toString("base64url"),
+  inline: false,
 }
 const proof = createLaunchProof(settings)
 const buildId = randomUUID()
@@ -27,6 +28,11 @@ function digest(value: string) {
 
 function cookiePair(header: string) {
   return header.split(";")[0]!
+}
+
+// Joins Set-Cookie headers into one Cookie request header.
+function pairs(...headers: string[]) {
+  return headers.map(cookiePair).join("; ")
 }
 
 function cookieValue(header: string) {
@@ -55,7 +61,7 @@ const asset = {
   path: "dist/style.css",
 }
 
-async function startReader(startPage = "/") {
+async function startReader(startPage = "/", inline = false) {
   type ReaderOptions = Parameters<typeof createPrivatePreviewReader>[0]
   const access = randomBytes(32).toString("base64url")
   const exchange = vi
@@ -66,7 +72,7 @@ async function startReader(startPage = "/") {
     .fn<ReaderOptions["readArtifact"]>()
     .mockResolvedValue({ status: "ok", bytes: fixtureBytes })
   const app = createPrivatePreviewReader({
-    settings,
+    settings: { ...settings, inline },
     trustedProxyHops: 1,
     exchange,
     authorizeFile,
@@ -113,39 +119,46 @@ async function startReader(startPage = "/") {
     )
   }
 
-  async function begin(intent = proof.start(address, buildId, digest("session"), new Date())) {
-    return request(address.begin, {
+  async function begin(
+    intent = proof.start(address, buildId, digest("session"), new Date()),
+    target = address,
+    headers: Record<string, string> = {},
+  ) {
+    return request(target.begin, {
       method: "POST",
-      headers: formHeaders,
+      headers: { ...formHeaders, ...headers },
       body: new URLSearchParams({ intent }).toString(),
     })
   }
 
-  function exchangeTicket(ticket: string, cookie?: string) {
-    return request(address.exchange, {
+  function exchangeTicket(ticket: string, cookie?: string, target = address) {
+    return request(target.exchange, {
       method: "POST",
       headers: { ...formHeaders, ...(cookie ? { cookie } : {}) },
       body: new URLSearchParams({ grant: ticket }).toString(),
     })
   }
 
-  async function signIn() {
-    const begun = await begin()
+  async function signIn(target = address) {
+    const begun = await begin(proof.start(target, buildId, digest("session"), new Date()), target)
     expect(begun.status).toBe(200)
     const challenge = begun.headers["set-cookie"]![0]!
     const continuation = formValue(
       begun.body,
-      `${settings.hubOrigin}${address.launchReturn}`,
+      `${settings.hubOrigin}${target.launchReturn}`,
       "continuation",
     )!
-    const { id } = proof.read(continuation, address)!
+    const { id } = proof.read(continuation, target)!
     const grant = randomBytes(32).toString("base64url")
-    const exchanged = await exchangeTicket(`${id}.${grant}`, cookiePair(challenge))
+    const exchanged = await exchangeTicket(`${id}.${grant}`, cookiePair(challenge), target)
     expect(exchanged.status).toBe(303)
     const cookies = exchanged.headers["set-cookie"]!
-    const cookie = cookies.find((value) => value.includes(`=${access};`))!
-    const marker = cookies.find((value) => value.startsWith("__Host-replica-preview-build-"))!
-    return { begun, challenge, continuation, id, grant, exchanged, cookie, marker }
+    const cookie = cookies.find((value) =>
+      value.startsWith(`__Secure-replica-preview-${target.repositoryId}-${target.runId}=`),
+    )!
+    const marker = cookies.find((value) => value.startsWith("__Secure-replica-preview-build-"))!
+    const browser = cookies.find((value) => value.startsWith("__Host-replica-preview-browser="))!
+    return { begun, challenge, continuation, id, grant, exchanged, cookie, marker, browser }
   }
 
   return { request, begin, exchangeTicket, signIn, access, exchange, authorizeFile, readArtifact }
@@ -154,12 +167,13 @@ async function startReader(startPage = "/") {
 describe("createPrivatePreviewReader()", () => {
   it("binds the handoff and checks each document and asset once before its bounded read", async () => {
     const { request, signIn, access, exchange, authorizeFile, readArtifact } = await startReader()
-    const { challenge, continuation, id, grant, exchanged, cookie, marker } = await signIn()
+    const { challenge, continuation, id, grant, exchanged, cookie, marker, browser } =
+      await signIn()
     const challengeDigest = digest(cookieValue(challenge))
     expect(proof.read(continuation, address)?.challenge).toBe(challengeDigest)
     expect(exchange).toHaveBeenCalledWith(grant, address, challengeDigest)
     expect(challenge).toMatch(new RegExp(`^__Host-replica-preview-challenge-${id}=`))
-    expect(challenge).toMatch(/;\s*SameSite=None\b/i)
+    expect(challenge).toMatch(/;\s*SameSite=Lax\b/i)
     expect(exchanged.headers.location).toBe(address.mount)
     expect(exchanged.headers["set-cookie"]).toContainEqual(
       expect.stringMatching(new RegExp(`^__Host-replica-preview-challenge-${id}=;.*Expires=`)),
@@ -167,13 +181,18 @@ describe("createPrivatePreviewReader()", () => {
     expect(cookie).toMatch(/;\s*Max-Age=28800\b/i)
     expect(cookie).toMatch(/;\s*SameSite=Lax\b/i)
     expect(marker).toMatch(/;\s*Max-Age=86400\b/i)
-    for (const header of [challenge, cookie, marker]) {
+    expect(challenge).toMatch(/;\s*Path=\/(?:;|$)/i)
+    expect(cookie).toMatch(/;\s*Path=\/previews\/github\/901\/1201\/(?:;|$)/i)
+    expect(marker).toMatch(/;\s*Path=\/previews\/github\/901\/1201\/(?:;|$)/i)
+    expect(cookieValue(cookie)).not.toBe(access)
+    expect(browser).toMatch(/;\s*Path=\/(?:;|$)/i)
+    for (const header of [challenge, cookie, marker, browser]) {
       expect(header).toMatch(/;\s*HttpOnly\b/i)
       expect(header).toMatch(/;\s*Secure\b/i)
-      expect(header).toMatch(/;\s*Path=\/(?:;|$)/i)
+      expect(header).toMatch(/;\s*SameSite=Lax\b/i)
       expect(header).not.toMatch(/;\s*Domain=/i)
     }
-    const accessCookie = cookiePair(cookie)
+    const accessCookie = pairs(cookie, browser)
 
     const html = Buffer.from("<!doctype html><title>Synthetic preview</title>")
     const files = [
@@ -239,6 +258,172 @@ describe("createPrivatePreviewReader()", () => {
     }
   })
 
+  it("scopes each Build's playback cookies to its own mount across many Builds", async () => {
+    const { request, signIn, authorizeFile } = await startReader()
+    const addresses = Array.from({ length: 20 }, (_, index) =>
+      privatePreviewAddress("901", String(2001 + index))!,
+    )
+    const sessions = []
+    for (const target of addresses) sessions.push({ target, ...(await signIn(target)) })
+
+    for (const { target, cookie, marker } of sessions) {
+      for (const header of [cookie, marker]) {
+        expect(header).toContain(`; Path=${target.mount}`)
+        expect(header).not.toMatch(/;\s*Domain=/i)
+      }
+    }
+    const [first] = sessions
+    for (const { target, cookie, browser } of sessions.slice(0, 3)) {
+      authorizeFile.mockClear()
+      const served = await request(`${target.mount}style.css`, {
+        headers: { cookie: pairs(cookie, browser) },
+      })
+      expect(served.status).toBe(200)
+      expect(authorizeFile).toHaveBeenCalledExactlyOnceWith(
+        expect.any(String),
+        target,
+        asset.path,
+        false,
+      )
+    }
+    authorizeFile.mockClear()
+
+    // A cookie for one Build cannot open another Build or repository, even at that path.
+    const otherRepository = privatePreviewAddress("902", first!.target.runId)!
+    for (const target of [sessions[1]!.target, otherRepository]) {
+      const crossed = await request(`${target.mount}style.css`, {
+        headers: {
+          cookie: `${cookiePair(first!.cookie).replace(
+            `-${first!.target.repositoryId}-${first!.target.runId}=`,
+            `-${target.repositoryId}-${target.runId}=`,
+          )}; ${cookiePair(first!.browser)}`,
+        },
+      })
+      expect(crossed.status).toBe(404)
+    }
+    expect(authorizeFile).not.toHaveBeenCalled()
+
+    // Another host on the site can add a same-named cookie, but it cannot shadow the signed one.
+    const shadowed = await request(`${first!.target.mount}style.css`, {
+      headers: {
+        cookie: `${cookiePair(first!.cookie).split("=")[0]}=${randomBytes(32).toString("base64url")}; ${pairs(first!.cookie, first!.browser)}`,
+      },
+    })
+    expect(shadowed.status).toBe(200)
+    expect(authorizeFile).toHaveBeenCalledExactlyOnceWith(
+      expect.any(String),
+      first!.target,
+      asset.path,
+      false,
+    )
+  })
+
+  it("does not let another browser's genuine playback cookie select its session", async () => {
+    const { request, signIn, exchange, authorizeFile } = await startReader()
+    const other = await signIn()
+    const otherAccess = randomBytes(32).toString("base64url")
+    exchange.mockResolvedValueOnce({ access: otherAccess, startPage: "/", buildId })
+    const own = await signIn()
+    expect(cookieValue(own.browser)).not.toBe(cookieValue(other.browser))
+    authorizeFile.mockClear()
+
+    // A parent-domain copy of the other browser's cookie arrives first, but does not verify here.
+    const response = await request(assetPath, {
+      headers: { cookie: pairs(other.cookie, own.cookie, own.browser) },
+    })
+    expect(response.status).toBe(200)
+    expect(authorizeFile).toHaveBeenCalledExactlyOnceWith(otherAccess, address, asset.path, false)
+    authorizeFile.mockClear()
+
+    const foreignOnly = await request(assetPath, {
+      headers: { cookie: pairs(other.cookie, own.browser) },
+    })
+    const noBrowser = await request(assetPath, { headers: { cookie: pairs(own.cookie) } })
+    expect([foreignOnly.status, noBrowser.status]).toEqual([404, 404])
+    expect(authorizeFile).not.toHaveBeenCalled()
+  })
+
+  it("keeps reader documents unframeable unless inline playback is enabled", async () => {
+    const { request, begin, signIn } = await startReader()
+    const { cookie, browser } = await signIn()
+    const framedBegin = await begin(undefined, address, { "sec-fetch-dest": "iframe" })
+    expect(framedBegin.status).toBe(404)
+    expect(framedBegin.headers["set-cookie"]).toBeUndefined()
+
+    const page = await request(address.mount, {
+      headers: { cookie: pairs(cookie, browser), "sec-fetch-dest": "iframe" },
+    })
+
+    expect(page.headers["x-frame-options"]).toBe("DENY")
+    expect(page.headers["content-security-policy"]).toContain("frame-ancestors 'none'")
+  })
+
+  it("lets only the Hub launch shell frame inline playback and hands it each signed state", async () => {
+    const { request, begin, exchangeTicket, exchange, authorizeFile, readArtifact } =
+      await startReader("/", true)
+    const html = Buffer.from("<!doctype html><title>Synthetic preview</title>")
+    authorizeFile.mockResolvedValue({
+      path: "dist/index.html",
+      storageKey: "synthetic-html",
+      byteLength: html.length,
+    })
+    readArtifact.mockResolvedValue({ status: "ok", bytes: html })
+    function framedMessage(body: string, name: string) {
+      const message = body.match(/parent\.postMessage\((\{[^)]*\}), "([^"]+)"\)/)
+      expect(message?.[2]).toBe(settings.hubOrigin)
+      return (JSON.parse(message![1]!) as Record<string, string>)[name]!
+    }
+    function expectHubFrameOnly(response: { headers: IncomingHttpHeaders }) {
+      expect(response.headers["x-frame-options"]).toBeUndefined()
+      const directives = String(response.headers["content-security-policy"])
+        .split(";")
+        .map((directive) => directive.trim())
+      expect(directives.filter((directive) => directive.startsWith("frame-ancestors"))).toEqual([
+        `frame-ancestors ${settings.hubOrigin}`,
+      ])
+    }
+
+    const begun = await begin(undefined, address, { "sec-fetch-dest": "iframe" })
+    expect(begun.status).toBe(200)
+    expect(begun.body).not.toContain("<form")
+    expectHubFrameOnly(begun)
+    const { id } = proof.read(framedMessage(begun.body, "continuation"), address)!
+    const exchanged = await exchangeTicket(
+      `${id}.${randomBytes(32).toString("base64url")}`,
+      cookiePair(begun.headers["set-cookie"]![0]!),
+    )
+    expect(exchanged.status).toBe(303)
+    expect(exchange).toHaveBeenCalledOnce()
+    const cookies = exchanged.headers["set-cookie"]!
+    const cookie = cookies.find((value) => value.startsWith("__Secure-replica-preview-901-"))!
+    const marker = cookies.find((value) => value.startsWith("__Secure-replica-preview-build-"))!
+    const browser = cookies.find((value) => value.startsWith("__Host-replica-preview-browser="))!
+
+    const page = await request(address.mount, {
+      headers: { cookie: pairs(cookie, browser), "sec-fetch-dest": "iframe" },
+    })
+    expect(page.status).toBe(200)
+    expect(page.body).toBe(html.toString())
+    expectHubFrameOnly(page)
+
+    const renewal = await request(`${address.mount}checkout`, {
+      headers: { ...navigationHeaders(marker, browser), "sec-fetch-dest": "iframe" },
+    })
+    expect(renewal.status).toBe(200)
+    expect(renewal.body).not.toContain("<form")
+    expectHubFrameOnly(renewal)
+    expect(proof.readResume(framedMessage(renewal.body, "resume"), address)).toMatchObject({
+      buildId,
+      page: "/checkout",
+    })
+
+    const topLevel = await request(address.mount, {
+      headers: { cookie: pairs(cookie, browser), "sec-fetch-dest": "document" },
+    })
+    expect(topLevel.headers["x-frame-options"]).toBe("DENY")
+    expect(topLevel.headers["content-security-policy"]).toContain("frame-ancestors 'none'")
+  })
+
   it("does not accept an unrelated Hub cookie or read an anonymous asset", async () => {
     const { request, authorizeFile, readArtifact } = await startReader()
 
@@ -257,7 +442,7 @@ describe("createPrivatePreviewReader()", () => {
     "allows the entry point when the $startPage start document is absent",
     async ({ startPage, candidate }) => {
       const { request, signIn, access, authorizeFile, readArtifact } = await startReader(startPage)
-      const { exchanged, cookie } = await signIn()
+      const { exchanged, cookie, browser } = await signIn()
       const bytes = Buffer.from("<!doctype html><title>Synthetic entry point</title>")
       authorizeFile.mockResolvedValue({
         path: "dist/index.html",
@@ -268,7 +453,7 @@ describe("createPrivatePreviewReader()", () => {
       expect(exchanged.headers.location).toBe(`${address.mount}${startPage.slice(1)}`)
 
       const response = await request(exchanged.headers.location!, {
-        headers: { cookie: cookie.split(";")[0]!, "sec-fetch-dest": "document" },
+        headers: { cookie: pairs(cookie, browser), "sec-fetch-dest": "document" },
       })
 
       expect(response.status).toBe(200)
@@ -279,11 +464,11 @@ describe("createPrivatePreviewReader()", () => {
 
   it("does not treat a missing explicit HTML file as a document route", async () => {
     const { request, signIn, access, authorizeFile, readArtifact } = await startReader()
-    const { cookie } = await signIn()
+    const { cookie, browser } = await signIn()
     authorizeFile.mockResolvedValue(null)
 
     const response = await request(`${address.mount}docs/index.html`, {
-      headers: { cookie: cookie.split(";")[0]!, "sec-fetch-dest": "document" },
+      headers: { cookie: pairs(cookie, browser), "sec-fetch-dest": "document" },
     })
 
     expect(response.status).toBe(404)
@@ -294,6 +479,35 @@ describe("createPrivatePreviewReader()", () => {
       false,
     )
     expect(readArtifact).not.toHaveBeenCalled()
+  })
+
+  it("opens a launch at Hub's requested route but never redirects a renewal elsewhere", async () => {
+    const { request, begin, exchange } = await startReader()
+    async function launch(page: string) {
+      const begun = await begin()
+      const continuation = formValue(
+        begun.body,
+        `${settings.hubOrigin}${address.launchReturn}`,
+        "continuation",
+      )!
+      const { id } = proof.read(continuation, address)!
+      return request(address.exchange, {
+        method: "POST",
+        headers: { ...formHeaders, cookie: pairs(begun.headers["set-cookie"]![0]!) },
+        body: new URLSearchParams({
+          grant: `${id}.${randomBytes(32).toString("base64url")}`,
+          page,
+        }).toString(),
+      })
+    }
+
+    const deepLink = await launch("/checkout?step=2")
+    expect(deepLink.status).toBe(303)
+    expect(deepLink.headers.location).toBe(`${address.mount}checkout?step=2`)
+    exchange.mockClear()
+    const traversal = await launch("/../admin")
+    expect(traversal.status).toBe(404)
+    expect(exchange).not.toHaveBeenCalled()
   })
 
   it("does not exchange a grant without the challenge cookie for that launch", async () => {
@@ -345,15 +559,13 @@ describe("createPrivatePreviewReader()", () => {
     "silently renews a prototype navigation to its route and query when the $reason",
     async ({ ended }) => {
       const { request, exchangeTicket, signIn, exchange, authorizeFile } = await startReader()
-      const { cookie, marker } = await signIn()
+      const { cookie, marker, browser } = await signIn()
       if (ended) authorizeFile.mockResolvedValueOnce("session-ended")
       const page = "/checkout/?step=2"
 
       const navigation = await request(`${address.mount}${page.slice(1)}`, {
         headers: {
-          cookie: [ended ? cookiePair(cookie) : null, cookiePair(marker)]
-            .filter(Boolean)
-            .join("; "),
+          cookie: ended ? pairs(cookie, marker, browser) : pairs(marker, browser),
           "sec-fetch-dest": "document",
           "sec-fetch-mode": "navigate",
           "sec-fetch-site": "same-origin",
@@ -370,7 +582,7 @@ describe("createPrivatePreviewReader()", () => {
       expect(resume).toMatchObject({ buildId, page })
       const resumeCookie = navigation.headers["set-cookie"]![0]!
       expect(resumeCookie).toMatch(new RegExp(`^__Host-replica-preview-resume-${resume.id}=`))
-      expect(resumeCookie).toMatch(/;\s*SameSite=None\b/i)
+      expect(resumeCookie).toMatch(/;\s*SameSite=Lax\b/i)
       expect(resume.challenge).toBe(digest(cookieValue(resumeCookie).split(".")[0]!))
 
       const grant = randomBytes(32).toString("base64url")
@@ -382,12 +594,40 @@ describe("createPrivatePreviewReader()", () => {
     },
   )
 
+  it("does not accept a launch route on a renewal", async () => {
+    const { request, signIn, exchange } = await startReader()
+    const { marker, browser } = await signIn()
+    const navigation = await request(address.mount, { headers: navigationHeaders(marker, browser) })
+    const token = formValue(
+      navigation.body,
+      `${settings.hubOrigin}${address.launchReturn}`,
+      "resume",
+    )!
+    const { id } = proof.readResume(token, address)!
+    exchange.mockClear()
+
+    const renewed = await request(address.exchange, {
+      method: "POST",
+      headers: {
+        ...formHeaders,
+        cookie: pairs(navigation.headers["set-cookie"]![0]!, browser),
+      },
+      body: new URLSearchParams({
+        grant: `${id}.${randomBytes(32).toString("base64url")}`,
+        page: "/elsewhere",
+      }).toString(),
+    })
+
+    expect(renewed.status).toBe(404)
+    expect(exchange).not.toHaveBeenCalled()
+  })
+
   it("does not exchange a renewal after its signed Reader deadline", async () => {
     const { request, exchangeTicket, signIn, exchange } = await startReader()
-    const { marker } = await signIn()
+    const { marker, browser } = await signIn()
     const navigation = await request(address.mount, {
       headers: {
-        cookie: cookiePair(marker),
+        cookie: pairs(marker, browser),
         "sec-fetch-dest": "document",
         "sec-fetch-mode": "navigate",
         "sec-fetch-site": "same-origin",
@@ -413,8 +653,8 @@ describe("createPrivatePreviewReader()", () => {
 
   it("does not open a renewal whose signed state expires while Hub exchanges it", async () => {
     const { request, exchangeTicket, signIn, exchange, access } = await startReader()
-    const { marker } = await signIn()
-    const navigation = await request(address.mount, { headers: navigationHeaders(marker) })
+    const { marker, browser } = await signIn()
+    const navigation = await request(address.mount, { headers: navigationHeaders(marker, browser) })
     const token = formValue(
       navigation.body,
       `${settings.hubOrigin}${address.launchReturn}`,
@@ -438,15 +678,15 @@ describe("createPrivatePreviewReader()", () => {
 
   it("limits pending renewals in one browser", async () => {
     const { request, signIn } = await startReader()
-    const { marker } = await signIn()
+    const { marker, browser } = await signIn()
     const pending = [randomUUID(), randomUUID()].map(
       (id) => `__Host-replica-preview-resume-${id}=pending`,
     )
 
     const response = await request(address.mount, {
       headers: {
-        ...navigationHeaders(marker),
-        cookie: [cookiePair(marker), ...pending].join("; "),
+        ...navigationHeaders(marker, browser),
+        cookie: [pairs(marker, browser), ...pending].join("; "),
       },
     })
 
@@ -454,51 +694,12 @@ describe("createPrivatePreviewReader()", () => {
     expect(response.headers["set-cookie"]).toBeUndefined()
   })
 
-  it("keeps at most eight Builds' cookies by clearing the oldest other Builds", async () => {
-    const { begin, exchangeTicket } = await startReader()
-    const others = Array.from({ length: 8 }, (_, index) => {
-      const other = privatePreviewAddress("902", String(2000 + index))!
-      const marker = proof.identifyBuild(other, randomUUID(), Date.now() + (index + 1) * 60_000)
-      return {
-        access: `__Host-replica-preview-${other.repositoryId}-${other.runId}`,
-        marker: `__Host-replica-preview-build-${other.repositoryId}-${other.runId}`,
-        cookies: [
-          `__Host-replica-preview-${other.repositoryId}-${other.runId}=${randomBytes(32).toString("base64url")}`,
-          `__Host-replica-preview-build-${other.repositoryId}-${other.runId}=${marker}`,
-        ],
-      }
-    })
-    const begun = await begin()
-    const continuation = formValue(
-      begun.body,
-      `${settings.hubOrigin}${address.launchReturn}`,
-      "continuation",
-    )!
-    const { id } = proof.read(continuation, address)!
-
-    const exchanged = await exchangeTicket(
-      `${id}.${randomBytes(32).toString("base64url")}`,
-      [
-        cookiePair(begun.headers["set-cookie"]![0]!),
-        ...others.flatMap(({ cookies }) => cookies),
-      ].join("; "),
-    )
-
-    expect(exchanged.status).toBe(303)
-    const cleared = exchanged.headers["set-cookie"]!.filter((header) =>
-      /^[^=]+=;/.test(header),
-    ).map((header) => header.slice(0, header.indexOf("=")))
-    expect(cleared.sort()).toEqual(
-      [others[0]!.access, others[0]!.marker, `__Host-replica-preview-challenge-${id}`].sort(),
-    )
-  })
-
   it("does not renew into a different Build than the one this browser opened", async () => {
     const { request, exchangeTicket, signIn, exchange } = await startReader()
-    const { marker } = await signIn()
+    const { marker, browser } = await signIn()
     const navigation = await request(address.mount, {
       headers: {
-        cookie: cookiePair(marker),
+        cookie: pairs(marker, browser),
         "sec-fetch-dest": "document",
         "sec-fetch-mode": "navigate",
         "sec-fetch-site": "same-origin",
@@ -539,11 +740,11 @@ describe("createPrivatePreviewReader()", () => {
     "does not renew or show an interstitial for $reason",
     async ({ site, destination, marker }) => {
       const { request, signIn, authorizeFile } = await startReader()
-      const { marker: markerCookie } = await signIn()
+      const { marker: markerCookie, browser } = await signIn()
 
       const response = await request(address.mount, {
         headers: {
-          ...(marker ? { cookie: cookiePair(markerCookie) } : {}),
+          ...(marker ? { cookie: pairs(markerCookie, browser) } : {}),
           "sec-fetch-dest": destination,
           "sec-fetch-mode": "navigate",
           "sec-fetch-site": site,
@@ -563,12 +764,12 @@ describe("createPrivatePreviewReader()", () => {
     { condition: "the authority fails", unavailable: true, status: 503 },
   ])("returns no preview bytes or 304 when $condition", async ({ unavailable, status }) => {
     const { request, signIn, authorizeFile, readArtifact } = await startReader()
-    const { cookie } = await signIn()
+    const { cookie, browser } = await signIn()
     if (unavailable) authorizeFile.mockRejectedValueOnce(new Error("synthetic authority outage"))
     else authorizeFile.mockResolvedValueOnce(null)
 
     const response = await request(assetPath, {
-      headers: { cookie: cookie.split(";")[0]!, "if-none-match": "*" },
+      headers: { cookie: pairs(cookie, browser), "if-none-match": "*" },
     })
 
     expect(response.status).toBe(status)

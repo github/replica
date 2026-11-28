@@ -18,6 +18,8 @@ export function privatePreviewAddress(repositoryId: string, runId: string) {
     mount: `/previews/github/${key}/`,
     launch: `/api/private-preview/launch/${key}`,
     launchReturn: `/api/private-preview/launch/${key}/return`,
+    // The inline shell path is followed by the exact Build ID.
+    inline: `/api/private-preview/inline/${key}`,
     begin: `/__replica/begin/${key}`,
     exchange: `/__replica/exchange/${key}`,
   }

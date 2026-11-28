@@ -87,6 +87,7 @@ interface CreateProductRouteDependenciesOptions {
   }) => Promise<void>
   previewBaseOrigin?: string
   privatePreviewHubOrigin?: string
+  privatePreviewInline?: boolean
   privatePreviewLocalSignIn?: boolean
   getRepositoryPermission?: WorkspaceProductRouteDependencies["getRepositoryPermission"]
   withReviewCommentDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
@@ -105,6 +106,7 @@ export function createProductRouteDependencies({
   onReviewCommentDeleted,
   previewBaseOrigin,
   privatePreviewHubOrigin,
+  privatePreviewInline = false,
   privatePreviewLocalSignIn = false,
   getRepositoryPermission: permissionOverride,
   withReviewCommentDeleteLock,
@@ -462,6 +464,7 @@ export function createProductRouteDependencies({
           canViewPrivatePreview(viewer, privatePreviewLocalSignIn)
             ? privatePreviewHubOrigin
             : undefined,
+          privatePreviewInline,
         ),
       ),
     readPrototypeWithIntroduction: (input, prepare) =>
@@ -490,6 +493,7 @@ export function createProductRouteDependencies({
                     canViewPrivatePreview(viewer, privatePreviewLocalSignIn)
                       ? privatePreviewHubOrigin
                       : undefined,
+                    privatePreviewInline,
                   ),
                 recordIntroduction: (userId, prototypeId) =>
                   recordPrototypeIntroduction(transaction, userId, prototypeId),
@@ -600,6 +604,7 @@ export function createProductRouteDependencies({
                     canViewPrivatePreview(viewer, privatePreviewLocalSignIn)
                       ? privatePreviewHubOrigin
                       : undefined,
+                    privatePreviewInline,
                   ),
               })
             },

@@ -66,6 +66,13 @@ export function PrototypeScreen({
     if (logicalRequest) preview.searchParams.set("route_kind", "logical")
     pageData.selectedBuild.previewUrl = preview.href
   }
+  const inline = pageData.inlinePreviewUrl
+  if (inline && requestedRoute) {
+    const shell = new URL(inline, window.location.origin)
+    shell.searchParams.set("route", requestedRoute)
+    if (logicalRequest) shell.searchParams.set("route_kind", "logical")
+    pageData.inlinePreviewUrl = `${shell.pathname}${shell.search}`
+  }
   const transport = useMemo(() => createReviewTransport(routeUrl), [routeUrl])
   const mentionSource = useMemo(
     () => ({
@@ -142,19 +149,22 @@ export function PrototypeScreen({
     !thread || thread.root.buildNumber === data.selectedBuild?.number
       ? review.bridge.previewMount
       : undefined
-  const reviewLink = pageData.privatePreviewUrl
-    ? privateReviewLink({
-        baseUrl: routeUrl,
-        buildNumber:
-          thread?.root.buildNumber ??
-          (pageData.buildPinned ? data.selectedBuild?.number : undefined),
-        route: route
-          ? `${previewLogicalPathname(route.pathname, mount)}${route.search}${route.hash}`
-          : (requestedRoute ?? pageData.startPage ?? undefined),
-        logicalRoute: route ? mount !== undefined : Boolean(requestedRoute && logicalRequest),
-        threadId: thread?.root.id,
-      })
-    : undefined
+  const reviewLink = !pageData.privatePreviewUrl
+    ? undefined
+    : inline && !thread
+      ? // Inline playback cannot report its route, so link to this Build rather than a guess.
+        privateReviewLink({ baseUrl: routeUrl, buildNumber: data.selectedBuild?.number })
+      : privateReviewLink({
+          baseUrl: routeUrl,
+          buildNumber:
+            thread?.root.buildNumber ??
+            (pageData.buildPinned ? data.selectedBuild?.number : undefined),
+          route: route
+            ? `${previewLogicalPathname(route.pathname, mount)}${route.search}${route.hash}`
+            : (requestedRoute ?? pageData.startPage ?? undefined),
+          logicalRoute: route ? mount !== undefined : Boolean(requestedRoute && logicalRequest),
+          threadId: thread?.root.id,
+        })
   const channel =
     !pageData.reviewReadOnly &&
     /^[\da-f-]{36}$/i.test(data.repository.id) &&

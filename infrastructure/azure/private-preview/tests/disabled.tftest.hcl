@@ -90,9 +90,11 @@ run "stage_a_disabled_reader_without_activating_preview" {
       azurerm_storage_container.reader.container_access_type == "private" &&
       azurerm_role_assignment.reader_artifacts.principal_id == azurerm_user_assigned_identity.reader.principal_id &&
       azurerm_role_assignment.reader_artifacts.role_definition_name == "Storage Blob Data Reader" &&
-      azurerm_role_assignment.reader_artifacts.scope == "${var.storage_account_id}/blobServices/default/containers/${azurerm_storage_container.reader.name}"
+      azurerm_role_assignment.reader_artifacts.scope == "${var.storage_account_id}/blobServices/default/containers/${azurerm_storage_container.reader.name}" &&
+      azurerm_role_assignment.reader_artifacts.condition_version == "2.0" &&
+      strcontains(azurerm_role_assignment.reader_artifacts.condition, "!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'} AND SubOperationMatches{'Blob.List'})")
     )
-    error_message = "Grant the dedicated identity read-only access to the private preview container, not the existing artifacts container or storage account."
+    error_message = "Grant the dedicated identity read-only, listing-denied access to the private preview container, not the existing artifacts container or storage account."
   }
 }
 

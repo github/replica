@@ -50,7 +50,7 @@ describe("findPrototypeDetail()", () => {
       })
     }
     const hub = "https://hub.example.com"
-    function find(origin?: string, number = 1) {
+    function find(origin?: string, number = 1, inline = false) {
       return findPrototypeDetail(
         prisma,
         repository.id,
@@ -60,6 +60,7 @@ describe("findPrototypeDetail()", () => {
         null,
         undefined,
         origin,
+        inline,
       )
     }
 
@@ -76,10 +77,22 @@ describe("findPrototypeDetail()", () => {
         .filter(({ privatePreviewUrl }) => privatePreviewUrl)
         .map(({ number }) => number),
     ).toEqual([1])
+    expect(detail?.selectedBuild?.inlinePreviewUrl).toBeUndefined()
+    const inline = await find(hub, 1, true)
+    expect(inline?.selectedBuild?.inlinePreviewUrl).toBe(
+      `/api/private-preview/inline/2001/4001/${buildId}`,
+    )
+    expect(
+      inline?.prototype.builds
+        .filter(({ inlinePreviewUrl }) => inlinePreviewUrl)
+        .map(({ number }) => number),
+    ).toEqual([1])
+    expect((await find(undefined, 1, true))?.selectedBuild?.inlinePreviewUrl).toBeUndefined()
     for (const number of [5, 6]) {
-      const hidden = await find(hub, number)
+      const hidden = await find(hub, number, true)
       expect(hidden?.selectedBuild?.number).toBe(number)
       expect(hidden?.selectedBuild?.privatePreviewUrl).toBeUndefined()
+      expect(hidden?.selectedBuild?.inlinePreviewUrl).toBeUndefined()
     }
     expect(detail?.repository).toEqual({
       id: repository.id,

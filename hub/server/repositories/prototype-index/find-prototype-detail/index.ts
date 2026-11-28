@@ -26,6 +26,7 @@ export async function findPrototypeDetail(
     target: "preview" | "desktop" | "narrow",
   ) => string | null,
   privatePreviewHubOrigin?: string,
+  privatePreviewInline = false,
 ) {
   const detail = await database.$transaction(
     async (transaction) => {
@@ -213,6 +214,11 @@ export async function findPrototypeDetail(
             ? {
                 privatePreviewUrl: `${privatePreviewHubOrigin}${privateAddress.launch}`,
                 privatePreviewBuildId: build.id,
+                ...(privatePreviewInline
+                  ? {
+                      inlinePreviewUrl: `${privateAddress.inline}/${build.id}`,
+                    }
+                  : {}),
               }
             : {}),
           previewUrl:

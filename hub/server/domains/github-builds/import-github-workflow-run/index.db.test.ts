@@ -343,8 +343,9 @@ describe("importGitHubWorkflowRun", () => {
 
       const settings = {
         hubOrigin: "https://hub.example.com",
-        readerOrigin: "https://preview.example.net",
+        readerOrigin: "https://preview.hub.example.com",
         readerSecret: randomBytes(32).toString("base64url"),
+        inline: false,
       }
       const launch = `${settings.hubOrigin}/api/private-preview/launch/${repositoryId}/${id}`
       const session = randomBytes(32).toString("base64url")
@@ -383,6 +384,41 @@ describe("importGitHubWorkflowRun", () => {
         }),
       )
       const client = createAuthorityClient(hub, settings.readerSecret)
+      // Fetch replaces Sec-Fetch-Mode, so send the browser navigation headers directly.
+      function navigate(url: string, headers: Record<string, string>, body?: string) {
+        return new Promise<Response>((resolve, reject) => {
+          const target = new URL(url)
+          httpRequest(
+            {
+              host: target.hostname,
+              port: target.port,
+              path: `${target.pathname}${target.search}`,
+              method: body === undefined ? "GET" : "POST",
+              headers: { "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", ...headers },
+            },
+            (response) => {
+              const chunks: Buffer[] = []
+              response.on("data", (chunk: Buffer) => chunks.push(chunk))
+              response.on("error", reject)
+              response.on("end", () => {
+                const responseHeaders = new Headers()
+                for (const [name, value] of Object.entries(response.headers)) {
+                  for (const item of [value ?? []].flat()) responseHeaders.append(name, item)
+                }
+                resolve(
+                  new Response(Buffer.concat(chunks), {
+                    status: response.statusCode!,
+                    headers: responseHeaders,
+                  }),
+                )
+              })
+            },
+          )
+            .on("error", reject)
+            .end(body)
+        })
+      }
+      // Hub and the reader share a site, so every handoff form is a same-site navigation.
       function post(
         base: string,
         path: string,
@@ -390,12 +426,17 @@ describe("importGitHubWorkflowRun", () => {
         origin: string,
         cookie?: string,
       ) {
-        return fetch(`${base}${path}`, {
-          method: "POST",
-          redirect: "manual",
-          headers: { origin, ...(cookie ? { cookie } : {}) },
-          body: new URLSearchParams(fields),
-        })
+        return navigate(
+          `${base}${path}`,
+          {
+            origin,
+            "content-type": "application/x-www-form-urlencoded",
+            "sec-fetch-site":
+              base === hub && origin === settings.hubOrigin ? "same-origin" : "same-site",
+            ...(cookie ? { cookie } : {}),
+          },
+          new URLSearchParams(fields).toString(),
+        )
       }
       async function formValue(response: Response, action: string, field: string) {
         expect(response.status).toBe(200)
@@ -480,16 +521,12 @@ describe("importGitHubWorkflowRun", () => {
         `${settings.hubOrigin}${address.launchReturn}`,
         "continuation",
       )
-      const relayed = await formValue(
-        await post(hub, address.launchReturn, { continuation }, settings.readerOrigin),
-        launch,
-        "continuation",
-      )
+      // The same-site return carries the Hub session, so Hub issues the handoff directly.
       const handoff = await post(
         hub,
-        address.launch,
-        { continuation: relayed },
-        settings.hubOrigin,
+        address.launchReturn,
+        { continuation },
+        settings.readerOrigin,
         hubCookie,
       )
       const ticket = await formValue(
@@ -499,9 +536,9 @@ describe("importGitHubWorkflowRun", () => {
       )
       const replay = await post(
         hub,
-        address.launch,
-        { continuation: relayed },
-        settings.hubOrigin,
+        address.launchReturn,
+        { continuation },
+        settings.readerOrigin,
         hubCookie,
       )
       expect(replay.status).toBe(404)
@@ -516,20 +553,25 @@ describe("importGitHubWorkflowRun", () => {
       expect(exchanged.headers.get("location")).toBe(address.mount)
       const readerCookies = exchanged.headers.getSetCookie().map((value) => value.split(";")[0]!)
       const readerCookie = readerCookies.find((value) =>
-        value.startsWith(`__Host-replica-preview-${repositoryId}-`),
+        value.startsWith(`__Secure-replica-preview-${repositoryId}-`),
+      )!
+      const browserCookie = readerCookies.find((value) =>
+        value.startsWith("__Host-replica-preview-browser="),
       )!
       const markerCookie = readerCookies.find((value) =>
-        value.startsWith("__Host-replica-preview-build-"),
+        value.startsWith("__Secure-replica-preview-build-"),
       )!
 
-      const file = await fetch(`${reader}${assetPath}`, { headers: { cookie: readerCookie } })
+      const file = await fetch(`${reader}${assetPath}`, {
+        headers: { cookie: `${readerCookie}; ${browserCookie}` },
+      })
       expect(file.status).toBe(200)
       expect(Buffer.from(await file.arrayBuffer())).toEqual(asset)
       expect((await fetch(`${reader}${assetPath}`)).status).toBe(404)
 
       for (const path of [address.mount, `${address.mount}settings/display`]) {
         const page = await fetch(`${reader}${path}`, {
-          headers: { cookie: readerCookie, "sec-fetch-dest": "document" },
+          headers: { cookie: `${readerCookie}; ${browserCookie}`, "sec-fetch-dest": "document" },
         })
         expect(page.status).toBe(200)
         expect(await page.text()).toBe("<h1>Home</h1>")
@@ -541,38 +583,9 @@ describe("importGitHubWorkflowRun", () => {
         data: { expiresAt: new Date(Date.now() - 1_000) },
       })
       const destination = `${address.mount}settings/display?tab=2`
-      // Fetch replaces Sec-Fetch-Mode, so send the browser navigation headers directly.
-      const navigation = await new Promise<Response>((resolve, reject) => {
-        const target = new URL(`${reader}${destination}`)
-        httpRequest(
-          {
-            host: target.hostname,
-            port: target.port,
-            path: `${target.pathname}${target.search}`,
-            headers: {
-              cookie: `${readerCookie}; ${markerCookie}`,
-              "sec-fetch-dest": "document",
-              "sec-fetch-mode": "navigate",
-              "sec-fetch-site": "same-origin",
-            },
-          },
-          (response) => {
-            const chunks: Buffer[] = []
-            response.on("data", (chunk: Buffer) => chunks.push(chunk))
-            response.on("error", reject)
-            response.on("end", () => {
-              const headers = new Headers()
-              for (const [name, value] of Object.entries(response.headers)) {
-                for (const item of [value ?? []].flat()) headers.append(name, item)
-              }
-              resolve(
-                new Response(Buffer.concat(chunks), { status: response.statusCode!, headers }),
-              )
-            })
-          },
-        )
-          .on("error", reject)
-          .end()
+      const navigation = await navigate(`${reader}${destination}`, {
+        cookie: `${readerCookie}; ${markerCookie}; ${browserCookie}`,
+        "sec-fetch-site": "same-origin",
       })
       const resumeCookie = navigation.headers.getSetCookie()[0]!.split(";")[0]!
       const resume = await formValue(
@@ -580,21 +593,11 @@ describe("importGitHubWorkflowRun", () => {
         `${settings.hubOrigin}${address.launchReturn}`,
         "resume",
       )
-      const relayedResume = await formValue(
-        await post(hub, address.launchReturn, { resume }, settings.readerOrigin),
-        launch,
-        "resume",
-      )
-      const signedOut = await post(
-        hub,
-        address.launch,
-        { resume: relayedResume },
-        settings.hubOrigin,
-      )
+      const signedOut = await post(hub, address.launchReturn, { resume }, settings.readerOrigin)
       expect(signedOut.status).toBe(303)
       expect(signedOut.headers.get("location")).toBe("/")
       const renewal = await formValue(
-        await post(hub, address.launch, { resume: relayedResume }, settings.hubOrigin, hubCookie),
+        await post(hub, address.launchReturn, { resume }, settings.readerOrigin, hubCookie),
         `${settings.readerOrigin}${address.exchange}`,
         "grant",
       )
@@ -603,16 +606,16 @@ describe("importGitHubWorkflowRun", () => {
         address.exchange,
         { grant: renewal },
         settings.hubOrigin,
-        resumeCookie,
+        `${resumeCookie}; ${browserCookie}`,
       )
       expect(renewed.status).toBe(303)
       expect(renewed.headers.get("location")).toBe(destination)
       const renewedCookie = renewed.headers
         .getSetCookie()
         .map((value) => value.split(";")[0]!)
-        .find((value) => value.startsWith(`__Host-replica-preview-${repositoryId}-`))!
+        .find((value) => value.startsWith(`__Secure-replica-preview-${repositoryId}-`))!
       const page = await fetch(`${reader}${destination}`, {
-        headers: { cookie: renewedCookie, "sec-fetch-dest": "document" },
+        headers: { cookie: `${renewedCookie}; ${browserCookie}`, "sec-fetch-dest": "document" },
       })
       expect(page.status).toBe(200)
       expect(await page.text()).toBe("<h1>Home</h1>")

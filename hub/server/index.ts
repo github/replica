@@ -266,6 +266,7 @@ try {
                 ? authenticationEnvironment.HUB_PREVIEW_ORIGIN
                 : undefined,
               privatePreviewHubOrigin: privatePreviewSettings?.hubOrigin,
+              privatePreviewInline: privatePreviewSettings?.inline,
               privatePreviewLocalSignIn: authenticationConfiguration.localConfigured,
               withReviewCommentDeleteLock: (operation) =>
                 learningDependencies.serializeReviewCommentDeletion(operation),

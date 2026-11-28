@@ -57,6 +57,10 @@ export const buildSchema = z.object({
   finishedAt: timestamp.nullable(),
   previewUrl: httpUrl.nullable(),
   privatePreviewUrl: httpUrl.optional(),
+  inlinePreviewUrl: z
+    .string()
+    .regex(/^\/api\/private-preview\/inline\/[0-9]+\/[0-9]+\/[0-9a-f-]{36}$/)
+    .optional(),
   privatePreviewBuildId: z.uuid().optional(),
   desktopScreenshotUrl: httpUrl.nullable(),
   narrowScreenshotUrl: httpUrl.nullable(),

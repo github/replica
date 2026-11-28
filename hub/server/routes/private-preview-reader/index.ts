@@ -20,6 +20,7 @@ import {
 } from "../../domains/private-preview/types.ts"
 import { readCookie } from "../../integrations/express/read-cookie/index.ts"
 import { sendPrivatePreviewForm } from "../../integrations/express/send-private-preview-form/index.ts"
+import { sendPrivatePreviewMessage } from "../../integrations/express/send-private-preview-message/index.ts"
 import { normalizeStartPage } from "../../utils/normalize-start-page/index.ts"
 import {
   privatePreviewAddress,
@@ -29,21 +30,22 @@ import { readPrivatePreviewAddress } from "../../utils/read-private-preview-addr
 
 const challengeCookie = "__Host-replica-preview-challenge"
 const resumeCookie = "__Host-replica-preview-resume"
+// Only this host can set a __Host- cookie, so playback cookies are bound to it.
+const browserCookie = "__Host-replica-preview-browser"
 const maximumPendingChallenges = 12
 const maximumPendingResumes = 2
-// Every retained Build sends its cookies on each request, so keep the header well within limits.
-const maximumRetainedBuilds = 8
-const retainedCookiePattern =
-  /^__Host-replica-preview-(build-)?([1-9][0-9]{0,18})-([1-9][0-9]{0,18})$/
-const cookieOptions = { httpOnly: true, secure: true, path: "/" } as const
-// Hub returns each handoff with a cross-site POST, so its challenge cookie must be SameSite=None.
-const handoffCookieOptions = { ...cookieOptions, sameSite: "none", maxAge: grantLifetime } as const
-const playbackCookieOptions = { ...cookieOptions, sameSite: "lax" } as const
+const cookieOptions = { httpOnly: true, secure: true, sameSite: "lax" } as const
+// Hub and the reader share a site, so each same-site handoff POST carries a Lax challenge.
+const handoffCookieOptions = { ...cookieOptions, path: "/", maxAge: grantLifetime } as const
 const intentForm = z.strictObject({
   intent: z
     .string()
     .regex(/^[A-Za-z0-9_.-]+$/)
     .max(768),
+})
+const exchangeForm = z.strictObject({
+  grant: z.string().max(256),
+  page: z.string().max(2048).optional(),
 })
 const contentPolicy = [
   "default-src 'none'",
@@ -60,7 +62,7 @@ const contentPolicy = [
 ].join("; ")
 
 interface ReaderOptions extends Pick<PrivatePreviewAuthority, "exchange" | "authorizeFile"> {
-  settings: Pick<PrivatePreviewSettings, "hubOrigin" | "readerOrigin" | "readerSecret">
+  settings: Pick<PrivatePreviewSettings, "hubOrigin" | "readerOrigin" | "readerSecret" | "inline">
   trustedProxyHops?: number
   readArtifact(
     this: void,
@@ -70,12 +72,46 @@ interface ReaderOptions extends Pick<PrivatePreviewAuthority, "exchange" | "auth
   ): Promise<ArtifactReadResult>
 }
 
-function accessCookie(repositoryId: string, runId: string) {
-  return `__Host-replica-preview-${repositoryId}-${runId}`
+// Playback cookies stay host-only but use the Build's mount path, so a browser sends only the
+// opened Build's cookies instead of every Build's cookies on each request.
+function accessCookie({ repositoryId, runId }: PrivatePreviewAddress) {
+  return `__Secure-replica-preview-${repositoryId}-${runId}`
 }
 
-function buildCookie(repositoryId: string, runId: string) {
-  return `__Host-replica-preview-build-${repositoryId}-${runId}`
+function buildCookie({ repositoryId, runId }: PrivatePreviewAddress) {
+  return `__Secure-replica-preview-build-${repositoryId}-${runId}`
+}
+
+// Another host on the site can add a same-named cookie, so use the first value that verifies.
+function readSignedCookie(
+  request: Request,
+  name: string,
+  open: (value: string) => string | null,
+): string | null {
+  for (const pair of request.headers.cookie?.split(";") ?? []) {
+    const separator = pair.indexOf("=")
+    if (separator < 0 || pair.slice(0, separator).trim() !== name) continue
+    const value = pair.slice(separator + 1).trim()
+    const opened = value.length <= 512 ? open(value) : null
+    if (opened) return opened
+  }
+  return null
+}
+
+function readBrowser(request: Request) {
+  const browser = readCookie(request, browserCookie)
+  return browser && previewTokenPattern.test(browser) ? browser : null
+}
+
+// Keeps one browser binding for every Build so parallel launches do not replace each other's.
+function ensureBrowser(request: Request, response: Response) {
+  const browser = readBrowser(request) ?? randomBytes(32).toString("base64url")
+  response.cookie(browserCookie, browser, {
+    ...cookieOptions,
+    path: "/",
+    maxAge: buildMarkerLifetime,
+  })
+  return browser
 }
 
 function countCookies(request: Request, prefix: string) {
@@ -89,20 +125,6 @@ function unavailable(response: Response) {
   return response.status(503).type("text").send("Private preview is temporarily unavailable.")
 }
 
-function readCookiePairs(request: Request) {
-  return (request.headers.cookie?.split(";") ?? []).flatMap((pair): [string, string][] => {
-    const separator = pair.indexOf("=")
-    if (separator < 0) return []
-    try {
-      return [
-        [pair.slice(0, separator).trim(), decodeURIComponent(pair.slice(separator + 1).trim())],
-      ]
-    } catch {
-      return []
-    }
-  })
-}
-
 export function createPrivatePreviewReader({
   settings,
   trustedProxyHops = 0,
@@ -113,33 +135,9 @@ export function createPrivatePreviewReader({
   const app = express()
   const readerHost = new URL(settings.readerOrigin).host
   const proof = createLaunchProof(settings)
-  // Clears the oldest other Builds so that adding this one stays within the retained limit.
-  function evictRetainedBuilds(
-    request: Request,
-    response: Response,
-    current: PrivatePreviewAddress,
-  ) {
-    const retained = new Map<string, { repositoryId: string; runId: string; deadline: number }>()
-    for (const [name, value] of readCookiePairs(request)) {
-      const [, marker, repositoryId, runId] = retainedCookiePattern.exec(name) ?? []
-      const address = repositoryId && runId ? privatePreviewAddress(repositoryId, runId) : null
-      if (!address || (repositoryId === current.repositoryId && runId === current.runId)) continue
-      const key = `${repositoryId}/${runId}`
-      const deadline = (marker && proof.readBuild(value, address)?.deadline) || 0
-      retained.set(key, {
-        repositoryId: address.repositoryId,
-        runId: address.runId,
-        deadline: Math.max(deadline, retained.get(key)?.deadline ?? 0),
-      })
-    }
-    const oldest = [...retained.values()].sort((left, right) => left.deadline - right.deadline)
-    for (const { repositoryId, runId } of oldest.slice(
-      0,
-      Math.max(0, oldest.length - maximumRetainedBuilds + 1),
-    )) {
-      response.clearCookie(accessCookie(repositoryId, runId), playbackCookieOptions)
-      response.clearCookie(buildCookie(repositoryId, runId), playbackCookieOptions)
-    }
+  // Only the opted-in Hub launch shell may frame reader documents.
+  function framed(request: Request) {
+    return settings.inline && request.get("sec-fetch-dest") === "iframe"
   }
   app.disable("x-powered-by")
   app.disable("etag")
@@ -174,7 +172,12 @@ export function createPrivatePreviewReader({
     (request, response) => {
       const address = privatePreviewAddress(request.params.repositoryId, request.params.runId)
       const form = intentForm.safeParse(request.body)
-      if (!address || !form.success) return response.sendStatus(404)
+      if (
+        !address ||
+        !form.success ||
+        (request.get("sec-fetch-dest") === "iframe" && !framed(request))
+      )
+        return response.sendStatus(404)
       let atCapacity = false
       // Each launch gets its own challenge, so another tab cannot replace it.
       const continuation = proof.attest(form.data.intent, address, (id) => {
@@ -196,6 +199,9 @@ export function createPrivatePreviewReader({
           .send("Too many pending launches. Wait a moment and reopen the Build.")
       }
       if (!continuation) return response.sendStatus(404)
+      ensureBrowser(request, response)
+      if (framed(request))
+        return sendPrivatePreviewMessage(response, settings.hubOrigin, "continuation", continuation)
       return sendPrivatePreviewForm(
         response,
         settings.hubOrigin,
@@ -216,14 +222,16 @@ export function createPrivatePreviewReader({
       }
       next()
     },
-    express.urlencoded({ extended: false, limit: "1kb", parameterLimit: 1, inflate: false }),
+    express.urlencoded({ extended: false, limit: "4kb", parameterLimit: 2, inflate: false }),
     async (request, response) => {
       const address = privatePreviewAddress(request.params.repositoryId, request.params.runId)
-      const body: unknown = request.body
-      const ticket =
-        typeof body === "object" && body !== null && "grant" in body ? body.grant : null
-      if (!address || typeof ticket !== "string") return response.sendStatus(404)
-      const [id, grant, extra] = ticket.split(".")
+      const form = exchangeForm.safeParse(request.body)
+      if (!address || !form.success) return response.sendStatus(404)
+      // Hub's inline shell can open a launch at a deep-linked route inside this Build's mount.
+      const launchPage = form.data.page
+      if (launchPage !== undefined && normalizeStartPage(launchPage) !== launchPage)
+        return response.sendStatus(404)
+      const [id, grant, extra] = form.data.grant.split(".")
       if (
         extra !== undefined ||
         !z.uuidv4().safeParse(id).success ||
@@ -241,6 +249,7 @@ export function createPrivatePreviewReader({
         !challenge ||
         !previewTokenPattern.test(challenge) ||
         (!renewing && stateParts.length > 0) ||
+        (renewing && launchPage !== undefined) ||
         (renewing &&
           (!resume ||
             resume.id !== id ||
@@ -251,7 +260,8 @@ export function createPrivatePreviewReader({
       }
       try {
         const session = await exchange(grant, address, hashAuthenticationValue(challenge))
-        const page = session && (resume?.page ?? normalizeStartPage(session.startPage))
+        const page =
+          session && (resume?.page ?? launchPage ?? normalizeStartPage(session.startPage))
         if (
           !session ||
           !page ||
@@ -261,16 +271,17 @@ export function createPrivatePreviewReader({
             (resume.buildId !== session.buildId || resume.expiresAt.getTime() <= Date.now()))
         )
           return response.sendStatus(404)
-        evictRetainedBuilds(request, response, address)
         response.clearCookie(name, handoffCookieOptions)
-        response.cookie(accessCookie(address.repositoryId, address.runId), session.access, {
+        const browser = ensureBrowser(request, response)
+        const playbackCookieOptions = { ...cookieOptions, path: address.mount }
+        response.cookie(accessCookie(address), proof.sealAccess(address, browser, session.access), {
           ...playbackCookieOptions,
           maxAge: sessionLifetime,
         })
         // The marker outlives the session so a later prototype navigation can renew this Build.
         response.cookie(
-          buildCookie(address.repositoryId, address.runId),
-          proof.identifyBuild(address, session.buildId, Date.now() + buildMarkerLifetime),
+          buildCookie(address),
+          proof.identifyBuild(address, session.buildId, Date.now() + buildMarkerLifetime, browser),
           { ...playbackCookieOptions, maxAge: buildMarkerLifetime },
         )
         return response
@@ -286,7 +297,9 @@ export function createPrivatePreviewReader({
     const matched = readPrivatePreviewAddress(request.path)
     if (!matched) return response.sendStatus(404)
     const { address, relativePath } = matched
-    const document = request.get("sec-fetch-dest") === "document"
+    const inFrame = framed(request)
+    const document = request.get("sec-fetch-dest") === "document" || inFrame
+    const browser = readBrowser(request)
     // Only a prototype's own navigation renews a Build this browser already opened.
     function renew() {
       if (
@@ -295,11 +308,15 @@ export function createPrivatePreviewReader({
         request.get("sec-fetch-site") !== "same-origin" ||
         request.get("sec-fetch-mode") !== "navigate" ||
         !request.originalUrl.startsWith(address.mount) ||
-        countCookies(request, `${resumeCookie}-`) >= maximumPendingResumes
+        countCookies(request, `${resumeCookie}-`) >= maximumPendingResumes ||
+        !browser
       )
         return null
-      const marker = readCookie(request, buildCookie(address.repositoryId, address.runId))
-      const buildId = marker && proof.readBuild(marker, address)?.buildId
+      const buildId = readSignedCookie(
+        request,
+        buildCookie(address),
+        (marker) => proof.readBuild(marker, address, browser)?.buildId ?? null,
+      )
       if (!buildId) return null
       const challenge = randomBytes(32).toString("base64url")
       const page = `/${request.originalUrl.slice(address.mount.length)}`
@@ -310,6 +327,8 @@ export function createPrivatePreviewReader({
         `${challenge}.${state.token}`,
         handoffCookieOptions,
       )
+      if (inFrame)
+        return sendPrivatePreviewMessage(response, settings.hubOrigin, "resume", state.token)
       return sendPrivatePreviewForm(
         response,
         settings.hubOrigin,
@@ -318,8 +337,12 @@ export function createPrivatePreviewReader({
         state.token,
       )
     }
-    const access = readCookie(request, accessCookie(address.repositoryId, address.runId))
-    if (!access || !previewTokenPattern.test(access)) return renew() ?? response.sendStatus(404)
+    const access =
+      browser &&
+      readSignedCookie(request, accessCookie(address), (value) =>
+        proof.openAccess(value, address, browser),
+      )
+    if (!access) return renew() ?? response.sendStatus(404)
     let relative: string
     try {
       relative = decodeURIComponent(relativePath)
@@ -363,6 +386,16 @@ export function createPrivatePreviewReader({
         if (stored.status === "not-found") return response.sendStatus(404)
         if (stored.status !== "ok" || stored.bytes.byteLength !== file.byteLength)
           return unavailable(response)
+        if (inFrame) {
+          response.removeHeader("X-Frame-Options")
+          response.setHeader(
+            "Content-Security-Policy",
+            contentPolicy.replace(
+              "frame-ancestors 'none'",
+              `frame-ancestors ${settings.hubOrigin}`,
+            ),
+          )
+        }
         response.type(contentTypeForBuildPath(file.path))
         response.setHeader("Content-Length", file.byteLength)
         return response.end(request.method === "HEAD" ? undefined : stored.bytes)

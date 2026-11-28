@@ -10,6 +10,8 @@ import type { ReviewCommentsCopy } from "@utils/review-comment/types"
 export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   buildPinned: boolean
   privatePreviewUrl?: string
+  /** Hub launch shell that plays the selected private Build inline. */
+  inlinePreviewUrl?: string
   privatePreviewBuildId?: string
   privatePreviewLinkLabel: string
   copyPrivatePreviewLinkLabel: string

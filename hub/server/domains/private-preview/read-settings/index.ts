@@ -6,6 +6,7 @@ export interface PrivatePreviewSettings {
   hubOrigin: string
   readerOrigin: string
   readerSecret: string
+  inline: boolean
 }
 
 function readOrigin(value: string | undefined, key: string): URL {
@@ -18,6 +19,14 @@ function readOrigin(value: string | undefined, key: string): URL {
   return origin
 }
 
+function readInline(value: string | undefined) {
+  if (value === undefined || value === "false") return false
+  if (value === "true") return true
+  throw new PrivatePreviewConfigurationError(
+    "HUB_PRIVATE_PREVIEW_INLINE_ENABLED must be true or false.",
+  )
+}
+
 export function readPrivatePreviewSettings(
   environment: NodeJS.ProcessEnv,
 ): PrivatePreviewSettings | undefined {
@@ -25,7 +34,8 @@ export function readPrivatePreviewSettings(
   if (environment.HUB_PRIVATE_PREVIEW_ENABLED === undefined) {
     if (
       environment.HUB_PRIVATE_PREVIEW_ORIGIN !== undefined ||
-      environment.HUB_PRIVATE_PREVIEW_READER_SECRET !== undefined
+      environment.HUB_PRIVATE_PREVIEW_READER_SECRET !== undefined ||
+      environment.HUB_PRIVATE_PREVIEW_INLINE_ENABLED !== undefined
     ) {
       throw new PrivatePreviewConfigurationError(
         "Set HUB_PRIVATE_PREVIEW_ENABLED explicitly for private preview settings.",
@@ -38,21 +48,17 @@ export function readPrivatePreviewSettings(
   }
   const hub = readOrigin(environment.HUB_APPLICATION_ORIGIN, "HUB_APPLICATION_ORIGIN")
   const reader = readOrigin(environment.HUB_PRIVATE_PREVIEW_ORIGIN, "HUB_PRIVATE_PREVIEW_ORIGIN")
-  const hubDomain = getDomain(hub.hostname, { allowPrivateDomains: true })
-  const readerDomain = getDomain(reader.hostname, { allowPrivateDomains: true })
-  const readerParentDomain = getDomain(reader.hostname)
-  const hubParentDomain = getDomain(hub.hostname)
-  if (
-    hub.hostname === reader.hostname ||
-    hub.hostname.endsWith(`.${reader.hostname}`) ||
-    reader.hostname.endsWith(`.${hub.hostname}`) ||
-    (hubDomain !== null && hubDomain === readerDomain)
-  ) {
-    throw new PrivatePreviewConfigurationError("Private preview requires a separate site from Hub.")
-  }
-  if (!hubParentDomain || !readerParentDomain) {
+  // Browsers use the whole Public Suffix List, including its private section, to decide sites.
+  const hubSite = getDomain(hub.hostname, { allowPrivateDomains: true })
+  const readerSite = getDomain(reader.hostname, { allowPrivateDomains: true })
+  if (!hubSite || !readerSite) {
     throw new PrivatePreviewConfigurationError(
       "Private preview requires DNS hostnames for Hub and the reader.",
+    )
+  }
+  if (hub.hostname === reader.hostname || hubSite !== readerSite) {
+    throw new PrivatePreviewConfigurationError(
+      "Private preview requires a different hostname on the same site as Hub.",
     )
   }
   const readerSecret = environment.HUB_PRIVATE_PREVIEW_READER_SECRET
@@ -61,5 +67,10 @@ export function readPrivatePreviewSettings(
       "HUB_PRIVATE_PREVIEW_READER_SECRET must be a 32-byte base64url secret.",
     )
   }
-  return { hubOrigin: hub.origin, readerOrigin: reader.origin, readerSecret }
+  return {
+    hubOrigin: hub.origin,
+    readerOrigin: reader.origin,
+    readerSecret,
+    inline: readInline(environment.HUB_PRIVATE_PREVIEW_INLINE_ENABLED),
+  }
 }
