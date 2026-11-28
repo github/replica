@@ -27,4 +27,4 @@ Ready means implemented and ready for author review, not resolved. Results apply
 
 ## Share notes with learning
 
-When a `replica-learning` server offers `submit_session`, pass the batch's `notes` array unchanged as `pickAndPolishNotes` the next time you call it. The notes reach the conversation only through `improvement_batch`, so this is how the person's notes become learning evidence. Skip this step when no learning server is connected.
+After `improvement_results` succeeds, it returns the updated `notes` with each confirmed Copilot reply attached. When a `replica-learning` server offers `submit_session`, pass that returned `notes` array unchanged as `pickAndPolishNotes` the next time you call it; do not send the earlier immutable batch notes. If no notes were updated or no learning server is connected, skip this step.

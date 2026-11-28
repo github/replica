@@ -845,11 +845,20 @@ it("captures an immutable cross-screen batch while follow-ups wait for the next 
       status: "ready",
       message: "Implemented spacing.",
     }))
-    assert.deepEqual(await store.results({ batchId: batch.id, results }), {
-      batchId: batch.id,
-      completed: true,
-      noteCount: batch.notes.length,
-    })
+    const completed = await store.results({ batchId: batch.id, results })
+    assert.deepEqual(
+      [completed.batchId, completed.completed, completed.noteCount],
+      [batch.id, true, batch.notes.length],
+    )
+    assert.deepEqual(
+      completed.notes.map((note) => note.localId),
+      batch.notes.map((note) => note.localId),
+    )
+    assert.equal(completed.notes[0].thread.messages.at(-1).role, "copilot")
+    assert.equal(completed.notes[0].thread.messages.at(-1).body, "Implemented spacing.")
+    assert.equal(completed.notes[1].thread.messages[0].body, "Implemented spacing.")
+    assert.equal("requestIds" in completed.notes[0], false)
+    assert.equal("selector" in completed.notes[0].anchor, false)
     state = await store.load()
     assert.deepEqual(
       state.notes.map((note) => note.status),
@@ -1116,17 +1125,18 @@ it("reports dispatch failure durably without automatically replaying the request
     assert.match(state.syncError, /outcome is unknown/)
     const batch = await store.batch({ batchId: state.activeBatch })
     assert.equal(batch.state, "delivery_unknown")
+    const completed = await store.results({
+      batchId: batch.id,
+      results: batch.notes.map((note) => ({
+        localId: note.localId,
+        revision: note.revision,
+        status: "ready",
+        message: "Delivery was confirmed and the change is implemented.",
+      })),
+    })
     assert.deepEqual(
-      await store.results({
-        batchId: batch.id,
-        results: batch.notes.map((note) => ({
-          localId: note.localId,
-          revision: note.revision,
-          status: "ready",
-          message: "Delivery was confirmed and the change is implemented.",
-        })),
-      }),
-      { batchId: batch.id, completed: true, noteCount: batch.notes.length },
+      [completed.batchId, completed.completed, completed.noteCount],
+      [batch.id, true, batch.notes.length],
     )
     state = await store.load()
     assert.equal(state.notes[0].status, "ready")
@@ -1467,17 +1477,18 @@ it("rejects ready-note edits with current and stale revisions without changing s
     const openedRevision = state.notes[0].revision
     state = await store.fix(state)
     const batch = await store.batch({ batchId: state.activeBatch })
+    const completed = await store.results({
+      batchId: batch.id,
+      results: batch.notes.map((note) => ({
+        localId: note.localId,
+        revision: note.revision,
+        status: "ready",
+        message: "Implemented the request.",
+      })),
+    })
     assert.deepEqual(
-      await store.results({
-        batchId: batch.id,
-        results: batch.notes.map((note) => ({
-          localId: note.localId,
-          revision: note.revision,
-          status: "ready",
-          message: "Implemented the request.",
-        })),
-      }),
-      { batchId: batch.id, completed: true, noteCount: batch.notes.length },
+      [completed.batchId, completed.completed, completed.noteCount],
+      [batch.id, true, batch.notes.length],
     )
     state = await store.load()
     for (const revision of [openedRevision, state.notes[0].revision]) {

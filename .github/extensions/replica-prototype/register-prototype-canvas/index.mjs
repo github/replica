@@ -512,7 +512,7 @@ export async function registerPrototypeCanvas(
           {
             name: "improvement_results",
             description:
-              "Return ready or blocked outcomes for every note in the user's captured Pick & polish batch. Does not resolve notes, publish, or change source.",
+              "Return ready or blocked outcomes for every note in the user's captured Pick & polish batch, then return updated notes with confirmed Copilot replies. Does not resolve notes, publish, or change source.",
             inputSchema: {
               type: "object",
               additionalProperties: false,
