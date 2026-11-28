@@ -3,6 +3,7 @@ import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises
 import path from "node:path"
 import { LearningError } from "../errors.mjs"
 import { oneLine } from "../recall.mjs"
+import { canonicalJson } from "../canonical-json.mjs"
 import { brandCheckQuestions } from "./questions.mjs"
 
 export const TASK_SCHEMA = "replica.decision-task/v1"
@@ -111,7 +112,12 @@ export async function writeDecisionTaskset(
       schemaVersion: TASKSET_SCHEMA,
       exportId: plan.exportId,
       scope: plan.scope,
-      provenance: plan.provenance,
+      provenance: {
+        ...plan.provenance,
+        evidenceDigest: `sha256:${createHash("sha256")
+          .update(canonicalJson(plan.provenance.evidenceDigests))
+          .digest("hex")}`,
+      },
       retention: { mode: "delete_on_withdrawal" },
       createdAt,
       learnings: rules.length,

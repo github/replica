@@ -209,9 +209,9 @@ class _MemoryTasksets:
                 category="conflict",
             )
         if previous is not None:
-            return previous[1]
+            return replace(previous[1], created=False)
         self._holders.append(holder)
-        artifact = TasksetArtifact(reference, digest, taskset)
+        artifact = TasksetArtifact(reference, digest, taskset, created=True)
         self._items[(_scope_key(context.scope), reference)] = taskset
         self._registrations[(_scope_key(context.scope), reference)] = (
             identity,
@@ -234,6 +234,29 @@ class _MemoryTasksets:
             reference,
             ContentDigest("sha256", reference.removeprefix("taskset:")),
             taskset,
+        )
+
+    def delete(self, reference, context):
+        _check_context(context)
+        if context.scope != self._scope:
+            raise ConnectorError(
+                "scope_unauthorized",
+                "The operation scope does not match this connector bundle.",
+                category="unauthorized",
+            )
+        key = (_scope_key(context.scope), reference)
+        existed = key in self._items
+        self._items.pop(key, None)
+        self._registrations.pop(key, None)
+        return existed
+
+    def list(self, context):
+        _check_context(context)
+        scope = _scope_key(context.scope)
+        return tuple(
+            self.resolve(reference, context)
+            for record_scope, reference in sorted(self._items)
+            if record_scope == scope
         )
 
 
@@ -449,6 +472,7 @@ class _MemoryCandidates:
         self._items = {}
         self._promotions = {}
         self._promotion_idempotency = {}
+        self._owner_scope = None
 
     def put(self, candidate, context):
         _check_context(context)
@@ -460,6 +484,8 @@ class _MemoryCandidates:
                     category="integrity",
                 )
         key = (_scope_key(context.scope), candidate.id)
+        if self._owner_scope is None:
+            self._owner_scope = key[0]
         existing = self._items.get(key)
         if existing is not None and existing != candidate:
             raise ConnectorError(
@@ -532,6 +558,169 @@ class _MemoryCandidates:
         _check_context(context)
         return self._promotions.get(_scope_key(context.scope))
 
+    def delete(self, candidate_id, context):
+        _check_context(context)
+        scope = _scope_key(context.scope)
+        if self._owner_scope is not None and scope != self._owner_scope:
+            raise ConnectorError(
+                "candidate_not_found",
+                "The candidate was not found.",
+                category="not_found",
+            )
+        key = (scope, candidate_id)
+        existed = key in self._items
+        self._items.pop(key, None)
+        return existed
+
+    def list(self, context):
+        _check_context(context)
+        scope = _scope_key(context.scope)
+        return tuple(
+            candidate
+            for (record_scope, _candidate_id), candidate in sorted(self._items.items())
+            if record_scope == scope
+        )
+
+
+class _MemoryPrivacy:
+    def __init__(self):
+        self._copies = {}
+        self._deletions = {}
+        self._retries = {}
+
+    def put_copy(self, record, context):
+        _check_context(context)
+        key = (_scope_key(context.scope), record["id"])
+        existing = self._copies.get(key)
+        if existing is not None and existing != record:
+            raise ConnectorError(
+                "runtime_copy_immutable",
+                "The runtime copy ID already identifies different metadata.",
+                category="conflict",
+            )
+        self._copies[key] = dict(record)
+        return dict(record)
+
+    def get_copy(self, copy_id, context):
+        _check_context(context)
+        try:
+            return dict(self._copies[(_scope_key(context.scope), copy_id)])
+        except KeyError:
+            raise ConnectorError(
+                "runtime_copy_not_found",
+                "The runtime copy was not found.",
+                category="not_found",
+            ) from None
+
+    def list_copies(self, selectors, *, cursor, limit, context):
+        _check_context(context)
+        if not selectors or not 1 <= limit <= 100:
+            raise ConnectorError(
+                "pagination_invalid",
+                "Copy pagination is invalid.",
+                category="invalid_input",
+            )
+        values = []
+        for (scope, _copy_id), record in sorted(self._copies.items()):
+            if scope != _scope_key(context.scope) or (cursor and record["id"] <= cursor):
+                continue
+            matches = {
+                "exportId": record.get("sourceTrainingExportId"),
+                "grantId": record.get("permittingGrantIds", ()),
+                "evidenceDigest": record.get("evidenceDigest"),
+                "tasksetDigest": record.get("tasksetDigest"),
+            }
+            if all(
+                value in matches[name]
+                if isinstance(matches[name], (list, tuple))
+                else matches[name] == value
+                for name, value in selectors.items()
+            ):
+                values.append(dict(record))
+        next_cursor = values[limit - 1]["id"] if len(values) > limit else None
+        return tuple(values[:limit]), next_cursor
+
+    def tombstone_copy(self, copy_id, *, state, retention, context):
+        saved = self.get_copy(copy_id, context)
+        saved["useState"] = state
+        saved["state"] = state
+        if retention is not None:
+            saved["retention"] = dict(retention)
+        self._copies[(_scope_key(context.scope), copy_id)] = saved
+        return dict(saved)
+
+    def create_deletion(self, request, context):
+        _check_context(context)
+        retry = (_scope_key(context.scope), context.idempotency_key)
+        prior = self._retries.get(retry)
+        if prior is not None:
+            request_identity, deletion_key = prior
+            identity = json.dumps(request, sort_keys=True, separators=(",", ":"))
+            if request_identity != identity:
+                raise ConnectorError(
+                    "idempotency_conflict",
+                    "The idempotency key was reused with different input.",
+                    category="conflict",
+                )
+            return dict(self._deletions[deletion_key])
+        deletion_id = f"deletion_{len(self._deletions) + 1}"
+        receipt = {
+            "schemaVersion": "replica.runtime-deletion-receipt/v1",
+            "id": deletion_id,
+            "scope": {
+                "tenantId": context.scope.tenant_id,
+                "repository": context.scope.repository,
+            },
+            **dict(request),
+            "state": "revoking",
+            "createdAt": "2026-11-18T00:00:00Z",
+            "updatedAt": "2026-11-18T00:00:00Z",
+            "items": [],
+            "pendingItems": [],
+            "failures": [],
+            "version": 1,
+        }
+        key = (_scope_key(context.scope), deletion_id)
+        self._deletions[key] = receipt
+        self._retries[retry] = (
+            json.dumps(request, sort_keys=True, separators=(",", ":")),
+            key,
+        )
+        return dict(receipt)
+
+    def get_deletion(self, deletion_id, context):
+        _check_context(context)
+        try:
+            return dict(self._deletions[(_scope_key(context.scope), deletion_id)])
+        except KeyError:
+            raise ConnectorError(
+                "deletion_not_found",
+                "The deletion receipt was not found.",
+                category="not_found",
+            ) from None
+
+    def list_deletions(self, states, context):
+        _check_context(context)
+        return tuple(
+            dict(receipt)
+            for (scope, _deletion_id), receipt in self._deletions.items()
+            if scope == _scope_key(context.scope) and receipt["state"] in states
+        )
+
+    def update_deletion(
+        self, deletion_id, record, *, expected_version, context
+    ):
+        current = self.get_deletion(deletion_id, context)
+        if current["version"] != expected_version:
+            raise ConnectorError(
+                "deletion_version_conflict",
+                "The deletion receipt changed.",
+                category="conflict",
+            )
+        saved = dict(record, version=expected_version + 1)
+        self._deletions[(_scope_key(context.scope), deletion_id)] = saved
+        return dict(saved)
+
 
 class _MemoryExecution:
     name = "contract"
@@ -588,6 +777,15 @@ class _MemoryExecution:
         _check_credential(credential, "inference", context)
         self.inference_contexts.append(context)
         return {"operationId": context.operation_id}
+
+    def delete(self, reference, context):
+        del reference
+        _check_context(context)
+        return True
+
+    def list_results(self, context):
+        _check_context(context)
+        return ()
 
 
 def _check_credential(
@@ -680,6 +878,7 @@ class _MemoryBundle:
             artifacts=_MemoryArtifacts(),
             jobs=_MemoryJobs(),
             candidates=_MemoryCandidates(),
+            privacy=_MemoryPrivacy(),
             training={"contract": self.execution},
             inference={"contract": self.execution},
             credentials=_MemoryCredentials(self.scope),

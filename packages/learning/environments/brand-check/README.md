@@ -301,6 +301,9 @@ The HTTP contract stays independent of the local store and trainer implementatio
 | `GET /v1/jobs/<id>` | Returns `queued`, `running`, `succeeded`, `failed`, or `cancelled` |
 | `POST /v1/jobs/<id>/cancel` | Idempotently cancels a queued or running job; completed jobs return `409 job_terminal` |
 | `GET /v1/candidates/<id>` | Returns the immutable manifest and evaluation report |
+| `GET /v1/runtime-copies` | Discloses bounded, content-free copy metadata for exact export, grant, evidence-digest, or taskset-digest selectors |
+| `POST /v1/deletions` | Revokes matching use, cancels work, deletes or retains copies, and returns a durable idempotent receipt |
+| `GET /v1/deletions/<id>` | Returns the durable content-free deletion receipt |
 | `POST /v1/promotions` | Moves the pointer when required `expectedGeneration` still matches; exact idempotent retries return the applied generation |
 | `POST /v1/rollbacks` | Restores the previous candidate as a new generation when required `expectedGeneration` still matches |
 | `GET /v1/promotion` | Returns the promoted candidate and generation |
@@ -338,6 +341,15 @@ docker compose up --build
 
 Compose binds the service only to localhost and mounts the private runtime state read-write. Upload a taskset, submit a hard-budget job that names its digest, cancel a queued or running job, and repeat promotion or rollback requests with the same generation and idempotency key to exercise restart-safe retries. Keep `REPLICA_RUNTIME_STATE_DIR` on durable storage: it holds job budgets, connector-reported usage, generation history, and retry records. The local factory binds the directory permanently to the configured tenant and repository, so reopening it under another scope fails instead of exposing the first scope's tasksets, jobs, or candidates.
 
+Run the complete consent-withdrawal proof with the optional Compose demo service:
+
+```sh
+docker compose --profile demo up --build \
+  --abort-on-container-exit --exit-code-from lifecycle-demo
+```
+
+The demo uploads a synthetic taskset, trains and promotes the fixture candidate, discloses its runtime copies, withdraws the training grant, verifies that inference is refused, and exits only after the deletion receipt is `completed`.
+
 ### Replace the infrastructure
 
 The runtime contract follows the lifecycle rather than the services of one cloud. [`connectors.py`](connectors.py) defines the interfaces, and [`local_connectors.py`](local_connectors.py) composes the complete single-node implementation:
@@ -348,12 +360,13 @@ The runtime contract follows the lifecycle rather than the services of one cloud
 | Artifact | `LocalArtifactConnector` keeps verified immutable bytes under private SHA-256 paths | Keep immutable candidate inputs and outputs in private content-addressed storage |
 | Job | `LocalJobConnector` keeps atomic JSON records, compare-and-swap versions, durable cancellation, idempotency records, and requires the active expiring worker lease for each state update | Keep durable job state and fence each transactional update through one worker lease |
 | Candidate | `LocalCandidateConnector` keeps read-only candidate files, verifies their digests, and appends generation-checked promotion or rollback decisions with durable idempotency records | Keep immutable candidate manifests and artifacts, with a transactional generation-checked promotion pointer and exact retry result |
+| Privacy | `LocalPrivacyConnector` keeps scoped content-free copy inventory, revocations, retention tombstones, and versioned deletion receipts | Enumerate exact matching copies, durably revoke use before deletion, delete or tombstone through the owning connector, and expose retryable pending items without raw evidence |
 | Training | `LocalTrainingConnector` runs the fixture or real d1 backend inside the bounded local worker, enforces supported hard credit budgets before work, and returns persistable adapter bytes, evaluation evidence, and authoritative usage | Reject unsupported hard budgets before scheduling, stop before exceeding measurable limits, and return the same candidate evidence, authoritative usage, and billed cost |
 | Inference | `LocalInferenceConnector` serves the explicitly promoted fixture adapter or verified pinned d1 base plus promoted adapter | Send evaluation requests only to the explicitly promoted model deployment |
 | Credential | `LocalCredentialConnector` mints short-lived operation-bound credentials from a private installation key | Acquire workload or brokered credentials restricted to the operation, audience, tenant, and repository |
 | Observability | `LocalObservabilityConnector` appends scoped usage, optional cost, and metadata to private JSON Lines | Send the same scoped usage and cost records to the operator's telemetry and billing sinks |
 
-`create_local_connector_bundle` is the composition boundary. `LocalRuntime` uses that factory for tasksets, artifacts, jobs, candidates, training, inference, credentials, and observability; it no longer keeps a second filesystem implementation beside the connectors. Existing `jobs/`, `candidates/`, `promotions/`, and `promotion.json` data remains readable. The factory adds private connector metadata beside it and migrates an existing candidate descriptor when the candidate is first read.
+`create_local_connector_bundle` is the composition boundary. `LocalRuntime` uses that factory for tasksets, artifacts, jobs, candidates, privacy receipts, training, inference, credentials, and observability; it no longer keeps a second filesystem implementation beside the connectors. Existing `jobs/`, `candidates/`, `promotions/`, and `promotion.json` data remains readable. The factory adds private connector metadata beside it and migrates an existing candidate descriptor when the candidate is first read.
 
 Every call receives an `OperationContext`. It names the tenant, repository, owner, operation, idempotency key, monotonic deadline, and cooperative cancellation signal. A retry with the same idempotency key and input returns the first result. Reusing the key for different input is a conflict. Connectors must check cancellation and deadlines before causing side effects.
 
@@ -361,7 +374,7 @@ Artifacts and candidates are immutable. Their identities include content digests
 
 Connector failures use stable codes plus one category: invalid input, not found, conflict, unauthorized, integrity, cancelled, deadline exceeded, unavailable, or internal. Only a connector that knows an operation is safe to repeat marks its error retryable. Usage records always name the operation and customer scope; providers may add quantities and cost, but must not add provider-specific fields to the shared lifecycle records.
 
-[`connector_conformance.py`](connector_conformance.py) returns one reusable `unittest` suite for a fresh connector bundle. Local and hosted implementations run that suite unchanged. Its contract-only fixture proves tenant and repository isolation across every stored record, immutable content, idempotent retries, lease expiry and fencing, promotion generations, cancellation and deadlines, persistable training output, credential boundaries, error classification, and usage/cost attribution.
+[`connector_conformance.py`](connector_conformance.py) returns one reusable `unittest` suite for a fresh connector bundle. Local and hosted implementations run that suite unchanged. Its contract-only fixture proves tenant and repository isolation across every stored record, immutable content, bounded copy enumeration, deletion and retention tombstones, versioned receipts, idempotent retries, lease expiry and fencing, promotion generations, cancellation and deadlines, persistable training output, credential boundaries, error classification, and usage/cost attribution.
 
 The single-node runtime preserves its HTTP API and lifecycle behavior while every infrastructure operation goes through the local bundle. Installed runtimes execute training and each inference request in a spawned process, so a backend and its configuration must remain serializable. Each inference request pays process-startup cost, and model state loaded inside one inference child is not retained for the next request. A future hosted bundle replaces the implementations, not the lifecycle records or routes, and must pass the same suite without provider-specific fields in the shared contracts.
 
@@ -369,7 +382,10 @@ The single-node runtime preserves its HTTP API and lifecycle behavior while ever
 
 - The operator chooses the host. The reference runtime never calls Replica or a cloud service. A later hosted implementation can keep the same job, candidate, promotion, and inference contracts.
 - The operator or hosting layer assigns the tenant and repository scope. A storage connector must return not found, rather than reveal another scope's records. A credential connector must reject another tenant or repository as unauthorized without minting a credential.
-- The taskset contains private screenshots, learning text, and labels. Mount it read-only. A training-consent withdrawal still requires the operator to delete the taskset and every candidate derived from that export.
+- The taskset contains private screenshots, learning text, and labels. The runtime keeps content-free provenance for uploaded and mounted tasksets and every derived candidate and report. A matching deletion request revokes readiness, promotion, inference, and new training before it removes connector-backed copies.
+- A receipt reaches `completed` only after every known copy is deleted or has a documented legal or retention reason. A hosted connector must preserve retryable pending items across restart and must not translate an unavailable delete into success.
+- Model-serving caches, trainer caches, downloaded base models, external model registries, snapshots, backups, and provider logs are outside the reference runtime's connectors. Operators must inventory and clear customer-derived adapters, prompts, embeddings, compiled artifacts, and cache entries there. A shared unmodified base model may be retained only when it contains no customer training data; any merged or fine-tuned weights are a derived copy and must be disclosed and deleted or explicitly retained.
+- Connector implementations must return stable, scope-safe references; implement exact enumeration, deletion, and retention tombstones; make retries idempotent; and keep receipts free of screenshots, learning text, labels, prompts, adapter bytes, and raw evidence.
 - The runtime state contains adapters, evaluation reports, job errors, the promotion pointer, `credentials/local.key`, and the append-only `observability/usage.jsonl` usage and cost log. Back it up or delete it under the customer's retention rules. Candidate files and the local credential key are created read-only and never updated in place. The runtime does not rotate or prune the usage log; the operator must do that while the runtime is stopped.
 - The runtime token authorizes training, promotion, candidate reads, and inference. Keep it in a protected file or secret store and pass it through the environment, not the command line or image.
 - The service uses plain HTTP. Bind it to localhost as shown, or put customer-operated TLS and authentication in front of it before another host can connect.

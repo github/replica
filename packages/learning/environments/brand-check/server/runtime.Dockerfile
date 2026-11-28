@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
 COPY *.py /app/replica_brand_check/
+COPY examples/runtime_deletion_demo.py /app/runtime_deletion_demo.py
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nolog replica
 
 USER replica

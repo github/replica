@@ -69,10 +69,26 @@ def write_taskset(case: unittest.TestCase, tasks: list) -> Path:
     directory = Path(holder.name)
     (directory / "images").mkdir()
     (directory / "images" / "screen.png").write_bytes(PNG)
+    evidence_digests = [digest(b"evidence")]
     manifest = {
         "schemaVersion": "replica.decision-taskset/v1",
         "exportId": "export_test",
         "createdAt": "2026-11-07T00:00:00Z",
+        "provenance": {
+            "exportDigest": digest(b"export"),
+            "grantIds": ["grant_training"],
+            "purposes": ["training"],
+            "reviewDigests": [digest(b"review")],
+            "evidenceDigests": evidence_digests,
+            "evidenceDigest": digest(
+                json.dumps(
+                    evidence_digests,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ),
+        },
+        "retention": {"mode": "delete_on_withdrawal"},
         "counts": {"tasks": len(tasks)},
     }
     (directory / "taskset.json").write_text(json.dumps(manifest), encoding="utf-8")
