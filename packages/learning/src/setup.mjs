@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { constants, lstatSync } from "node:fs"
-import { appendFile, mkdir, open, readFile } from "node:fs/promises"
+import { mkdir, open } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -47,16 +47,29 @@ export async function setupLocalLearning({
     )
 
   const steps = []
+  // Ignoring a path doesn't stop Git committing files it already tracks there.
+  const { stdout: tracked } = await promisify(execFile)("git", [
+    "-C",
+    root,
+    "ls-files",
+    "--",
+    ".replica",
+  ])
+  if (tracked.trim())
+    throw new LearningError(
+      "invalid_input",
+      "Git already tracks files in .replica/. Run git rm -r --cached .replica, commit that, then run setup again.",
+    )
   const ignored = await isIgnoredByGit(root, ".replica", { directory: true })
   if (ignored === null)
     throw new LearningError("invalid_input", "Git could not say whether it ignores .replica/.")
   if (!ignored) {
-    const gitignore = path.join(root, ".gitignore")
-    const current = await readFile(gitignore, "utf8").catch((error) => {
-      if (error.code === "ENOENT") return ""
-      throw error
-    })
-    await appendFile(gitignore, `${current && !current.endsWith("\n") ? "\n" : ""}.replica/\n`)
+    await appendToGitignore(root)
+    if (!(await isIgnoredByGit(root, ".replica", { directory: true })))
+      throw new LearningError(
+        "invalid_input",
+        "Git still commits .replica/ after adding it to .gitignore. Remove the rule that keeps it, then run setup again.",
+      )
     steps.push("Added .replica/ to .gitignore so your chats are never committed.")
   }
 
@@ -93,8 +106,37 @@ export async function setupLocalLearning({
   }
   steps.push(`Wrote ${MCP_CONFIG} for ${actor}.`)
 
-  const command = `copilot --allow-all-mcp-server-instructions --additional-mcp-config @${MCP_CONFIG}`
+  // Server instructions can't be allowed for one server, and the tool descriptions
+  // already say when to call each tool, so the command trusts no other servers.
+  const command = `copilot --additional-mcp-config @${MCP_CONFIG}`
   return { root, config: file, command, steps }
+}
+
+/**
+ * Adds .replica/ to the checkout's own .gitignore. A cloned repository could commit
+ * .gitignore as a link, so setup refuses anything but a plain file and never follows
+ * a link while writing.
+ */
+async function appendToGitignore(root) {
+  const gitignore = path.join(root, ".gitignore")
+  const handle = await open(
+    gitignore,
+    constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | NO_FOLLOW,
+    0o644,
+  ).catch((error) => {
+    if (error.code === "ELOOP" || error.code === "EISDIR")
+      throw new LearningError("invalid_input", `${gitignore} is not a plain file.`)
+    throw error
+  })
+  try {
+    const stats = await handle.stat()
+    if (!stats.isFile() || stats.nlink !== 1)
+      throw new LearningError("invalid_input", `${gitignore} is not a plain file.`)
+    const current = await handle.readFile("utf8")
+    await handle.write(`${current && !current.endsWith("\n") ? "\n" : ""}.replica/\n`)
+  } finally {
+    await handle.close()
+  }
 }
 
 async function hasSdk() {

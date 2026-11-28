@@ -6,7 +6,8 @@ import { promisify } from "node:util"
 import { NO_FOLLOW } from "./providers/files.mjs"
 
 const SCRIPT = fileURLToPath(new URL("../bin/replica-learning.mjs", import.meta.url))
-const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/
+// Enterprise Managed Users have logins like jdoe_acme, so an underscore is allowed.
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,98}[A-Za-z0-9])?$/
 // A person may take a while to read a learning, so a form waits longer than a call.
 export const FORM_TIMEOUT_MS = 30 * 60 * 1000
 const DONE = { accept: "accepted", reject: "rejected", apply: "applied", dismiss: "dismissed" }
@@ -114,7 +115,7 @@ export async function askConsent(elicit, { repository, login }) {
     message: [
       `Learn from your feedback in Copilot chats for ${repository}?`,
       "",
-      "Each chat's messages are kept on this machine in .replica/learning. In the background, Copilot looks for feedback that repeats across chats and suggests it as a learning. That uses your Copilot sign-in and counts toward your Copilot usage.",
+      "Each chat's messages are kept on this machine in .replica/learning. So are the Pick & Polish notes you ask Copilot to fix, with their follow-ups and Copilot's replies. In the background, Copilot looks for feedback that repeats across chats and suggests it as a learning. When the agent reports which learnings a commit used, Copilot also reads that commit's changes to score them. That uses your Copilot sign-in and counts toward your Copilot usage.",
       "",
       "Nothing reaches an agent until you accept it. Run replica-learning grants withdraw to stop at any time.",
     ].join("\n"),
@@ -154,6 +155,7 @@ export async function askConsent(elicit, { repository, login }) {
  *   login?: string,
  *   proposals: Array<{
  *     id: string, title?: string, content: string, themeKey?: string,
+ *     proposal?: { lifecycle?: { action: string, targets?: string[] } },
  *   }>,
  *   updates: Array<{
  *     id: string, issue: string, title?: string, content: string,
@@ -164,20 +166,27 @@ export async function askConsent(elicit, { repository, login }) {
  */
 export async function reviewWithPerson(elicit, { repository, login, proposals, updates, decide }) {
   const items = [
-    ...proposals.map((proposal) => ({
-      id: proposal.id,
-      heading: "Suggested learning",
-      body: [
-        ...(proposal.title ? [proposal.title, ""] : []),
-        proposal.content,
-        ...(proposal.themeKey ? ["", `Theme: ${proposal.themeKey}`] : []),
-      ],
-      choices: [
-        { const: "accept", title: "Accept: agents follow it from now on" },
-        { const: "reject", title: "Reject" },
-      ],
-      wording: proposal.content,
-    })),
+    ...proposals.map((proposal) => {
+      const lifecycle = proposal.proposal?.lifecycle
+      return {
+        id: proposal.id,
+        heading: "Suggested learning",
+        body: [
+          ...(proposal.title ? [proposal.title, ""] : []),
+          proposal.content,
+          ...(proposal.themeKey ? ["", `Theme: ${proposal.themeKey}`] : []),
+          // Accepting can retire other learnings, so the person sees which ones.
+          ...(lifecycle?.targets?.length
+            ? ["", `Accepting it replaces: ${lifecycle.targets.join(", ")} (${lifecycle.action})`]
+            : []),
+        ],
+        choices: [
+          { const: "accept", title: "Accept: agents follow it from now on" },
+          { const: "reject", title: "Reject" },
+        ],
+        wording: proposal.content,
+      }
+    }),
     ...updates.map((update) => ({
       id: update.id,
       heading: "Suggested update",
@@ -266,11 +275,13 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
     })
     if (details.action !== "accept") return { ...counts, stopped: true }
     const choice = details.content ?? {}
-    reviewer = loginOf(choice.login) ?? reviewer
-    if (!reviewer) {
+    // A blank or mistyped login is not anyone's decision, so the item stays undecided.
+    const confirmed = loginOf(choice.login)
+    if (!confirmed) {
       counts.skipped++
       continue
     }
+    reviewer = confirmed
     const content = typeof choice.content === "string" ? choice.content.trim() : ""
     const reason = typeof choice.reason === "string" ? choice.reason.trim().slice(0, 2000) : ""
     if (kind === "reject" && !reason) {

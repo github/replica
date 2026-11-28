@@ -1613,11 +1613,8 @@ async function analyze(session) {
   }
   const directory = session.environment.dataDirectory
   await mkdir(directory, { recursive: true, mode: 0o700 })
-  const lock = createFileLock({
-    path: path.join(directory, "analysis.lock"),
-    timeoutMs: 60 * 60 * 1000,
-  })
-  const summary = await lock.run(async () => {
+  /** Labels, consolidates, and scores in one go, holding the analysis lock. */
+  async function work() {
     const startedAt = timestampFromMilliseconds(session.clock())
     const labeled = await step("label", [
       "label",
@@ -1681,7 +1678,38 @@ async function analyze(session) {
       suggestions: result.proposals,
     })
     return result
+  }
+  const lock = createFileLock({
+    path: path.join(directory, "analysis.lock"),
+    timeoutMs: 60 * 60 * 1000,
   })
+  // One run may wait behind the running one for each commit, or for chats alone. A
+  // later request finds that run waiting and leaves the new data to it.
+  const waiting = createFileLock({
+    path: path.join(directory, `analysis-waiting-${commitSha ?? "chats"}.lock`),
+    timeoutMs: 1000,
+  })
+  let running
+  try {
+    await waiting.run(
+      () =>
+        new Promise((started) => {
+          running = lock.run(async () => {
+            started()
+            return work()
+          })
+          running.catch(started)
+        }),
+    )
+  } catch (error) {
+    if (running || error?.code !== "conflict") throw error
+    session.out(
+      { waiting: true },
+      "Another analysis is waiting to run and will include this one's data.",
+    )
+    return 0
+  }
+  const summary = await running
   session.out(
     summary,
     [
@@ -2000,7 +2028,7 @@ async function serveMcp(session) {
     return agreed?.replace(/^github:/, "") ?? (await localLearning.signedInLogin(session.env))
   }
   /** Asks the person to agree to learning from chats, and records their consent. */
-  async function agreeToLearn() {
+  async function askToLearn() {
     if (!canAskPerson()) return []
     const answer = await localLearning.askConsent(askPerson, {
       repository: repositoryName,
@@ -2023,6 +2051,16 @@ async function serveMcp(session) {
       return [grant.id]
     })
   }
+  // The person answers once per server, even when calls overlap, so a declined form
+  // doesn't come back after every request. A failed form can be shown again.
+  let consent
+  function agreeToLearn() {
+    consent ??= askToLearn().catch((error) => {
+      consent = undefined
+      throw error
+    })
+    return consent
+  }
   /** What a person has yet to decide: suggested learnings and suggested new wording. */
   async function waitingForReview(store) {
     const ctx = context(session, { kind: "system", id: "system:replica-learning-mcp" })
@@ -2042,9 +2080,12 @@ async function serveMcp(session) {
       updates,
     }
   }
+  // Commits whose analysis this server started. A retried report for one of them
+  // needs no second run, but a report this server never analyzed does.
+  const analyzedCommits = new Set()
   /** Starts the labeling, consolidating, and scoring a person would otherwise run. */
   function analyzeLater(commitSha) {
-    if (session.values.manual) return
+    if (session.values.manual || analyzedCommits.has(commitSha)) return
     try {
       session.startAnalysis({
         cwd: session.cwd,
@@ -2052,6 +2093,7 @@ async function serveMcp(session) {
         dataDirectory: session.environment.dataDirectory,
         args: [...storeArguments(session), ...(commitSha ? ["--commit", commitSha] : [])],
       })
+      if (commitSha) analyzedCommits.add(commitSha)
     } catch (error) {
       session.stderr.write(`replica-learning mcp: analysis did not start: ${error.message}\n`)
     }
@@ -2077,30 +2119,40 @@ async function serveMcp(session) {
           }
         }),
       reportUsage: async (report) => {
+        const hasShots = report.used?.some?.((item) => item?.before || item?.after)
+        const screenshotGrant = hasShots
+          ? await withStore((store, ctx) => screenshotGrantId(store, ctx))
+          : undefined
+        // Screenshots are kept only while someone allows Copilot to see them.
+        if (hasShots && !screenshotGrant)
+          throw new LearningError(
+            "grant_inactive",
+            "No one has agreed to let Copilot see screenshots here. Send the report without them.",
+          )
         const used = await readReportScreenshots(session.cwd, report.used)
-        const result = await withStore(async (store, ctx) => {
-          const hasShots = used?.some?.((item) => item?.before || item?.after)
-          const screenshotGrant = hasShots ? await screenshotGrantId(store, ctx) : undefined
-          return store.reportUsage(ctx, {
+        const result = await withStore((store, ctx) =>
+          store.reportUsage(ctx, {
             ...report,
             used,
             ...(screenshotGrant ? { consentGrantId: screenshotGrant } : {}),
-          })
-        })
-        if (result.stored) analyzeLater(report.commitSha)
+          }),
+        )
+        analyzeLater(report.commitSha)
         return result
       },
       submitSession: async (input) => {
-        let grantIds =
-          session.values.grant ??
-          (await withStore(async (store, ctx) =>
-            (await sessionGrants(store, ctx)).map(({ grant }) => grant.id),
-          ))
-        if (!grantIds.length) grantIds = await agreeToLearn()
+        // An explicit --grant list may also name screenshot grants, which don't cover
+        // chats, so only its session grants go to the import.
+        let grantIds = (await withStore((store, ctx) => sessionGrants(store, ctx))).map(
+          ({ grant }) => grant.id,
+        )
+        if (!grantIds.length && !session.values.grant?.length) grantIds = await agreeToLearn()
         if (!grantIds.length)
           throw new LearningError(
             "grant_inactive",
-            "No one has agreed to learn from sessions here. Ask the person to agree in the form this tool shows, or to start the server with --grant.",
+            consent && canAskPerson()
+              ? "The person didn't agree to learn from chats in this session. They can run replica-learning grants add, or start a new session to be asked again."
+              : "No one has agreed to learn from sessions here. Ask the person to agree in the form this tool shows, or to start the server with --grant.",
           )
         const result = await withStore((store, ctx) =>
           store.importAgentSession(ctx, input, { grantIds }),
@@ -2108,7 +2160,8 @@ async function serveMcp(session) {
         const waitingCount = await withStore(
           async (store) => Object.values(await waitingForReview(store)).flat().length,
         )
-        analyzeLater()
+        // A resubmitted conversation with nothing new has nothing new to learn from.
+        if (result.addedEpisodes || result.addedEvents) analyzeLater()
         return { ...result, waitingForReview: waitingCount }
       },
       // Agents read with the instruction purpose, so they see only what recall gives.
@@ -2120,8 +2173,16 @@ async function serveMcp(session) {
         withStore(async (store, ctx) => {
           const item = await store.getMemory(ctx, id, { purpose: "instruction" })
           const { record } = item
+          // Just what list_learnings gives, so evidence and history stay with people.
           if (record.state === "accepted" && !item.withheld && item.status.recallEligible)
-            return item
+            return {
+              id: record.id,
+              state: record.state,
+              kind: record.kind,
+              title: record.title,
+              content: record.content,
+              recalled: true,
+            }
           // A learning no one accepted is not guidance, so its text stays with people.
           const summary = { id: record.id, state: record.state, withheld: true }
           if (record.state !== "proposed") return summary

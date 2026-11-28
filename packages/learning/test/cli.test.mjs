@@ -29,7 +29,9 @@ import {
 } from "../conformance/fixtures.mjs"
 import { main } from "../src/cli.mjs"
 import { sealMemory } from "../src/records.mjs"
-import { reviewWithPerson, startAnalysis } from "../src/local-learning.mjs"
+import { recordActivity, reviewWithPerson, startAnalysis } from "../src/local-learning.mjs"
+import { createFileLock } from "../src/providers/lock.mjs"
+import { setupLocalLearning } from "../src/setup.mjs"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-cli-"))
@@ -144,7 +146,8 @@ async function connect(repo, args, { formAnswers } = {}) {
   const analyses = []
   let errors = ""
   let pending = ""
-  let waiting
+  // Every request waiting for a reply, so overlapping requests each wake up.
+  const waiting = new Set()
   function send(message) {
     stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`)
   }
@@ -159,7 +162,7 @@ async function connect(repo, args, { formAnswers } = {}) {
           continue
         }
         replies.set(message.id, message)
-        waiting?.()
+        for (const wake of waiting) wake()
       }
       return true
     },
@@ -184,7 +187,9 @@ async function connect(repo, args, { formAnswers } = {}) {
     const id = ++next
     send({ id, method, params })
     while (!replies.has(id)) {
-      await Promise.race([new Promise((resolve) => (waiting = resolve)), stopped])
+      const { promise, resolve } = Promise.withResolvers()
+      waiting.add(resolve)
+      await Promise.race([promise, stopped]).finally(() => waiting.delete(resolve))
     }
     return replies.get(id).result
   }
@@ -624,6 +629,25 @@ describe("replica-learning CLI: labeling with a labeler", () => {
         { state: "succeeded", commentsLabeled: 0, suggestions: 0 },
       ],
     )
+  })
+
+  it("leaves new data to an analysis already waiting behind the running one", async () => {
+    const repo = configured("analyze-waiting")
+    const directory = path.join(repo, ".replica", "learning")
+    const finish = Promise.withResolvers()
+    const running = createFileLock({ path: path.join(directory, "analysis.lock") }).run(
+      () => finish.promise,
+    )
+    while (!existsSync(path.join(directory, "analysis.lock"))) await setTimeout(10)
+
+    const waiting = cli(repo, ["analyze", "--json"])
+    while (!existsSync(path.join(directory, "analysis-waiting-chats.lock"))) await setTimeout(10)
+    const later = await ok(repo, ["analyze", "--json"])
+    finish.resolve()
+    await running
+
+    assert.deepEqual(later.json(), { waiting: true })
+    assert.equal((await waiting).code, 0)
   })
 
   it("prints what labeling cost", async () => {
@@ -1746,7 +1770,7 @@ describe("replica-learning CLI: guard rails", () => {
       path.join(repo, "after.png"),
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]),
     )
-    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", sessionGrant.id])
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
     const { call } = mcp
 
     const guidance = (await call("get_guidance", { task: "Build the form" })).data
@@ -1755,24 +1779,50 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(memory.id, proposal.id)
     const [listed] = (await call("list_learnings", {})).data
     assert.ok(guidance.text.includes(listed.content))
+    assert.deepEqual((await call("get_learning", { id: memory.id })).data, listed)
+    const shot = {
+      file: "after.png",
+      route: "/checkout",
+      viewport: { width: 1280, height: 800 },
+      theme: "light",
+      capturedAt: "2026-10-09T12:00:00.000000Z",
+    }
     const report = {
       reportId: "report-1",
       guidanceIds: [guidance.guidanceId],
       commitSha: "a".repeat(40),
-      used: [
-        {
-          deliveryId: memory.deliveryId,
-          after: {
-            file: "after.png",
-            route: "/checkout",
-            viewport: { width: 1280, height: 800 },
-            theme: "light",
-            capturedAt: "2026-10-09T12:00:00.000000Z",
-          },
-        },
-      ],
+      used: [{ deliveryId: memory.deliveryId, after: shot }],
     }
+    assert.match((await call("report_usage", report)).data, /^grant_inactive: /)
+    const screenshotGrant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "evaluation",
+        "--source",
+        "agent_screenshots",
+        "--basis",
+        "The team agreed to let Copilot see screenshots.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
     assert.equal((await call("report_usage", report)).data.stored, true)
+    assert.equal(await mcp.close(), 0)
+
+    // A server that names its grants may name screenshot grants too, which don't cover
+    // chats. It also analyzes a retried report that it never analyzed itself.
+    const named = await connect(repo, [
+      "--actor",
+      "agent:copilot",
+      "--grant",
+      sessionGrant.id,
+      "--grant",
+      screenshotGrant.id,
+    ])
+    assert.equal((await named.call("report_usage", report)).data.stored, false)
     const conversation = {
       sessionId: "s-1",
       messages: [
@@ -1791,11 +1841,22 @@ describe("replica-learning CLI: guard rails", () => {
         },
       ],
     }
-    assert.equal((await call("submit_session", conversation)).error, undefined)
+    assert.equal((await named.call("submit_session", conversation)).error, undefined)
     const stored = (await ok(repo, ["observations", "--purpose", "review", "--json"])).json()
     assert.ok(
       stored.events.some((event) => event.payload?.text === "Keep the labels above the fields."),
     )
+    await ok(repo, [
+      "grants",
+      "withdraw",
+      screenshotGrant.id,
+      "--purpose",
+      "evaluation",
+      "--by",
+      "github:ana-designer",
+    ])
+    const later = { ...report, reportId: "report-2" }
+    assert.match((await named.call("report_usage", later)).data, /^grant_inactive: /)
     await ok(repo, [
       "grants",
       "withdraw",
@@ -1805,11 +1866,13 @@ describe("replica-learning CLI: guard rails", () => {
       "--by",
       "github:ana-designer",
     ])
-    assert.match((await call("submit_session", conversation)).data, /^grant_inactive: /)
+    assert.match((await named.call("submit_session", conversation)).data, /^grant_inactive: /)
 
-    assert.equal(await mcp.close(), 0)
+    assert.equal(await named.close(), 0)
     // Each stored report and session starts the analysis a person would otherwise run.
-    assert.deepEqual(mcp.analyses, [["--commit", "a".repeat(40)], []])
+    const commit = ["--commit", "a".repeat(40)]
+    assert.deepEqual(mcp.analyses, [commit])
+    assert.deepEqual(named.analyses, [commit, []])
     const evidence = path.join(repo, ".replica", "learning", "evidence")
     assert.equal(readdirSync(evidence).filter((name) => name.endsWith(".png")).length, 1)
   })
@@ -1857,6 +1920,9 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(submission.error, undefined)
     assert.equal(submission.data.waitingForReview, 1)
     assert.ok(!JSON.stringify(submission.data).includes(proposal.content))
+    assert.match(mcp.forms[0].message, /Pick & Polish notes/)
+    assert.match(mcp.forms[0].message, /reads that commit's changes/)
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
     const agreed = (await ok(repo, ["grants", "list", "--json"]))
       .json()
       .filter(({ grant }) => grant.sources.includes("agent_session"))
@@ -1879,6 +1945,59 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(accepted.record.content, wording)
     assert.equal(await mcp.close(), 0)
     assert.deepEqual(mcp.analyses, [[]])
+  })
+
+  it("asks once per session when the person declines, even for overlapping requests", async () => {
+    const repo = checkout("mcp-declined")
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [{ action: "decline" }],
+    })
+    const conversation = { sessionId: "s-1", messages: [{ role: "user", text: "Hi." }] }
+
+    const results = await Promise.all([
+      mcp.call("submit_session", conversation),
+      mcp.call("submit_session", conversation),
+    ])
+    const again = await mcp.call("submit_session", conversation)
+
+    assert.equal(mcp.forms.length, 1)
+    for (const result of [...results, again]) assert.match(result.data, /^grant_inactive: /)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("shows what a suggestion replaces and records only a valid login's decision", async () => {
+    const forms = []
+    const decisions = []
+    const answers = [
+      { action: "accept", content: { decision: "accept" } },
+      { action: "accept", content: { login: "  " } },
+      { action: "accept", content: { decision: "accept" } },
+      { action: "accept", content: { login: "jdoe_acme" } },
+    ]
+    const proposal = {
+      id: "new",
+      content: "Keep labels visible.",
+      proposal: { lifecycle: { action: "supersede", targets: ["old-1", "old-2"] } },
+    }
+    const result = await reviewWithPerson(
+      async (form) => {
+        forms.push(form)
+        return answers.shift()
+      },
+      {
+        repository: "acme/checkout-prototypes",
+        login: "ana-designer",
+        proposals: [proposal, { ...proposal, id: "other" }],
+        updates: [],
+        decide: async (choice) => {
+          decisions.push(choice)
+        },
+      },
+    )
+
+    assert.match(forms[0].message, /Accepting it replaces: old-1, old-2 \(supersede\)/)
+    assert.equal(result.skipped, 1)
+    assert.deepEqual(decisions, [{ kind: "accept", id: "other", login: "jdoe_acme" }])
   })
 
   it("asks for a reason only after Reject and leaves a canceled rejection undecided", async () => {
@@ -2137,7 +2256,37 @@ describe("replica-learning CLI: local learning setup", () => {
     const server = JSON.parse(readFileSync(file, "utf8")).mcpServers["replica-learning"]
     assert.deepEqual(server.args.slice(1), ["mcp", "--actor", "agent:claude"])
     assert.equal(server.cwd, realpathSync(repo))
-    assert.match(stdout, /--additional-mcp-config @\.replica\/learning-mcp\.json/)
+    assert.match(stdout, /copilot --additional-mcp-config @\.replica\/learning-mcp\.json/)
+  })
+
+  it("refuses to set up where chats could reach Git or a file outside the checkout", async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-not-checkout-"))
+    after(() => rmSync(outside, { recursive: true, force: true }))
+    const tracked = checkout("setup-tracked", { ignore: false })
+    mkdirSync(path.join(tracked, ".replica"))
+    writeFileSync(path.join(tracked, ".replica", "notes.txt"), "")
+    execFileSync("git", ["-C", tracked, "add", ".replica/notes.txt"])
+    const linked = checkout("setup-linked-gitignore", { ignore: false })
+    const target = path.join(outside, "elsewhere")
+    writeFileSync(target, "")
+    symlinkSync(target, path.join(linked, ".gitignore"))
+
+    const refusals = [
+      [outside, ["setup"], /is not a Git checkout/],
+      [linked, ["setup", "--actor", "copilot"], /--actor must look like agent:/],
+      [tracked, ["setup"], /Git already tracks files in \.replica\//],
+      [linked, ["setup"], /\.gitignore is not a plain file/],
+    ]
+    for (const [cwd, args, message] of refusals) {
+      const result = await cli(cwd, args)
+      assert.equal(result.code, 1, args.join(" "))
+      assert.match(result.stderr, message)
+    }
+    assert.equal(readFileSync(target, "utf8"), "")
+    await assert.rejects(
+      setupLocalLearning({ cwd: linked, sdkInstalled: async () => false }),
+      /needs @modelcontextprotocol\/sdk/,
+    )
   })
 
   it("gives a checkout with no GitHub repository a local ID that keeps its learnings", async () => {
@@ -2181,6 +2330,32 @@ describe("replica-learning CLI: local learning setup", () => {
 
     const doctor = (await ok(repo, ["doctor", "--json"])).json()
     assert.equal(doctor.provider.source, "built-in sqlite")
+  })
+})
+
+describe("recordActivity()", () => {
+  it("refuses an activity log that is a link to another file", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "replica-learning-activity-"))
+    after(() => rmSync(root, { recursive: true, force: true }))
+    const data = path.join(root, "data")
+    mkdirSync(data)
+    const target = path.join(root, "elsewhere.jsonl")
+    writeFileSync(target, "")
+    const run = {
+      startedAt: "2026-10-09T12:00:00.000000Z",
+      state: "succeeded",
+      commentsConsidered: 0,
+      commentsLabeled: 0,
+      suggestions: 0,
+    }
+
+    symlinkSync(target, path.join(data, "activity.jsonl"))
+    assert.throws(() => recordActivity(data, run))
+    rmSync(path.join(data, "activity.jsonl"))
+    linkSync(target, path.join(data, "activity.jsonl"))
+    assert.throws(() => recordActivity(data, run), /is not a private file/)
+
+    assert.equal(readFileSync(target, "utf8"), "")
   })
 })
 
