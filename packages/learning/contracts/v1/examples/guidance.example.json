@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "replica.guidance/v1",
+  "id": "guidance_6f2d8e1a4b7c9035d1e2f3a4",
+  "scope": {
+    "host": "github.com",
+    "repository": "acme/checkout-prototypes"
+  },
+  "requestedAt": "2026-10-12T09:31:00.000000Z",
+  "requestedBy": {
+    "kind": "agent",
+    "id": "agent:copilot",
+    "asserted": true
+  },
+  "via": "local",
+  "session": {
+    "id": "copilot-session-7f3a",
+    "label": "Copilot, 2026-10-12 09:30"
+  },
+  "digest": "sha256:eab823c39fe3afae4818a7cae78af94b07044f17bdba69e0eb0308dd54d3712c"
+}

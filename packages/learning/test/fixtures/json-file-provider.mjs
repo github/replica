@@ -12,6 +12,14 @@ const STREAMS = {
   collections: "capturedAt",
   audit: "at",
   exports: "createdAt",
+  guidance: "requestedAt",
+  deliveries: "deliveredAt",
+  usageReports: "reportedAt",
+  usedLearnings: "reportedAt",
+  screenshots: "capturedAt",
+  scores: "scoredAt",
+  updateProposals: "proposedAt",
+  updateDecisions: "decidedAt",
 }
 
 const queues = new Map()

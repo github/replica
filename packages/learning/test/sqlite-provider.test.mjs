@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -14,11 +15,13 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { DatabaseSync } from "node:sqlite"
+import { DatabaseSync, StatementSync } from "node:sqlite"
 import { after, describe, it } from "node:test"
-import { agent, designer, weekOneLog } from "../conformance/index.mjs"
+import { agent, designer, weekOneLabels, weekOneLog, weekTwoLog } from "../conformance/index.mjs"
+import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
+import { STREAMS } from "../src/provider-contract.mjs"
 import { createSqliteMemoryProvider } from "../src/providers/sqlite.mjs"
-import { SCHEMA_VERSIONS, sealRecord } from "../src/records.mjs"
+import { SCHEMA_VERSIONS, sealEvent, sealRecord } from "../src/records.mjs"
 import { createLearningStore } from "../src/store.mjs"
 
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-sqlite-"))
@@ -145,6 +148,243 @@ describe("SQLite provider", () => {
     }
   })
 
+  it("uses bounded, indexed reads for a decision and its selected evidence", async () => {
+    const created = provider()
+    const selected = {
+      id: "ev_indexeddecision1",
+      scope,
+      episodeId: "ep_indexeddecision1",
+      digest: "sha256:selected",
+    }
+    const unrelated = Array.from({ length: 3000 }, (_, index) => ({
+      id: `ev_otherdecision${index}`,
+      scope,
+      episodeId: `ep_otherdecision${index}`,
+      digest: `sha256:${index}`,
+    }))
+    await created.appendRecords("events", [selected, ...unrelated])
+    const source = {
+      kind: "hub_review_comments",
+      hubOrigin: "https://replica.example.com",
+      repositoryId: 42,
+      prototypeId: 7,
+      threadId: 1,
+    }
+    const episode = { id: selected.episodeId, scope, source, digest: "sha256:episode" }
+    const related = { ...episode, id: "ep_relateddecision1", digest: "sha256:related" }
+    await created.appendRecords("episodes", [
+      episode,
+      related,
+      ...unrelated.map((event, index) => ({
+        id: event.episodeId,
+        scope,
+        source: { ...source, threadId: index + 10 },
+        digest: event.digest,
+      })),
+    ])
+    const activeGrant = sealRecord({
+      ...grant("grant_activeindexed1"),
+      purposes: ["instruction"],
+      expiresAt: "2026-10-10T00:00:00.000000Z",
+    })
+    const expiredGrants = Array.from({ length: 3000 }, (_, index) =>
+      sealRecord({
+        ...grant(`grant_expiredindexed${index}`),
+        purposes: ["instruction"],
+        expiresAt: "2026-10-05T00:00:00.000000Z",
+      }),
+    )
+    await created.appendRecords("grants", [activeGrant, ...expiredGrants])
+    const database = new DatabaseSync(created.manifest().storage.location)
+    database.exec("analyze")
+    const prepare = DatabaseSync.prototype.prepare
+    const all = StatementSync.prototype.all
+    const get = StatementSync.prototype.get
+    const prepared = new WeakMap()
+    const queries = []
+    DatabaseSync.prototype.prepare = function (sql) {
+      const statement = prepare.call(this, sql)
+      prepared.set(statement, sql)
+      return statement
+    }
+    StatementSync.prototype.all = function (...values) {
+      const rows = all.apply(this, values)
+      const sql = prepared.get(this)
+      if (sql && /^\s*select\b/i.test(sql)) queries.push({ sql, values, count: rows.length })
+      return rows
+    }
+    StatementSync.prototype.get = function (...values) {
+      const row = get.apply(this, values)
+      const sql = prepared.get(this)
+      if (sql && /^\s*select\b/i.test(sql)) queries.push({ sql, values, count: row ? 1 : 0 })
+      return row
+    }
+    let fenceReads
+    let idReads
+    let episodeReads
+    let threadReads
+    let consentReads
+    try {
+      await created.decisionFence(scope)
+      fenceReads = queries.splice(0)
+      assert.deepEqual(await created.readRecords("events", { scope, ids: [selected.id] }), [
+        selected,
+      ])
+      idReads = queries.splice(0)
+      assert.deepEqual(
+        await created.readRecords("events", { scope, episodeIds: [selected.episodeId] }),
+        [selected],
+      )
+      episodeReads = queries.splice(0)
+      assert.deepEqual(
+        new Set(await created.readRelatedEpisodeIds(scope, [episode.id])),
+        new Set([episode.id, related.id]),
+      )
+      threadReads = queries.splice(0)
+      const inputs = await created.readDecisionInputs(scope, {
+        evidence: [{ source: "hub_review_comments", at: "2026-10-03T00:00:00.000000Z" }],
+        at: "2026-10-09T12:00:00.000000Z",
+        purpose: "instruction",
+        hubSources: [],
+        eventIds: [selected.id],
+      })
+      assert.deepEqual(inputs.grants, [activeGrant])
+      consentReads = queries.splice(0)
+    } catch (error) {
+      database.close()
+      throw error
+    } finally {
+      DatabaseSync.prototype.prepare = prepare
+      StatementSync.prototype.all = all
+      StatementSync.prototype.get = get
+    }
+    try {
+      assert.ok(fenceReads.length > 0)
+      assert.ok(
+        fenceReads
+          .filter(({ sql }) => /\bfrom\s+(records|memory_versions)\b/i.test(sql))
+          .every(({ count }) => count <= 10),
+        "A decision fence read unrelated evidence.",
+      )
+      for (const [reads, key] of [
+        [idReads, /\bid=\?/],
+        [episodeReads, /\bepisode_id=\?/],
+      ]) {
+        const query = reads.find(({ sql }) => /\bfrom\s+records\b/i.test(sql))
+        assert.ok(query)
+        const plan = database.prepare(`explain query plan ${query.sql}`).all(...query.values)
+        assert.ok(
+          plan.some(
+            ({ detail }) =>
+              /SEARCH records USING (?:COVERING )?INDEX/.test(detail) && key.test(detail),
+          ),
+          JSON.stringify(plan),
+        )
+      }
+      const threadQuery = threadReads.find(({ sql }) => /\bjoin\s+records\b/i.test(sql))
+      assert.ok(threadQuery)
+      const threadPlan = database
+        .prepare(`explain query plan ${threadQuery.sql}`)
+        .all(...threadQuery.values)
+      assert.ok(
+        threadPlan.some(
+          ({ detail }) =>
+            /SEARCH related USING (?:COVERING )?INDEX/.test(detail) &&
+            (detail.match(/<expr>=\?/g)?.length ?? 0) >= 4,
+        ),
+        JSON.stringify(threadPlan),
+      )
+      const grantQuery = consentReads.find(({ sql }) => /\bdecision_grant_sources\b/i.test(sql))
+      assert.ok(grantQuery)
+      const grantPlan = database
+        .prepare(`explain query plan ${grantQuery.sql}`)
+        .all(...grantQuery.values)
+      assert.ok(
+        grantPlan.some(
+          ({ detail }) =>
+            /SEARCH source USING INDEX decision_grant_sources_by_expiry/.test(detail) &&
+            /expires_at>\?/.test(detail),
+        ),
+        JSON.stringify(grantPlan),
+      )
+    } finally {
+      database.close()
+    }
+  })
+
+  it("refuses an edit when a stored withdrawal's grant ID is damaged", async () => {
+    const created = provider()
+    const store = await createLearningStore({
+      provider: created,
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const consent = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [consent.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const accepted = await store.acceptMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+    })
+    const { withdrawal } = await store.withdrawGrant(designer(), consent.id, {
+      purposes: ["instruction"],
+    })
+    const input = {
+      expectedDigest: accepted.digest,
+      title: "Keep labels visible",
+      reason: "Clarify the guidance.",
+    }
+    await assert.rejects(store.editMemory(designer(), proposal.id, input), {
+      code: "purpose_not_granted",
+    })
+    const versions = await created.readMemoryVersions({ scope, ids: [proposal.id] })
+    const audits = await created.readRecords("audit", { scope, operations: ["memory.edit"] })
+    const database = new DatabaseSync(created.manifest().storage.location)
+    try {
+      database
+        .prepare("update records set body = ? where stream = 'withdrawals' and id = ?")
+        .run(JSON.stringify({ ...withdrawal, grantId: "grant_other" }), withdrawal.id)
+    } finally {
+      database.close()
+    }
+    const outcome = await store.editMemory(designer(), proposal.id, input).then(
+      (record) => ({ accepted: record.accepted.decision, version: record.version }),
+      (error) => ({ error: error.code }),
+    )
+    assert.deepEqual(outcome, { error: "storage_corrupt" })
+    assert.deepEqual(await created.readMemoryVersions({ scope, ids: [proposal.id] }), versions)
+    assert.deepEqual(
+      await created.readRecords("audit", { scope, operations: ["memory.edit"] }),
+      audits,
+    )
+
+    await created.close()
+    const legacy = new DatabaseSync(created.manifest().storage.location)
+    try {
+      legacy.exec(`
+        delete from decision_withdrawal_targets;
+        delete from decision_index_state where name = 'withdrawal-targets';
+      `)
+    } finally {
+      legacy.close()
+    }
+    const reopened = provider({ directory: path.dirname(created.manifest().storage.location) })
+    const reopenedStore = await createLearningStore({
+      provider: reopened,
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    await assert.rejects(reopenedStore.editMemory(designer(), proposal.id, input), {
+      code: "storage_corrupt",
+    })
+  })
+
   it("keeps every record when two connections write the same file at once", async () => {
     const directory = path.join(work, `store-${++count}`)
     const writers = [
@@ -162,6 +402,194 @@ describe("SQLite provider", () => {
     const records = await writers[1].readRecords("grants", { scope })
     assert.equal(records.length, 20)
     assert.equal(new Set(records.map((record) => record.id)).size, 20)
+  })
+
+  for (const change of ["withdrawal", "redaction", "memory"]) {
+    it(`refuses a stale decision after an older SQLite writer changes ${change}`, async () => {
+      const directory = path.join(work, `legacy-${++count}`)
+      const file = path.join(directory, "learning.sqlite")
+      mkdirSync(directory, { mode: 0o700 })
+      copyFileSync(new URL("./fixtures/legacy-scope.sqlite", import.meta.url), file)
+      chmodSync(file, 0o600)
+      const legacy = new DatabaseSync(file)
+      try {
+        const insertRecord = legacy.prepare(`
+          insert into records (stream, id, scope_key, occurred_at, episode_id, digest, body)
+          values (?, ?, ?, ?, ?, ?, ?) on conflict (stream, id) do nothing
+        `)
+        const updateEvent = legacy.prepare(
+          "update records set body = ? where stream = 'events' and id = ?",
+        )
+        const insertMemory = legacy.prepare(`
+          insert into memory_versions (id, version, scope_key, updated_at, digest, body)
+          values (?, ?, ?, ?, ?, ?)
+        `)
+        const event = sealEvent({
+          id: "ev_olderwriter1",
+          scope,
+          episodeId: "ep_olderwriter1",
+          type: "annotation",
+          at: "2026-10-01T00:00:00.000000Z",
+          payload: { text: "Evidence later removed." },
+        })
+        if (change === "redaction")
+          insertRecord.run(
+            "events",
+            event.id,
+            JSON.stringify(scope),
+            event.at,
+            event.episodeId,
+            event.digest,
+            JSON.stringify(event),
+          )
+
+        const reader = provider({ directory })
+        const fence = await reader.decisionFence(scope)
+        legacy.exec("begin immediate")
+        if (change === "withdrawal") {
+          const withdrawal = sealRecord({
+            id: "withdraw_olderwriter1",
+            scope,
+            withdrawnAt: "2026-10-02T00:00:00.000000Z",
+          })
+          insertRecord.run(
+            "withdrawals",
+            withdrawal.id,
+            JSON.stringify(scope),
+            withdrawal.withdrawnAt,
+            null,
+            withdrawal.digest,
+            JSON.stringify(withdrawal),
+          )
+        } else if (change === "redaction") {
+          const { payload, ...removed } = event
+          assert.ok(payload)
+          updateEvent.run(
+            JSON.stringify({
+              ...removed,
+              redaction: {
+                at: "2026-10-02T00:00:00.000000Z",
+                by: designer().principal,
+                reason: "The author asked.",
+              },
+            }),
+            event.id,
+          )
+        } else {
+          const version = {
+            id: "mem_olderwriter1",
+            version: 1,
+            scope,
+            digest: "sha256:older",
+            supersedes: ["mem_fenceddecision1"],
+          }
+          insertMemory.run(
+            version.id,
+            version.version,
+            JSON.stringify(scope),
+            null,
+            version.digest,
+            JSON.stringify(version),
+          )
+        }
+        legacy.exec("commit")
+
+        assert.notEqual(await reader.decisionFence(scope), fence)
+        if (change === "memory")
+          assert.deepEqual(
+            new Set(await reader.readDecisionMemoryIds(scope, ["mem_fenceddecision1"])),
+            new Set(["mem_fenceddecision1", "mem_olderwriter1"]),
+          )
+        const decision = {
+          id: "mem_fenceddecision1",
+          version: 1,
+          scope,
+          digest: "sha256:decision",
+        }
+        const audit = { id: "audit_fenceddecision1", scope, digest: "sha256:audit" }
+        await assert.rejects(
+          reader.appendMemoryVersion(decision, {
+            expectedPreviousDigest: null,
+            expectedDecisionFence: fence,
+            audit: [audit],
+          }),
+          { code: "conflict" },
+        )
+        assert.deepEqual(await reader.readMemoryVersions({ scope, ids: [decision.id] }), [])
+        assert.deepEqual(await reader.readRecords("audit", { scope }), [])
+      } finally {
+        legacy.close()
+      }
+    })
+  }
+
+  it("refuses an older prepared import after a newer snapshot commits", async () => {
+    const directory = path.join(work, `store-${++count}`)
+    const olderProvider = provider({ directory })
+    const newerProvider = provider({ directory })
+    const ready = Promise.withResolvers()
+    const resume = Promise.withResolvers()
+    const olderStore = await createLearningStore({
+      provider: {
+        ...olderProvider,
+        async appendBatch(batch, options) {
+          if (batch.collections?.length) {
+            ready.resolve()
+            await resume.promise
+          }
+          return olderProvider.appendBatch(batch, options)
+        },
+      },
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const newerStore = await createLearningStore({
+      provider: newerProvider,
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await olderStore.addGrant(designer(), {
+      purposes: ["review"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    let pending
+    try {
+      const olderLog = weekOneLog()
+      const newerLog = weekTwoLog()
+      assert.notEqual(olderLog.calls[0].result.snapshotId, newerLog.calls[0].result.snapshotId)
+      assert.ok(olderLog.calls[0].result.capturedAt < newerLog.calls[0].result.capturedAt)
+      pending = olderStore.importHubReviewComments(agent(), olderLog, { grantIds: [grant.id] })
+      await Promise.race([
+        ready.promise,
+        pending.then(
+          () => {
+            throw new Error("The older import finished before its write.")
+          },
+          (error) => {
+            throw error
+          },
+        ),
+      ])
+      const newer = await newerStore.importHubReviewComments(agent(), newerLog, {
+        grantIds: [grant.id],
+      })
+      const before = Object.fromEntries(
+        await Promise.all(
+          Object.keys(STREAMS).map(async (stream) => [
+            stream,
+            await newerProvider.readRecords(stream, { scope }),
+          ]),
+        ),
+      )
+      assert.deepEqual(before.collections, [newer.collection])
+      assert.ok(before.events.length > 0)
+      resume.resolve()
+      await assert.rejects(pending, { code: "conflict" })
+      for (const stream of Object.keys(STREAMS))
+        assert.deepEqual(await newerProvider.readRecords(stream, { scope }), before[stream])
+    } finally {
+      resume.resolve()
+      if (pending) await pending.catch(() => {})
+    }
   })
 
   it("waits for another process that holds the database instead of failing to open it", async () => {

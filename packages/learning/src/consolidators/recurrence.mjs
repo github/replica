@@ -1,12 +1,22 @@
+import { canonicalJson } from "../canonical-json.mjs"
 import { LearningError } from "../errors.mjs"
-import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
+import { FEEDBACK_TYPES, PRODUCER, SCHEMA_VERSIONS, feedbackText, without } from "../records.mjs"
 
 export const DEFAULT_RECURRENCE_OPTIONS = Object.freeze({
   minEpisodes: 2,
-  minPrototypes: 2,
-  minReviewers: 2,
-  signals: Object.freeze(["visual_quality", "accessibility"]),
-  observations: Object.freeze(["observed"]),
+  minPrototypes: 1,
+  minReviewers: 1,
+  signals: Object.freeze([
+    "visual_quality",
+    "accessibility",
+    "usability",
+    "content",
+    "interaction",
+    "design_system",
+    "scenario",
+    "performance",
+  ]),
+  observations: Object.freeze(["observed", "preference", "question", "praise"]),
 })
 
 const SIGNALS = [
@@ -15,25 +25,35 @@ const SIGNALS = [
   "usability",
   "content",
   "interaction",
+  "design_system",
+  "scenario",
   "performance",
   "agreement",
   "replica_workflow",
   "other",
 ]
 const OBSERVATIONS = ["observed", "preference", "question", "praise", "other"]
+const JUDGMENTS = ["annotation", "no_annotation"]
 
 /**
  * Proposes a learning for each labeled theme that recurs across distinct threads, prototypes,
  * and reviewers within the window. It is deterministic: the same evidence and labels always
- * give the same proposals.
+ * give the same proposals. Review comments and a person's messages to an agent count the same
+ * way; each agent session counts as one thread but no prototype or Build. A theme seen only in
+ * sessions needs no prototypes.
+ *
+ * By default two threads are enough, even from one reviewer on one prototype, so a person
+ * working alone still gets learnings. Raise the thresholds for a larger team.
  *
  * It reads annotation events, not raw text. A labeler, a person or a model, writes those with
  * a theme key, a prototype-independent statement, a signal, an observation kind, and a stance.
- * Only observed problems count by default; questions, preferences, and praise do not. A theme
- * is contested, and not proposed, when as many reviewers contradict it as support it. Themes
- * with an accepted learning still in effect are skipped; an accepted learning that no longer
- * applies, because its evidence was withdrawn or it expired, is offered for replacement.
- * Rejected themes return only with more support than before.
+ * Problems, preferences, questions, and praise all count by default: taste and brand choices
+ * are worth teaching agents, a repeated question shows what confuses people, and repeated
+ * praise shows what to keep doing. A theme is contested, and not
+ * proposed, when as many reviewers contradict it as support it. Themes with an accepted
+ * learning still in effect are skipped; an accepted learning that no longer applies, because
+ * its evidence was withdrawn or it expired, is offered for replacement. Rejected themes
+ * return only with more support than before.
  *
  * @param {Partial<typeof DEFAULT_RECURRENCE_OPTIONS>} [options]
  */
@@ -65,21 +85,63 @@ export function createRecurrenceConsolidator(options = {}) {
     async consolidate({ window }, view) {
       const episodes = new Map(view.episodes.map((episode) => [episode.id, episode]))
       const events = new Map(view.events.map((event) => [event.id, event]))
+      const latestComments = new Map()
+      for (const event of view.events) {
+        if (feedbackText(event) === null) continue
+        const key = commentIdentity(event, episodes)
+        const latest = latestComments.get(key)
+        if (!latest || event.at > latest) latestComments.set(key, event.at)
+      }
       const superseded = new Set(
         view.events.filter((event) => event.supersedes).map((event) => event.supersedes),
       )
+      const supersededComments = new Set(
+        [...superseded]
+          .map((id) => events.get(id))
+          .filter((event) => FEEDBACK_TYPES.includes(event?.type))
+          .map((event) => `${commentKey(event, episodes)}\u0000${event.actor.id}`),
+      )
+      // No-label judgments compete too, so a reassessment of one copy of a comment, such as
+      // one kept by a repository migration, retires a label left on another copy.
       const latestLabels = new Map()
-      for (const event of view.events)
-        if (event.type === "annotation")
-          latestLabels.set(`${event.payload.target.eventId}\u0000${event.actor.id}`, event)
+      for (const event of view.events) {
+        if (!JUDGMENTS.includes(event.type) || superseded.has(event.id)) continue
+        const target = events.get(event.payload.target.eventId)
+        if (!target) continue
+        const key = `${commentKey(target, episodes)}\u0000${event.actor.id}`
+        const previous = latestLabels.get(key)
+        if (previous?.payload.target.eventId === event.payload.target.eventId) {
+          latestLabels.set(key, event)
+          continue
+        }
+        if (previous && previous.at === event.at) {
+          const payload = without(event.payload, "target")
+          const previousPayload = without(previous.payload, "target")
+          if (
+            event.type !== previous.type ||
+            canonicalJson(payload) !== canonicalJson(previousPayload)
+          )
+            throw new LearningError(
+              "conflict",
+              "The same labeler recorded conflicting labels at the same time.",
+            )
+        }
+        if (!previous || compare(`${previous.at} ${previous.id}`, `${event.at} ${event.id}`) < 0)
+          latestLabels.set(key, event)
+      }
 
       const diagnostics = []
       const themes = new Map()
       let edited = 0
       for (const label of latestLabels.values()) {
+        if (label.type !== "annotation") continue
         const target = events.get(label.payload.target.eventId)
-        if (!target || target.type !== "human_comment" || target.payload.body === null) continue
-        if (superseded.has(target.id)) {
+        if (feedbackText(target) === null) continue
+        if (
+          superseded.has(target.id) ||
+          target.at < latestComments.get(commentIdentity(target, episodes)) ||
+          supersededComments.has(`${commentKey(target, episodes)}\u0000${target.actor.id}`)
+        ) {
           edited++
           continue
         }
@@ -88,8 +150,9 @@ export function createRecurrenceConsolidator(options = {}) {
         if (!themes.has(key)) themes.set(key, { key, supports: new Map(), contradicts: new Map() })
         const bucket =
           themes.get(key)[label.payload.stance === "contradicts" ? "contradicts" : "supports"]
-        if (!bucket.has(target.id)) bucket.set(target.id, { target, labels: [] })
-        bucket.get(target.id).labels.push(label)
+        const comment = commentKey(target, episodes)
+        if (!bucket.has(comment)) bucket.set(comment, { target, labels: [] })
+        bucket.get(comment).labels.push(label)
       }
       if (edited)
         diagnostics.push({
@@ -108,7 +171,7 @@ export function createRecurrenceConsolidator(options = {}) {
           diagnostics.push({
             code: "not_observed",
             themeKey: theme.key,
-            message: "Only questions, preferences, or praise.",
+            message: "No label has an enabled observation kind.",
           })
           continue
         }
@@ -126,9 +189,12 @@ export function createRecurrenceConsolidator(options = {}) {
           supporting.map((item) => item.target),
           episodes,
         )
+        // Agent sessions name no prototype, so a theme seen only in sessions skips that check.
         const short = [
           ["threads", support.distinctEpisodes, settings.minEpisodes],
-          ["prototypes", support.distinctPrototypes, settings.minPrototypes],
+          ...(support.distinctPrototypes
+            ? [["prototypes", support.distinctPrototypes, settings.minPrototypes]]
+            : []),
           ["reviewers", support.distinctReviewers, settings.minReviewers],
         ].filter(([, have, need]) => have < need)
         if (short.length) {
@@ -206,6 +272,7 @@ export function createRecurrenceConsolidator(options = {}) {
         proposals.push({
           schemaVersion: SCHEMA_VERSIONS.memoryProposal,
           kind: mostCommon(labels.map((label) => label.payload.proposedKind ?? "rule")),
+          title: sentenceCase(theme.key.replaceAll("-", " ")).slice(0, 120),
           content: statement,
           themeKey: theme.key,
           ...(traces.size
@@ -253,16 +320,12 @@ function supportOf(targets, episodes) {
   const builds = new Set()
   for (const target of targets) {
     const source = episodes.get(target.episodeId)?.source ?? {}
-    episodeIds.add(target.episodeId)
-    prototypes.add(
-      source.prototypeId === undefined
-        ? `episode:${target.episodeId}`
-        : `${source.hubOrigin}#${source.prototypeId}`,
-    )
+    episodeIds.add(threadKey(episodes.get(target.episodeId)) ?? target.episodeId)
     reviewers.add(target.actor.id)
-    builds.add(
-      `${source.hubOrigin}#${source.prototypeId}#${source.buildNumber ?? target.episodeId}`,
-    )
+    // A session is not a prototype or a Build, so it adds a thread but neither of those.
+    if (source.prototypeId === undefined) continue
+    prototypes.add(`${source.hubOrigin}#${source.prototypeId}`)
+    builds.add(`${source.hubOrigin}#${source.prototypeId}#${source.buildNumber}`)
   }
   return {
     distinctEpisodes: episodeIds.size,
@@ -270,6 +333,29 @@ function supportOf(targets, episodes) {
     distinctReviewers: reviewers.size,
     distinctBuilds: builds.size,
   }
+}
+
+function threadKey(episode) {
+  const source = episode?.source
+  if (
+    source?.kind !== "hub_review_comments" ||
+    [source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId].some(
+      (value) => value === undefined,
+    )
+  )
+    return null
+  return canonicalJson([source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId])
+}
+
+function commentKey(target, episodes) {
+  const identity = commentIdentity(target, episodes)
+  return identity === target.id ? identity : canonicalJson([identity, target.at])
+}
+
+function commentIdentity(target, episodes) {
+  const thread = threadKey(episodes.get(target.episodeId))
+  const commentId = target.payload?.commentId
+  return thread && commentId !== undefined ? canonicalJson([thread, commentId]) : target.id
 }
 
 function evidence(target, episodes) {
@@ -287,6 +373,7 @@ function evidence(target, episodes) {
       "buildId",
       "commitSha",
       "threadId",
+      "sessionId",
     ])
       if (source[key] !== undefined) pin[key] = source[key]
   if (target.payload?.commentId) pin.commentId = target.payload.commentId
@@ -307,4 +394,9 @@ function mostCommon(values) {
 
 function compare(left, right) {
   return left < right ? -1 : left > right ? 1 : 0
+}
+
+/** Capitalizes the first letter so titles read like normal sentences. */
+function sentenceCase(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }

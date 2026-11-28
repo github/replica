@@ -1,22 +1,46 @@
-import { createReadStream, existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { createHash } from "node:crypto"
+import { constants, createReadStream, existsSync } from "node:fs"
+import {
+  mkdir,
+  mkdtemp,
+  open as openFile,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
-import { parseArgs } from "node:util"
+import { parseArgs, promisify } from "node:util"
 import { decodeUtf8, parseJson } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
+import { createCopilotEvaluator, scoreUsedLearning } from "./evaluation.mjs"
 import {
+  importSqliteStore,
   openConsolidator,
   openLabeler,
+  openLegacyRedactionStore,
   openLearningStore,
   openProvider,
+  migrateScopeOffline,
   placementProblem,
   realLocation,
   resolveEnvironment,
 } from "./config.mjs"
 import { labelComments, labelingError } from "./labeling.mjs"
-import { PRODUCER } from "./records.mjs"
+import { migratePostgres } from "./providers/postgres-database.mjs"
+import { FEEDBACK_TYPES, feedbackText, PRODUCER } from "./records.mjs"
+import { NO_FOLLOW } from "./providers/files.mjs"
+import { createFileLock } from "./providers/lock.mjs"
+import {
+  MAX_REPORT_SCREENSHOT_BYTES,
+  MAX_SCREENSHOT_BYTES,
+  createScreenshotStore,
+} from "./screenshots.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
+import { createCopilotDrafter, proposeUpdates } from "./updates.mjs"
 import { parseTimeOption, timestampFromMilliseconds } from "./time.mjs"
 import decisionModelCatalog from "./decision/models.json" with { type: "json" }
 import { MAX_QUESTION_LEARNINGS, brandCheckQuestions } from "./decision/questions.mjs"
@@ -33,11 +57,18 @@ Inspect
   observations [--purpose <p>] [--event <id>]...
                                   Evidence a purpose may use now; select up to
                                   100 event IDs and only their containing episodes
-  memories [--state <s>]...       Learnings with their state and whether they are recalled
-  show <memory-id> [--history]    One learning, its evidence, and its digests
+  memories [--state <s>]... [--purpose <p>]
+                                  Learnings with their state and whether they are
+                                  recalled; --purpose instruction shows what agents see
+  show <memory-id> [--history] [--purpose <p>]
+                                  One learning, its evidence, and its digests
   operation-status <memory-id> --operation-id <uuid>
                                   Whether one host decision operation is in intact history
   verify                          Re-check every record's schema, digest, and history
+  migrate                         Set up PostgreSQL using REPLICA_LEARNING_MIGRATION_DATABASE_URL
+  migrate-scope --offline         Confirm and migrate a legacy store after stopping older clients
+                [--empty]         Confirm that a new custom-provider store is empty
+  import-sqlite --offline         Copy a stopped Hub SQLite store into PostgreSQL
   copilot status                  Whether Copilot answers here, as whom, and with which models
 
 Consent (a person decides; --by github:<login>)
@@ -51,35 +82,83 @@ Consent (a person decides; --by github:<login>)
   redact --comment <hub-comment-id> --by <id> [--reason <text>]
                                   The same, for a Hub comment named by its Hub ID; it
                                   imports nothing and needs no active grant
+  delete <memory-id> --by <id> --reason <text>
+                                  Remove a learning for good, with the records of its
+                                  deliveries and use and their screenshots
+  expire-guidance --by <id> [--days <n>]
+                                  Remove recall records older than n days (default 365)
+                                  that no usage report names
+  delete-repository --by <id> --confirm <owner/name>
+                                  Remove every record this repository's store holds,
+                                  including the audit trail
 
 Capture and propose
   import hub-comments <log.json> --grant <grant-id>... [--actor <id>] [--redact-deleted]
                                   --redact-deleted also removes the text of deleted comments
-  label [--limit <n>] [--max-requests <n>] [--since <time>] [--model <model>]
+  import agent-session <session.json> --grant <grant-id>... --actor <agent:name>
+                                  Store a coding agent session's user and agent
+                                  messages and outcome; sending it again updates it
+  label [--relabel] [--limit <n>] [--max-requests <n>] [--since <time>] [--model <model>]
                                   With Copilot, or the configured labeler, label the
                                   comments it has not been asked about and report its
-                                  usage; --since skips comments written before that time,
-                                  and --max-requests stops after that many requests
+                                  usage; --relabel asks about them again and replaces
+                                  this labeler's earlier judgments; --since skips older
+                                  comments, and --max-requests bounds labeler requests
   label <labels.json> --actor <agent:name> [--model <model>]
                                   Record labels someone else wrote
   consolidate --from <time> --to <time> [--max <n>] [--dry-run] [--actor <id>]
                                   --max caps the new or changed proposals a run
                                   stores (default 10); unchanged ones do not count
+  analyze [--commit <sha>]        Label, then consolidate the last 90 days; with
+                                  --commit, also score the learnings an agent used
+                                  in it and suggest new wording
 
 Review (a person decides; --by github:<login>)
   accept <memory-id> --digest <sha256:...> --by <id> [--content-file <file>] [--note <text>]
   reject <memory-id> --digest <sha256:...> --by <id> (--reason <text> | --reason-file <file>)
   retire <memory-id> --by <id> (--reason <text> | --reason-file <file>)
+  edit <memory-id> --digest <sha256:...> --by <id> (--reason <text> | --reason-file <file>)
+                   [--title-file <file>] [--content-file <file>]
+  reinstate <memory-id> --digest <sha256:...> --by <id> (--reason <text> | --reason-file <file>)
+                                  Use the version digest from show for edit and reinstate
   supersede <old-id>... --with <new-id> --by <id> [--reason <text>]
                                   Only for a learning that recall uses and that
                                   replaces nothing yet
+  updates <memory-id>             List suggested new wording for a learning
+  apply-update <proposal-id> --by <id> (--reason <text> | --reason-file <file>)
+               --operation-id <uuid> [--title-file <file>] [--content-file <file>]
+                                  Make the suggested wording, or your edit of it,
+                                  the learning's next version
+  dismiss-update <proposal-id> [--operation-id <uuid>] --by <id>
+                 (--reason <text> | --reason-file <file>)
 
 Use
   recall [--task <text> | --task-file <file>] [--limit <n>] [--budget <chars>]
-         [--preview --by <id>]
+         [--session-id <id> [--session-label <text>]] [--preview --by <id>]
+         [--shared-file <file>]
                                   --task-file - reads the task from standard input;
+                                  --shared-file adds accepted learnings other
+                                  repositories shared to a preview, as a JSON
+                                  list of records;
                                   --preview shows a person what an agent would get,
                                   unaudited
+  report-usage <report.json> --actor <id> [--grant <grant-id>]
+                                  Record which recalled learnings an agent used for a
+                                  commit, with optional before and after screenshots;
+                                  --grant names the consent that allows them
+  usage --commit <sha>            List what agents reported using for one commit
+  outcomes <memory-id>            List how agents' uses of one learning were scored
+  score <used-learning-id> --operation-id <uuid> [--diff-file <file>]
+        [--screenshots <dir>] [--reviewer-verified-at <time>]
+                                  Score how well one used learning helped, with
+                                  Copilot Fusion or else Auto; --screenshots names
+                                  a directory of PNGs named by their sha256 hex for
+                                  a store that does not keep them;
+                                  --reviewer-verified-at says when a reviewer
+                                  confirmed the work addressed their feedback
+  propose-update <memory-id>      Suggest new wording for an accepted learning when
+                                  scored uses keep showing the same issue; Copilot
+                                  drafts it only when the evidence is enough
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
 
 Decision model
@@ -93,7 +172,9 @@ Decision model
                                   from a training export and the Builds' screenshots
 Options: --dir <path> data directory (default .replica/learning), --json machine output.
 A host that keeps stores outside checkouts, such as Hub, names the repository with
---repository <host/owner/name> and its store with --dir.
+--repository github.com/repositories/<id> and its store with --dir. It may name the
+previous scope with --legacy-repository <host/owner/name> when migrating an existing store.
+In a checkout, use --legacy-repository only with migrate-scope --offline.
 Times: now, 7d, 12h, 30m, or an RFC 3339 time. Purposes: review, instruction, evaluation,
 analytics, training, publication.
 `
@@ -101,6 +182,10 @@ analytics, training, publication.
 const OPTIONS = {
   dir: { type: "string" },
   repository: { type: "string" },
+  "legacy-repository": { type: "string" },
+  offline: { type: "boolean" },
+  empty: { type: "boolean" },
+  "legacy-redaction": { type: "boolean" },
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
   purpose: { type: "string", multiple: true },
@@ -124,14 +209,17 @@ const OPTIONS = {
   history: { type: "boolean" },
   digest: { type: "string" },
   "content-file": { type: "string" },
+  "title-file": { type: "string" },
   "reason-file": { type: "string" },
   "operation-id": { type: "string" },
   note: { type: "string" },
   with: { type: "string" },
   task: { type: "string" },
   "task-file": { type: "string" },
+  "shared-file": { type: "string" },
   limit: { type: "string" },
   "max-requests": { type: "string" },
+  relabel: { type: "boolean" },
   since: { type: "string" },
   "redact-deleted": { type: "boolean" },
   comment: { type: "string" },
@@ -143,6 +231,14 @@ const OPTIONS = {
   builds: { type: "string" },
   "brand-sheet": { type: "string" },
   "created-at": { type: "string" },
+  "session-id": { type: "string" },
+  "session-label": { type: "string" },
+  commit: { type: "string" },
+  "diff-file": { type: "string" },
+  "reviewer-verified-at": { type: "string" },
+  screenshots: { type: "string" },
+  days: { type: "string" },
+  confirm: { type: "string" },
 }
 
 class UsageError extends Error {}
@@ -188,11 +284,99 @@ export async function main(
   // running, so every one is closed before the command returns, whatever happened.
   const opened = []
   try {
+    if (positionals[0] === "migrate") {
+      if (positionals.length !== 1)
+        throw new UsageError("Use migrate without additional arguments.")
+      const result = await migratePostgres({
+        connectionString: env.REPLICA_LEARNING_MIGRATION_DATABASE_URL,
+      })
+      out(result, `PostgreSQL learning schema is at migration ${result.version}.`)
+      return 0
+    }
+    if (
+      positionals[0] === "import-sqlite" &&
+      (positionals.length !== 1 ||
+        !values.offline ||
+        !values.dir ||
+        !values.repository ||
+        !/^github\.com\/repositories\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+          values["legacy-repository"] ?? "",
+        ))
+    )
+      throw new UsageError(
+        "Stop older clients, then use import-sqlite --offline with --dir, --repository, and the Hub UUID as --legacy-repository.",
+      )
+    if (
+      values["legacy-redaction"] &&
+      (positionals.length !== 1 ||
+        positionals[0] !== "redact" ||
+        values.comment === undefined ||
+        !values["legacy-repository"] ||
+        values.repository)
+    )
+      throw new UsageError(
+        "--legacy-redaction is only for redact --comment with a Hub UUID in --legacy-repository.",
+      )
+    if (
+      values.empty &&
+      (positionals[0] !== "migrate-scope" || !values.offline || values["legacy-repository"])
+    )
+      throw new UsageError("--empty is used only with migrate-scope --offline and no old name.")
+    if (
+      values["legacy-repository"] &&
+      !values.repository &&
+      !values["legacy-redaction"] &&
+      (positionals[0] !== "migrate-scope" || !values.offline)
+    )
+      throw new UsageError(
+        "A checkout's --legacy-repository is used only with migrate-scope --offline.",
+      )
     const environment = await resolveEnvironment({
       cwd,
       env,
       directory: values.dir,
       repository: values.repository,
+      legacyRepository: values["legacy-repository"],
+      legacyRedaction: values["legacy-redaction"],
+      resolveIdentity:
+        [
+          "status",
+          "doctor",
+          "migrate-scope",
+          "label",
+          "observations",
+          "consolidate",
+          "analyze",
+          "memories",
+          "show",
+          "operation-status",
+          "accept",
+          "reject",
+          "retire",
+          "edit",
+          "reinstate",
+          "supersede",
+          "redact",
+          "recall",
+          "report-usage",
+          "usage",
+          "outcomes",
+          "score",
+          "propose-update",
+          "updates",
+          "apply-update",
+          "dismiss-update",
+          "delete",
+          "expire-guidance",
+          "delete-repository",
+          "export",
+          "verify",
+        ].includes(positionals[0]) ||
+        (positionals[0] === "grants" &&
+          ["list", "withdrawals", "add", "withdraw"].includes(positionals[1])) ||
+        (positionals[0] === "import" &&
+          ["hub-comments", "agent-session"].includes(positionals[1])) ||
+        (positionals[0] === "decision" && positionals[1] === "questions"),
     })
     const session = {
       environment,
@@ -203,6 +387,7 @@ export async function main(
       cwd,
       env,
       stdin,
+      stdout,
       stderr,
       opened,
     }
@@ -235,6 +420,18 @@ async function run(session) {
       return status(session)
     case "doctor":
       return doctor(session)
+    case "migrate-scope":
+      return migrateScope(session)
+    case "import-sqlite": {
+      const result = await importSqliteStore(session.environment, { clock: session.clock })
+      session.out(
+        result,
+        result.alreadyImported
+          ? "SQLite history was already imported."
+          : "SQLite history was imported.",
+      )
+      return 0
+    }
     case "grants":
       if (sub === "list") return listGrants(session)
       if (sub === "withdrawals") return listWithdrawals(session)
@@ -243,7 +440,10 @@ async function run(session) {
       throw new UsageError("Use grants list, grants withdrawals, grants add, or grants withdraw.")
     case "import":
       if (sub === "hub-comments") return importHub(session)
-      throw new UsageError("Use import hub-comments <log.json>.")
+      if (sub === "agent-session") return importSession(session)
+      throw new UsageError(
+        "Use import hub-comments <log.json> or import agent-session <session.json>.",
+      )
     case "label":
       return label(session)
     case "copilot":
@@ -253,6 +453,8 @@ async function run(session) {
       return observations(session)
     case "consolidate":
       return consolidate(session)
+    case "analyze":
+      return analyze(session)
     case "memories":
       return memories(session)
     case "show":
@@ -262,6 +464,9 @@ async function run(session) {
     case "accept":
     case "reject":
       return review(session, command)
+    case "edit":
+    case "reinstate":
+      return changeAccepted(session, command)
     case "retire":
       return retire(session)
     case "supersede":
@@ -270,6 +475,28 @@ async function run(session) {
       return redact(session)
     case "recall":
       return recall(session)
+    case "report-usage":
+      return reportUsage(session)
+    case "usage":
+      return usage(session)
+    case "outcomes":
+      return outcomes(session)
+    case "score":
+      return score(session)
+    case "propose-update":
+      return proposeUpdate(session)
+    case "updates":
+      return updates(session)
+    case "apply-update":
+      return applyUpdate(session)
+    case "dismiss-update":
+      return dismissUpdate(session)
+    case "delete":
+      return deleteMemory(session)
+    case "expire-guidance":
+      return expireGuidance(session)
+    case "delete-repository":
+      return deleteRepository(session)
     case "export":
       return exportRecords(session)
     case "verify":
@@ -284,16 +511,57 @@ async function run(session) {
   }
 }
 
+async function migrateScope(session) {
+  if (session.positionals.length !== 1 || !session.values.offline)
+    throw new UsageError("Stop older clients, then run migrate-scope --offline.")
+  const result = await migrateScopeOffline(session.environment, {
+    clock: session.clock,
+    empty: session.values.empty,
+  })
+  const lines = [
+    result.empty
+      ? "Confirmed the new store is empty. The configured provider is unchanged."
+      : result.sourceProvider
+        ? `Repository history is in ${result.file}. The original provider is unchanged and may contain other repositories.`
+        : `Repository history is in ${result.file}. The provider is used in place.`,
+    ...(result.redactionFollowUps ? redactionFollowUpLines(result.redactionFollowUps) : []),
+  ]
+  session.out(result, lines.join("\n"))
+}
+
 async function open(session) {
-  const opened = await openLearningStore(session.environment, {
+  const openStore = session.environment.legacyRedaction
+    ? openLegacyRedactionStore
+    : openLearningStore
+  const opened = await openStore(session.environment, {
     clock: session.clock,
   })
   session.opened.push(opened.store)
+  if (!session.environment.hosted && session.positionals[0] !== "status") {
+    const lines = (opened.migrationRedactionFollowUps ?? []).flatMap(redactionFollowUpLines)
+    if (lines.length) session.stderr.write(`${[...new Set(lines)].join("\n")}\n`)
+  }
   return opened
 }
 
+function redactionFollowUpLines(followUps) {
+  return [
+    ...(followUps.memoriesNeedingRebuild ?? []).map(
+      (id) => `Rebuild learning ${id} because its evidence was removed.`,
+    ),
+    ...(followUps.exportsToFollowUp ?? []).map(
+      (item) =>
+        `Follow up on export ${item.id} at ${quoted(item.destination, Infinity)}; it may contain removed text.`,
+    ),
+  ]
+}
+
 function context(session, principal) {
-  return { scope: session.environment.scope, principal }
+  return {
+    scope: session.environment.scope,
+    sourceRepository: session.environment.sourceRepository,
+    principal,
+  }
 }
 
 /** Where the data directory sits and whether that is safe, for doctor. */
@@ -310,7 +578,7 @@ function placementLabel(environment) {
     : "NOT ignored by Git; add .replica/ to .gitignore"
 }
 
-/** A scope the way the CLI shows it: host/owner/name. */
+/** A scope the way the CLI shows it. */
 function scopeLabel(scope) {
   return [scope.host, scope.repository].filter(Boolean).join("/")
 }
@@ -408,6 +676,12 @@ async function status(session) {
   const result = await store.status(context(session, actor(session)))
   const { counts } = result
   const memories = counts?.memories
+  const attention = [
+    ...result.attention,
+    ...(result.migrationRedactionFollowUps?.memoriesNeedingRebuild ?? []).map(
+      (id) => `Rebuild learning ${id} because its evidence was removed.`,
+    ),
+  ]
   session.out(
     result,
     [
@@ -420,8 +694,11 @@ async function status(session) {
             `Learnings: ${memories.proposed} proposed, ${memories.accepted} accepted (${counts.recallable} recalled), ${memories.rejected} rejected, ${memories.retired} retired`,
           ]
         : []),
-      ...(result.attention.length
-        ? ["Needs attention:", ...result.attention.map((item) => `  - ${item}`)]
+      ...(attention.length
+        ? [
+            "Needs attention:",
+            ...attention.map((item) => `  - ${quoted(item, Infinity).slice(1, -1)}`),
+          ]
         : ["Nothing needs attention."]),
     ].join("\n"),
   )
@@ -609,8 +886,32 @@ async function importHub(session) {
   )
 }
 
+async function importSession(session) {
+  const input = await readJsonFile(session, argument(session, 2, "session file"))
+  if (!session.values.grant?.length)
+    throw new UsageError("Name the consent grant that covers agent sessions with --grant.")
+  const principal = actor(session, { required: true })
+  if (principal.kind !== "agent")
+    throw new UsageError("Name the agent that ran the session with --actor agent:<name>.")
+  const { store } = await open(session)
+  const result = await store.importAgentSession(context(session, principal), input, {
+    grantIds: session.values.grant,
+  })
+  session.out(
+    result,
+    [
+      `Session ${result.sessionId}: added ${result.addedEpisodes} episodes and ${result.addedEvents} events.`,
+      ...(result.skippedMessages
+        ? [`Skipped ${result.skippedMessages} tool or empty message(s).`]
+        : []),
+    ].join("\n"),
+  )
+}
+
 async function label(session) {
   if (!session.positionals[1]) return labelUnlabeled(session)
+  if (session.values.relabel)
+    throw new UsageError("--relabel applies only when asking the configured labeler.")
   if (session.values["max-requests"] !== undefined)
     throw new UsageError(
       "--max-requests applies only when asking the configured labeler, not a labels file.",
@@ -648,6 +949,7 @@ async function labelUnlabeled(session) {
       limit: positive(session.values.limit, "--limit", 400),
       maxRequests,
       since: time(session, session.values.since, "--since"),
+      relabel: session.values.relabel,
     })
   } catch (error) {
     failure = error instanceof UsageError ? error : labelingError(error)
@@ -737,14 +1039,18 @@ async function observations(session) {
     eventIds: session.values.event,
   })
   const episodes = new Map(result.episodes.map((episode) => [episode.id, episode]))
-  const comments = result.events.filter((event) => event.type === "human_comment")
+  const feedback = result.events.filter((event) => FEEDBACK_TYPES.includes(event.type))
   session.out(
     result,
     [
       `Evidence permitted for ${purpose}: ${result.episodes.length} episodes, ${result.events.length} events.`,
-      ...comments.map((event) => {
+      ...feedback.map((event) => {
         const source = episodes.get(event.episodeId).source
-        return `${event.id}  prototype ${source.prototypeId} Build ${source.buildNumber} comment ${event.payload.commentId} by ${event.actor.id}: ${quoted(event.payload.body)}`
+        const where =
+          event.type === "user_message"
+            ? `session ${source.sessionId} message`
+            : `prototype ${source.prototypeId} Build ${source.buildNumber} comment ${event.payload.commentId}`
+        return `${event.id}  ${where} by ${event.actor.id}: ${quoted(feedbackText(event))}`
       }),
     ].join("\n"),
   )
@@ -793,6 +1099,7 @@ async function memories(session) {
   const { store } = await open(session)
   const items = await store.queryMemory(context(session, actor(session)), {
     states: session.values.state,
+    purpose: single(session.values.purpose, "--purpose") ?? "review",
   })
   session.out(
     items,
@@ -815,11 +1122,13 @@ async function show(session) {
   const { store } = await open(session)
   const item = await store.getMemory(context(session, actor(session)), id, {
     history: Boolean(session.values.history),
+    purpose: single(session.values.purpose, "--purpose") ?? "review",
   })
   const { record, status } = item
   const head = [
     `${record.id ?? id} version ${record.version ?? "?"}: ${record.state ?? "?"} ${record.kind ?? "?"}${record.themeKey ? ` (${record.themeKey})` : ""}`,
     `Review digest: ${record.reviewDigest ?? "?"}`,
+    `Version digest: ${record.digest ?? "?"}`,
     `Recalled: ${status.recallEligible ? "yes" : "no"}${status.identityNeedsReview ? "; reviewer identities need rebuilding and review" : status.needsRebuild ? "; needs rebuild" : ""}${status.superseded ? "; superseded" : ""}${status.expired ? "; expired" : ""}${status.conflicts.length ? `; ${status.conflicts.join("; ")}` : ""}${status.problems.length ? `; integrity problems: ${status.problems.join("; ")}` : ""}`,
   ]
   if (item.withheld) {
@@ -839,6 +1148,7 @@ async function show(session) {
 
   const lines = [
     ...head,
+    ...(record.title ? [`Title: ${quoted(record.title, 120)}`] : []),
     `Content: ${quoted(record.content, 4000)}`,
     ...(record.support
       ? [
@@ -864,7 +1174,11 @@ async function show(session) {
     "Evidence:",
     ...record.evidence.map((reference) => {
       const pin = reference.source ?? {}
-      return `  - ${reference.eventIds.join(", ")} in ${reference.episodeId}: prototype ${pin.prototypeId ?? "?"} Build ${pin.buildNumber ?? "?"} comment ${pin.commentId ?? "?"} by ${reference.author?.id ?? "?"}`
+      const where =
+        pin.sessionId === undefined
+          ? `prototype ${pin.prototypeId ?? "?"} Build ${pin.buildNumber ?? "?"} comment ${pin.commentId ?? "?"}`
+          : `session ${pin.sessionId}`
+      return `  - ${reference.eventIds.join(", ")} in ${reference.episodeId}: ${where} by ${reference.author?.id ?? "?"}`
     }),
     ...(record.contradictions?.length
       ? [
@@ -952,6 +1266,39 @@ async function retire(session) {
     operationId: session.values["operation-id"],
   })
   session.out(record, `Retired ${id}. It is no longer recalled; its history stays.`)
+}
+
+async function changeAccepted(session, command) {
+  const id = argument(session, 1, "memory ID")
+  const digest = session.values.digest
+  if (!/^sha256:[0-9a-f]{64}$/.test(digest ?? ""))
+    throw new UsageError("Pass the version digest you checked with --digest sha256:...")
+  const reason = await reasonOf(session)
+  const principal = person(session)
+  const { store } = await open(session)
+  let title
+  let content
+  if (command === "edit" && session.values["title-file"]) {
+    const file = session.values["title-file"]
+    title = decodeUtf8(await readFile(path.resolve(session.cwd, file)), file).replace(/\r?\n$/, "")
+  }
+  if (command === "edit" && session.values["content-file"]) {
+    const file = session.values["content-file"]
+    content = decodeUtf8(await readFile(path.resolve(session.cwd, file)), file).replace(
+      /\r?\n$/,
+      "",
+    )
+  }
+  const options = {
+    expectedDigest: digest,
+    reason,
+    operationId: session.values["operation-id"],
+  }
+  const record =
+    command === "edit"
+      ? await store.editMemory(context(session, principal), id, { ...options, title, content })
+      : await store.reinstateMemory(context(session, principal), id, options)
+  session.out(record, command === "edit" ? `Edited ${id}.` : `Reinstated ${id}.`)
 }
 
 async function reasonOf(session) {
@@ -1054,14 +1401,523 @@ async function recall(session) {
   if (preview && !session.values.by)
     throw new UsageError("Name the person who previews recall with --by github:<login>.")
   const principal = preview ? person(session) : actor(session)
+  const sharedFile = session.values["shared-file"]
+  const shared = sharedFile === undefined ? [] : await readJsonFile(session, sharedFile)
   const { store } = await open(session)
   const result = await store.recall(context(session, principal), {
     task,
     limit: positive(session.values.limit, "--limit", 20),
     budgetChars: positive(session.values.budget, "--budget", 6000),
     preview,
+    session: sessionOption(session),
+    shared,
   })
   session.out(result, result.text)
+}
+
+function sessionOption(session) {
+  const { "session-id": id, "session-label": label } = session.values
+  if (id === undefined) {
+    if (label !== undefined) throw new UsageError("--session-label needs --session-id.")
+    return undefined
+  }
+  return label === undefined ? { id } : { id, label }
+}
+
+/**
+ * report-usage: the report file names each screenshot by a PNG file beside it, or carries
+ * its base64 data, so the bytes are read here and only their digest reaches the records.
+ */
+async function reportUsage(session) {
+  const file = argument(session, 1, "report file")
+  const report = await readJsonFile(session, file)
+  const directory = path.dirname(path.resolve(session.cwd, file))
+  const principal = actor(session, { required: true })
+  if ((session.values.grant?.length ?? 0) > 1)
+    throw new UsageError("Name at most one --grant for a usage report.")
+  if (!report || typeof report !== "object" || Array.isArray(report))
+    throw new LearningError("invalid_input", `${file} must be a JSON object.`)
+  const used = await readReportScreenshots(directory, report.used)
+  const { store } = await open(session)
+  const result = await store.reportUsage(context(session, principal), {
+    ...report,
+    used,
+    ...(session.values.grant ? { consentGrantId: session.values.grant[0] } : {}),
+  })
+  session.out(
+    result,
+    result.stored
+      ? `Stored usage report ${result.reportId}.`
+      : `Usage report ${result.reportId} was already stored.`,
+  )
+}
+
+async function usage(session) {
+  const commitSha = session.values.commit
+  if (!commitSha) throw new UsageError("Name the commit with --commit <sha>.")
+  const { store } = await open(session)
+  const reports = await store.usageForCommit(context(session, actor(session)), { commitSha })
+  session.out(
+    { reports },
+    reports.length
+      ? reports
+          .map((report) =>
+            [
+              `${report.reportId}  reported ${report.reportedAt}`,
+              ...report.used.map(
+                (item) => `    ${item.memoryId} v${item.version ?? "?"}  ${item.title ?? ""}`,
+              ),
+            ].join("\n"),
+          )
+          .join("\n")
+      : "No usage reports for this commit.",
+  )
+}
+
+/**
+ * Score one used learning with Copilot and report what it cost. Copilot scores as itself, and
+ * a failed attempt still reports the usage it spent so a host can keep to its budget.
+ */
+async function score(session) {
+  const usedLearningId = argument(session, 1, "used learning ID")
+  const operationId = session.values["operation-id"]
+  if (!operationId) throw new UsageError("Name the scoring attempt with --operation-id <uuid>.")
+  const diff = session.values["diff-file"]
+    ? decodeUtf8(
+        await readFile(path.resolve(session.cwd, session.values["diff-file"])),
+        session.values["diff-file"],
+      )
+    : undefined
+  const kept = session.values.screenshots
+    ? createScreenshotStore(path.resolve(session.cwd, session.values.screenshots))
+    : null
+  const { store } = await open(session)
+  const verifiedAt = time(session, session.values["reviewer-verified-at"], "--reviewer-verified-at")
+  const evaluator = createCopilotEvaluator({ token: session.env.COPILOT_GITHUB_TOKEN || undefined })
+  const result = await withCopilot(session, evaluator, (copilotContext) =>
+    scoreUsedLearning(store, copilotContext, {
+      evaluator,
+      usedLearningId,
+      operationId,
+      diff,
+      ...(kept ? { readScreenshot: (sha256) => kept.read(sha256) } : {}),
+      ...(verifiedAt !== undefined ? { reviewerVerifiedAt: verifiedAt } : {}),
+    }),
+  )
+  const usage = totals(result.usage)
+  session.out(
+    { score: result.score, stored: result.stored, route: result.route, usage },
+    [
+      `${result.stored ? "Scored" : "Already scored"} ${usedLearningId}: ${result.score.efficiency} of 4, ${result.score.followed.replace("_", " ")}.`,
+      `Route: ${result.route.kind === "fusion" ? `Copilot Fusion ${result.route.fusionTier}` : `Auto ${result.route.model} at ${result.route.reasoningEffort ?? "default"} reasoning`}.`,
+      usageLine(usage),
+    ].join("\n"),
+  )
+}
+
+/**
+ * Suggest new wording for one accepted learning and report what it cost. Copilot drafts as
+ * itself, and only when the evidence is enough, so most runs cost nothing.
+ */
+async function proposeUpdate(session) {
+  const memoryId = argument(session, 1, "memory ID")
+  const { store } = await open(session)
+  const drafter = createCopilotDrafter({ token: session.env.COPILOT_GITHUB_TOKEN || undefined })
+  const result = await withCopilot(session, drafter, (copilotContext) =>
+    proposeUpdates(store, copilotContext, { drafter, memoryId }),
+  )
+  const usage = totals(result.usage)
+  const ids = result.proposals.map((item) => item.id).join(", ")
+  const summary = {
+    insufficient_evidence: "Not enough scored uses show the same issue yet.",
+    up_to_date: "No new scored uses since the last suggestion.",
+    no_change: "Copilot found no wording change the evidence supports.",
+    proposed: `Suggested ${result.proposals.length} update(s): ${ids}.`,
+  }[result.state]
+  session.out(
+    { state: result.state, proposals: result.proposals, usage },
+    `${summary}\n${usageLine(usage)}`,
+  )
+}
+
+/**
+ * Do for one checkout what Hub's learning jobs do, so no one runs each step by hand.
+ * It labels new feedback, then suggests themes that recur over the last 90 days. With
+ * a commit, it also scores each learning an agent used there and may suggest new
+ * wording. Hub's caps keep one run's Copilot usage bounded. A failed step is reported
+ * and the rest still run. Runs take turns so two never repeat the same work.
+ */
+async function analyze(session) {
+  const commitSha = session.values.commit
+  if (commitSha !== undefined && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commitSha))
+    throw new UsageError("Name the commit by its full SHA with --commit.")
+  const failed = []
+  // Each step is the command a person would run, so it keeps all the same checks.
+  async function step(name, arguments_) {
+    let output = ""
+    const code = await main([...arguments_, ...storeArguments(session), "--json"], {
+      cwd: session.cwd,
+      env: session.env,
+      stdin: session.stdin,
+      stdout: { write: (text) => ((output += text), true) },
+      stderr: session.stderr,
+      clock: session.clock,
+    })
+    if (code !== 0) failed.push(name)
+    try {
+      return code === 0 ? JSON.parse(output) : undefined
+    } catch {
+      return undefined
+    }
+  }
+  const directory = session.environment.dataDirectory
+  await mkdir(directory, { recursive: true, mode: 0o700 })
+  const lock = createFileLock({
+    path: path.join(directory, "analysis.lock"),
+    timeoutMs: 60 * 60 * 1000,
+  })
+  const summary = await lock.run(async () => {
+    const startedAt = timestampFromMilliseconds(session.clock())
+    const labeled = await step("label", [
+      "label",
+      "--since",
+      "90d",
+      "--limit",
+      "400",
+      "--max-requests",
+      "10",
+    ])
+    const consolidated = await step("consolidate", [
+      "consolidate",
+      "--from",
+      "90d",
+      "--to",
+      "now",
+      "--max",
+      "10",
+    ])
+    const scored = new Set()
+    const updates = []
+    if (commitSha) {
+      const reports = (await step("usage", ["usage", "--commit", commitSha]))?.reports ?? []
+      const temporary = await mkdtemp(path.join(tmpdir(), "replica-learning-analyze-"))
+      try {
+        const diffFile = path.join(temporary, "commit.diff")
+        const diff = await commitDiff(session.cwd, commitSha)
+        if (diff) await writeFile(diffFile, diff, { mode: 0o600 })
+        for (const used of reports.flatMap((report) => report.used)) {
+          // The same ID for the same use, so a second run keeps the first score.
+          const result = await step("score", [
+            "score",
+            used.id,
+            "--operation-id",
+            operationIdFor(`analyze-score:${used.id}`),
+            ...(diff ? ["--diff-file", diffFile] : []),
+          ])
+          if (result?.stored) scored.add(used.memoryId)
+        }
+      } finally {
+        await rm(temporary, { recursive: true, force: true })
+      }
+      for (const memoryId of scored) {
+        const result = await step("propose-update", ["propose-update", memoryId])
+        updates.push(...(result?.proposals ?? []))
+      }
+    }
+    const result = {
+      startedAt,
+      labeled: labeled?.labeled ?? 0,
+      proposals: consolidated?.changed?.length ?? 0,
+      scored: scored.size,
+      updates: updates.length,
+      failed,
+    }
+    return result
+  })
+  session.out(
+    summary,
+    [
+      `Analysis from ${summary.startedAt}: labeled ${summary.labeled} comment(s), ${summary.proposals} suggested learning(s), scored ${summary.scored} learning(s), ${summary.updates} suggested update(s).`,
+      failed.length ? `These steps failed: ${failed.join(", ")}. Their errors are above.` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  )
+  return failed.length ? 1 : 0
+}
+
+/** The options that point another run of this CLI at the same store. */
+function storeArguments(session) {
+  return ["dir", "repository"].flatMap((name) =>
+    session.values[name] === undefined ? [] : [`--${name}`, session.values[name]],
+  )
+}
+
+/** The commit's own changes, or null when Git cannot show them. */
+async function commitDiff(cwd, commitSha) {
+  try {
+    const { stdout } = await promisify(execFile)(
+      "git",
+      ["show", "--format=", "--no-color", "--no-ext-diff", commitSha, "--"],
+      { cwd, maxBuffer: 64 * 1024 * 1024 },
+    )
+    return stdout || null
+  } catch {
+    return null
+  }
+}
+
+/** The same UUID for the same name, so a retried step is not done twice. */
+function operationIdFor(name) {
+  const hex = createHash("sha256").update(name).digest("hex")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+async function updates(session) {
+  const memoryId = argument(session, 1, "memory ID")
+  const { store } = await open(session)
+  const items = await store.updatesFor(context(session, actor(session)), { memoryId })
+  session.out(
+    { updates: items },
+    items.length
+      ? items
+          .map(
+            (item) =>
+              `${item.id}  v${item.version}  ${item.state}  ` +
+              (item.withheld ? "(withheld)" : quoted(item.issue, 500)),
+          )
+          .join("\n")
+      : "No suggested updates for this learning.",
+  )
+}
+
+async function applyUpdate(session) {
+  const id = argument(session, 1, "proposal ID")
+  const reason = await reasonOf(session)
+  const principal = person(session)
+  const { store } = await open(session)
+  const result = await store.applyUpdate(context(session, principal), id, {
+    title: await optionalFile(session, "title-file"),
+    content: await optionalFile(session, "content-file"),
+    reason,
+    operationId: session.values["operation-id"],
+  })
+  session.out(
+    result,
+    result.stored
+      ? `Applied ${id} as version ${result.update.decision.appliedVersion}.`
+      : `${id} was already applied.`,
+  )
+}
+
+async function dismissUpdate(session) {
+  const id = argument(session, 1, "proposal ID")
+  const reason = await reasonOf(session)
+  const principal = person(session)
+  const { store } = await open(session)
+  const result = await store.dismissUpdate(context(session, principal), id, {
+    reason,
+    operationId: session.values["operation-id"],
+  })
+  session.out(result, result.stored ? `Dismissed ${id}.` : `${id} was already dismissed.`)
+}
+
+/** A file's text without its final line break, or undefined when the option is absent. */
+async function optionalFile(session, option) {
+  const file = session.values[option]
+  if (file === undefined) return undefined
+  return decodeUtf8(await readFile(path.resolve(session.cwd, file)), file).replace(/\r?\n$/, "")
+}
+
+/**
+ * Runs one step as Copilot and always closes its client. A failed step still reports what
+ * it spent, so a host can keep to its budget.
+ */
+async function withCopilot(session, client, run) {
+  try {
+    return await run(context(session, { kind: "agent", id: "agent:copilot" }))
+  } catch (error) {
+    if (session.values.json && error instanceof LearningError)
+      session.out({
+        usage: totals(error.details?.usage ?? []),
+        error: { code: error.code, message: error.message },
+      })
+    throw error
+  } finally {
+    await client.close().catch(() => {})
+  }
+}
+
+function usageLine(usage) {
+  return `Usage: ${usage.requests} request(s), ${aiCredits(usage.nanoAiu)} AI credits as Copilot reported them.`
+}
+
+/** One model call list as totals a host can add to its monthly budget. */
+function totals(calls) {
+  return {
+    requests: calls.length,
+    inputTokens: calls.reduce((sum, call) => sum + call.inputTokens, 0),
+    outputTokens: calls.reduce((sum, call) => sum + call.outputTokens, 0),
+    nanoAiu: calls.reduce((sum, call) => sum + call.nanoAiu, 0),
+  }
+}
+
+async function outcomes(session) {
+  const memoryId = argument(session, 1, "memory ID")
+  const { store } = await open(session)
+  const items = await store.outcomesFor(context(session, actor(session)), { memoryId })
+  session.out(
+    { outcomes: items },
+    items.length
+      ? items
+          .map(
+            (item) =>
+              `${item.scoredAt}  v${item.version}  ${item.commitSha.slice(0, 12)}  efficiency ${item.efficiency}, ${item.followed.replace("_", " ")}`,
+          )
+          .join("\n")
+      : "No scored uses of this learning yet.",
+  )
+}
+
+/**
+ * Swap each screenshot's file or base64 data for its bytes. The store checks these limits
+ * too, but only after every file is in memory, so the count and total size are checked here
+ * first and files are read one at a time.
+ */
+async function readReportScreenshots(directory, items) {
+  if (!Array.isArray(items)) return items
+  if (items.length > 1000)
+    throw new LearningError("invalid_input", "used lists at most 1000 delivered learnings.")
+  const used = []
+  let total = 0
+  for (const item of items) {
+    if (!item || typeof item !== "object") {
+      used.push(item)
+      continue
+    }
+    const copy = { ...item }
+    for (const role of ["before", "after"])
+      if (copy[role]?.data !== undefined) {
+        copy[role] = screenshotData(copy[role], MAX_REPORT_SCREENSHOT_BYTES - total)
+        total += copy[role].bytes.length
+      } else if (copy[role]?.file !== undefined) {
+        copy[role] = await screenshotFile(
+          directory,
+          copy[role],
+          MAX_REPORT_SCREENSHOT_BYTES - total,
+        )
+        total += copy[role].bytes.length
+      }
+    used.push(copy)
+  }
+  return used
+}
+
+function screenshotData({ data, file, ...rest }, remaining) {
+  if (file !== undefined)
+    throw new LearningError("invalid_input", "A screenshot names a file or carries data, not both.")
+  // Strict base64, so a typo is refused instead of silently decoding to other bytes.
+  if (
+    typeof data !== "string" ||
+    !data ||
+    data.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
+  )
+    throw new LearningError("invalid_input", "A screenshot's data must be base64 PNG bytes.")
+  if (Math.floor((data.length * 3) / 4) > MAX_SCREENSHOT_BYTES + 2)
+    throw new LearningError("invalid_input", "A screenshot can be at most 10 MB.")
+  const bytes = Buffer.from(data, "base64")
+  if (bytes.length > remaining)
+    throw new LearningError("invalid_input", "A report's screenshots can total at most 100 MB.")
+  return { ...rest, bytes }
+}
+
+async function screenshotFile(directory, { file, ...rest }, remaining) {
+  if (typeof file !== "string" || !file)
+    throw new LearningError("invalid_input", "A screenshot names its PNG file.")
+  // An agent writes the report, so a screenshot path must not reach other files on disk.
+  // Node cannot open a file relative to a held folder, so a process that renames
+  // folders under the report while this runs could still redirect the read. That
+  // process already has the same access, so the checks stop wrong or crafted
+  // paths, not such a process.
+  if (path.isAbsolute(file))
+    throw new LearningError(
+      "invalid_input",
+      `${file} must be a path inside the report's directory.`,
+    )
+  let handle
+  try {
+    const home = await realpath(directory)
+    const parent = await realpath(path.dirname(path.resolve(home, file)))
+    const inside = path.relative(home, parent)
+    if (inside.startsWith("..") || path.isAbsolute(inside))
+      throw new LearningError(
+        "invalid_input",
+        `${file} must be a path inside the report's directory.`,
+      )
+    // Checking the open handle, not the path, means a file swapped in after the check
+    // cannot be read in its place.
+    handle = await openFile(path.join(parent, path.basename(file)), constants.O_RDONLY | NO_FOLLOW)
+  } catch (error) {
+    if (error instanceof LearningError) throw error
+    if (error.code === "ELOOP")
+      throw new LearningError("invalid_input", `${file} must be a regular file.`)
+    throw new LearningError("not_found", `Cannot read ${file} (${error.code}).`)
+  }
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) throw new LearningError("invalid_input", `${file} must be a regular file.`)
+    // A hard link can give a file outside the directory a second name inside it.
+    if (info.nlink > 1)
+      throw new LearningError("invalid_input", `${file} must not be a hard link to another file.`)
+    if (info.size > MAX_SCREENSHOT_BYTES)
+      throw new LearningError("invalid_input", `${file} is larger than 10 MB.`)
+    if (info.size > remaining)
+      throw new LearningError("invalid_input", "A report's screenshots can total at most 100 MB.")
+    return { ...rest, bytes: await handle.readFile() }
+  } finally {
+    await handle.close()
+  }
+}
+
+async function deleteMemory(session) {
+  const id = argument(session, 1, "memory ID")
+  const reason = await reasonOf(session)
+  const principal = person(session)
+  const { store } = await open(session)
+  const result = await store.deleteMemory(context(session, principal), id, { reason })
+  session.out(result, `Deleted ${id} and ${deletedCount(result)} related record(s).`)
+}
+
+async function expireGuidance(session) {
+  const principal = person(session)
+  const days = positive(session.values.days, "--days", 365)
+  const { store } = await open(session)
+  const result = await store.expireGuidance(context(session, principal), { days })
+  session.out(result, `Removed ${deletedCount(result)} recall record(s) older than ${days} days.`)
+}
+
+async function deleteRepository(session) {
+  const principal = person(session)
+  const { environment } = session
+  const { store } = await open(session)
+  // Naming the repository again guards against deleting the wrong store by accident. A
+  // GitHub scope is a numeric ID, so its owner/name is accepted too.
+  const names = [environment.scope.repository, environment.legacyScope?.repository].filter(Boolean)
+  const { confirm } = session.values
+  if (typeof confirm !== "string" || !confirm || !names.includes(confirm))
+    throw new UsageError(
+      `Confirm with --confirm ${names.at(-1) ?? names[0]} to delete this repository's records.`,
+    )
+  const result = await store.deleteRepository(context(session, principal))
+  session.out(
+    result,
+    `Deleted ${deletedCount(result)} record(s) and ${result.memories} learning version(s).\n${OUTSIDE_THE_STORE}`,
+  )
+}
+
+function deletedCount(result) {
+  return Object.values(result.records).reduce((sum, count) => sum + count, 0)
 }
 
 // The most task text recall reads from a file or standard input.

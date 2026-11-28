@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/learning/v1/score.schema.json",
+  "title": "Replica score v1",
+  "description": "A model's judgment of how much one used learning helped the Build it was used for. It is evidence for a person, never a decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "scope",
+    "usedLearningId",
+    "usageReportId",
+    "memoryId",
+    "operationId",
+    "rubricVersion",
+    "efficiency",
+    "followed",
+    "reasoning",
+    "inputs",
+    "route",
+    "scoredBy",
+    "scoredAt",
+    "digest"
+  ],
+  "if": {
+    "properties": { "efficiency": { "enum": [1, 2] } }
+  },
+  "then": {
+    "required": ["issue"]
+  },
+  "properties": {
+    "schemaVersion": {
+      "const": "replica.score/v1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/scope"
+    },
+    "usedLearningId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "usageReportId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "memoryId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "operationId": {
+      "description": "The host's ID for this scoring attempt, so a retry stores one score.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "rubricVersion": {
+      "const": "replica.efficiency-rubric/v1"
+    },
+    "efficiency": {
+      "description": "1 not efficient at all, 2 slightly, 3 mostly, 4 highly efficient.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4
+    },
+    "followed": {
+      "description": "Whether the Build followed the learning, judged apart from the score.",
+      "enum": ["followed", "not_followed", "unclear"]
+    },
+    "reasoning": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "issue": {
+      "description": "What went wrong, as one reusable sentence, when the score is 1 or 2.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "inputs": {
+      "description": "What the model saw besides the learning and the usage report.",
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "enum": ["screenshots", "build_diff", "reviewer_verification"]
+      }
+    },
+    "route": {
+      "description": "How the model was chosen: Copilot Fusion at a tier, or Auto at a reasoning effort.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["fusion", "auto"] },
+        "fusionTier": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "model": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "reasoningEffort": { "type": "string", "minLength": 1, "maxLength": 50 }
+      }
+    },
+    "scoredBy": {
+      "$ref": "common.schema.json#/$defs/actor"
+    },
+    "scoredAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "digest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    }
+  }
+}

@@ -3,6 +3,7 @@ import { LearningError } from "./errors.mjs"
 import { derivedId, randomId } from "./ids.mjs"
 import { PURPOSES, createEligibility, sameScope } from "./policy.mjs"
 import {
+  DELETE_CAPABILITY,
   PROVIDER_CONTRACT,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
@@ -10,6 +11,7 @@ import {
 } from "./provider-contract.mjs"
 import { INVISIBLE, rankForRecall, renderRecall } from "./recall.mjs"
 import {
+  FEEDBACK_TYPES,
   PRODUCER,
   SCHEMA_VERSIONS,
   memoryContentDigest,
@@ -22,12 +24,24 @@ import {
 import {
   commentIdOf,
   HUB_SOURCE,
+  hubThreadKey,
   hubEpisodeId,
   hubThreadEpisode,
   hubThreadEvents,
   readHubReviewCollection,
   stableReviewer,
 } from "./sources/hub-review-comments.mjs"
+import {
+  SESSION_SOURCE,
+  noteEpisode,
+  noteEpisodeId,
+  noteEvents,
+  readAgentSession,
+  sessionEpisode,
+  sessionEpisodeId,
+  sessionEvents,
+} from "./sources/agent-sessions.mjs"
+import { MAX_REPORT_SCREENSHOT_BYTES, assertScreenshot, screenshotDigest } from "./screenshots.mjs"
 import { isTimestamp, timestampFromMilliseconds } from "./time.mjs"
 import { assertValid, validateRecord } from "./validate.mjs"
 
@@ -39,6 +53,14 @@ const STREAM_KINDS = Object.freeze({
   collections: "collection",
   audit: "auditEntry",
   exports: "exportManifest",
+  guidance: "guidance",
+  deliveries: "deliveredLearning",
+  usageReports: "usageReport",
+  usedLearnings: "usedLearning",
+  screenshots: "screenshot",
+  scores: "score",
+  updateProposals: "updateProposal",
+  updateDecisions: "updateDecision",
 })
 const PROVIDER_METHODS = [
   "health",
@@ -58,6 +80,16 @@ const RECORD_ID = /^[a-z][a-z0-9]{1,15}_[A-Za-z0-9_-]{8,128}$/
 const DIGEST = /^sha256:[0-9a-f]{64}$/
 // The most subjects one audit entry may name, as the audit-entry schema sets.
 const SUBJECTS_PER_ENTRY = 10_000
+const REPORT_ID = /^[A-Za-z0-9._:-]{1,128}$/
+const COMMIT_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/
+const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const EFFICIENCY_RUBRIC = "replica.efficiency-rubric/v1"
+const FOLLOWED = ["followed", "not_followed", "unclear"]
+const SCORE_INPUTS = ["screenshots", "build_diff", "reviewer_verification"]
+/** The grant source a person names to allow evaluating agent screenshots. */
+const SCREENSHOT_SOURCE = "agent_screenshots"
+const DAY_MS = 24 * 60 * 60 * 1000
+// The streams that hold what agents received and said they used.
 const MEMORY_STATES = ["proposed", "accepted", "rejected", "retired"]
 const MEMORY_KINDS = [
   "fact",
@@ -97,8 +129,8 @@ const PIN_KEYS = [
 const TRANSITIONS = {
   proposed: ["proposed", "accepted", "rejected"],
   accepted: ["accepted", "retired"],
-  rejected: [],
-  retired: [],
+  rejected: ["accepted"],
+  retired: ["accepted"],
 }
 
 /**
@@ -108,9 +140,18 @@ const TRANSITIONS = {
  * own access: the scope from the checkout or an authenticated session, never from agent
  * input, and the principal from the person or agent acting.
  *
- * @param {{ provider: object, clock?: () => number }} options
+ * screenshots is where a local host keeps the images agents attach to usage reports, from
+ * createScreenshotStore. Without it, the store refuses reports that carry screenshots.
+ *
+ * @param {{ provider: object, clock?: () => number, legacyScopes?: object[], digestMappings?: Record<string, string>, screenshots?: object | null }} options
  */
-export async function createLearningStore({ provider, clock = Date.now } = {}) {
+export async function createLearningStore({
+  provider,
+  clock = Date.now,
+  legacyScopes = [],
+  digestMappings = {},
+  screenshots = null,
+} = {}) {
   if (!provider || typeof provider.manifest !== "function")
     throw new LearningError("provider_incompatible", "A learning store needs a memory provider.")
   const manifest = provider.manifest()
@@ -139,7 +180,7 @@ export async function createLearningStore({ provider, clock = Date.now } = {}) {
       "provider_incompatible",
       `Provider ${manifest.id} does not implement ${absent.join(", ")}.`,
     )
-  return new LearningStore(provider, manifest, clock)
+  return new LearningStore(provider, manifest, clock, legacyScopes, digestMappings, screenshots)
 }
 
 /** Why a scope is malformed, or null when it is well formed. */
@@ -193,6 +234,38 @@ function unique(values) {
   return [...new Set(values)]
 }
 
+/** Compare snapshot facts, not the separate import receipts for those facts. */
+export function sameCollectionSnapshot(left, right) {
+  function facts(record) {
+    return {
+      snapshotId: record.snapshotId,
+      snapshotDigest: record.snapshotDigest,
+      source: record.source,
+      reviewerIdentity: record.reviewerIdentity ?? null,
+      capturedAt: record.capturedAt,
+      filters: record.filters,
+      complete: record.complete,
+      problems: record.problems,
+      counts: {
+        threads: record.counts.threads,
+        messages: record.counts.messages,
+        episodes: record.counts.episodes,
+      },
+    }
+  }
+  return canonicalJson(facts(left)) === canonicalJson(facts(right))
+}
+
+function conflictingCollections(collections) {
+  const snapshots = new Map()
+  for (const record of collections) {
+    const previous = snapshots.get(record.snapshotId)
+    if (previous && !sameCollectionSnapshot(previous, record)) return [previous, record]
+    snapshots.set(record.snapshotId, record)
+  }
+  return null
+}
+
 function compare(left, right) {
   return left < right ? -1 : left > right ? 1 : 0
 }
@@ -211,7 +284,108 @@ function targetOf(event) {
  */
 const JUDGMENTS = new Set(["annotation", "no_annotation"])
 
+/** A labeler's most recent judgment of a feedback event, which replaces its earlier ones. */
+function latestJudgment(events, targetId, principalId) {
+  return events
+    .filter(
+      (event) =>
+        JUDGMENTS.has(event.type) && targetOf(event) === targetId && event.actor.id === principalId,
+    )
+    .at(-1)
+}
+
 const DELETED_AT_SOURCE = "The comment was deleted at its source."
+
+function assertDeletionReason(reason) {
+  if (typeof reason !== "string" || !reason.trim() || reason.length > 1000)
+    throw new LearningError(
+      "invalid_input",
+      "Say why the learning is being deleted, in at most 1000 characters.",
+    )
+}
+
+/**
+ * The learnings other repositories shared, checked before a person previews them. Each must
+ * be an intact accepted record from another scope, so a damaged or edited copy is refused. A
+ * shared learning with the same ID as any of this repository's own, in any state, is left
+ * out. Two sources can share the same ID, so only the first copy is kept.
+ */
+function sharedForRecall(context, shared, ownIds) {
+  if (!Array.isArray(shared))
+    throw new LearningError("invalid_input", "Shared learnings must be a list of records.")
+  const seen = new Set()
+  const result = []
+  for (const record of shared) {
+    assertValid("memoryRecord", record)
+    if (record.state !== "accepted" || !record.accepted)
+      throw new LearningError("invalid_input", `Shared learning ${record.id} is not accepted.`)
+    if (sameScope(record.scope, context.scope))
+      throw new LearningError(
+        "invalid_input",
+        `Shared learning ${record.id} belongs to this repository.`,
+      )
+    if (ownIds.has(record.id) || seen.has(record.id)) continue
+    seen.add(record.id)
+    result.push(record)
+  }
+  return result
+}
+
+/** A checked session name, or undefined when none is given. */
+function sessionOf(session) {
+  if (session === undefined) return undefined
+  function valid(text) {
+    return (
+      typeof text === "string" && text.length >= 1 && text.length <= 200 && !INVISIBLE.test(text)
+    )
+  }
+  if (
+    !session ||
+    typeof session !== "object" ||
+    !valid(session.id) ||
+    (session.label !== undefined && !valid(session.label)) ||
+    Object.keys(session).some((key) => key !== "id" && key !== "label")
+  )
+    throw new LearningError(
+      "invalid_input",
+      "A session has an id and an optional label, each 1 to 200 plain characters.",
+    )
+  return session.label === undefined ? { id: session.id } : { id: session.id, label: session.label }
+}
+
+/** A checked screenshot for a usage report, with the SHA-256 of its bytes. */
+function screenshotOf(input, role) {
+  if (!input || typeof input !== "object")
+    throw new LearningError("invalid_input", `The ${role} screenshot must be an object.`)
+  const { route, viewport, theme, capturedAt, bytes } = input
+  assertScreenshot(bytes)
+  if (
+    typeof route !== "string" ||
+    !route ||
+    route.length > 2048 ||
+    typeof theme !== "string" ||
+    !theme ||
+    theme.length > 64 ||
+    !isTimestamp(capturedAt) ||
+    !Number.isSafeInteger(viewport?.width) ||
+    !Number.isSafeInteger(viewport?.height) ||
+    viewport.width < 1 ||
+    viewport.height < 1
+  )
+    throw new LearningError(
+      "invalid_input",
+      `The ${role} screenshot needs a route, a viewport { width, height }, a theme, and capturedAt.`,
+    )
+  return {
+    role,
+    route,
+    viewport: { width: viewport.width, height: viewport.height },
+    theme,
+    capturedAt,
+    sha256: screenshotDigest(bytes),
+    bytes,
+  }
+}
 
 function assertRemovalReason(reason) {
   if (typeof reason !== "string" || !reason.trim() || reason.length > 1000)
@@ -241,14 +415,29 @@ function citesAny(record, ids) {
 }
 
 /**
- * Every stored version of one review comment: the comment events in its thread that edit links
- * join to it, and any other version of the same Hub comment. Refuses a history whose links
+ * Events whose text a person can ask to remove, grouped so a removal follows edits within one
+ * kind. A session message can change role when it is resent, so both roles share a group.
+ */
+const TEXT_KINDS = Object.freeze({
+  human_comment: "comment",
+  user_message: "message",
+  agent_message: "message",
+  session_outcome: "outcome",
+})
+
+/**
+ * Every stored version of one review comment or session event: the events of the same kind in
+ * its episode that edit links join to it, and any other version of the same Hub comment. Refuses a history whose links
  * leave the thread or join two Hub comments, rather than guess whose text to remove.
  */
 function commentVersions(events, target) {
   const comments = new Map(
     events
-      .filter((event) => event.type === "human_comment" && event.episodeId === target.episodeId)
+      .filter(
+        (event) =>
+          TEXT_KINDS[event.type] === TEXT_KINDS[target.type] &&
+          event.episodeId === target.episodeId,
+      )
       .map((event) => [event.id, event]),
   )
   const versions = new Set()
@@ -286,6 +475,53 @@ function commentVersions(events, target) {
     }
   }
   return versions
+}
+
+/** Retractions follow the same Hub comment version across independently imported histories. */
+function retractedEvents(episodes, events) {
+  const episodeKeys = new Map(episodes.map((episode) => [episode.id, hubThreadKey(episode)]))
+  const byId = new Map(events.map((event) => [event.id, event]))
+  const comments = new Map()
+  for (const event of events) {
+    if (event.type !== "human_comment") continue
+    const thread = episodeKeys.get(event.episodeId)
+    const commentId = commentIdOf(event)
+    if (!thread || commentId === undefined) continue
+    const key = canonicalJson([thread, commentId])
+    if (!comments.has(key)) comments.set(key, [])
+    comments.get(key).push(event)
+  }
+  const retracted = new Set()
+  for (const versions of comments.values()) {
+    const deletedAt = versions
+      .filter((event) => event.payload?.body === null && event.payload.deletedAt)
+      .reduce(
+        (latest, event) => (event.payload.deletedAt > latest ? event.payload.deletedAt : latest),
+        "",
+      )
+    if (deletedAt)
+      for (const event of versions)
+        if (event.payload?.body !== null && event.at <= deletedAt) retracted.add(event.id)
+  }
+  for (const event of events) {
+    if (event.type !== "retraction") continue
+    retracted.add(targetOf(event))
+    const target = byId.get(targetOf(event))
+    const thread = episodeKeys.get(target?.episodeId)
+    const commentId = target && commentIdOf(target)
+    if (!thread || target?.type !== "human_comment" || commentId === undefined) continue
+    const deleted =
+      event.payload?.reason === "deleted_at_source" ||
+      event.id === derivedId("ev", { episodeId: event.episodeId, retracts: target.id })
+    for (const candidate of comments.get(canonicalJson([thread, commentId])) ?? []) {
+      if (
+        (deleted && candidate.at <= event.at) ||
+        (candidate.at === target.at && candidate.actor.id === target.actor.id)
+      )
+        retracted.add(candidate.id)
+    }
+  }
+  return retracted
 }
 
 /** What may be shown of a version that is damaged or whose evidence a purpose may not use. */
@@ -329,6 +565,25 @@ const CHANGEABLE = {
   "proposed>rejected": ["version", "previousDigest", "state", "rejected", "updatedAt", "digest"],
   "accepted>accepted": ["version", "previousDigest", "updatedAt", "digest", "supersedes"],
   "accepted>retired": ["version", "previousDigest", "state", "retired", "updatedAt", "digest"],
+  "rejected>accepted": [
+    "version",
+    "previousDigest",
+    "state",
+    "rejected",
+    "accepted",
+    "supersedes",
+    "updatedAt",
+    "digest",
+  ],
+  "retired>accepted": [
+    "version",
+    "previousDigest",
+    "state",
+    "retired",
+    "accepted",
+    "updatedAt",
+    "digest",
+  ],
 }
 
 /**
@@ -350,7 +605,22 @@ function transitionProblems(previous, version) {
       problems.push(`${label} changes when the learning was created`)
     return problems
   }
-  const fixed = CHANGEABLE[step]
+  const isEdit =
+    step === "accepted>accepted" &&
+    canonicalJson(version.accepted) !== canonicalJson(previous.accepted)
+  const fixed = isEdit
+    ? [
+        "version",
+        "previousDigest",
+        "updatedAt",
+        "digest",
+        "accepted",
+        "title",
+        "content",
+        "contentDigest",
+        "reviewDigest",
+      ]
+    : CHANGEABLE[step]
   if (canonicalJson(without(version, ...fixed)) !== canonicalJson(without(previous, ...fixed)))
     problems.push(
       `${label} changes something a ${previous.state} to ${version.state} step cannot change`,
@@ -370,10 +640,47 @@ function transitionProblems(previous, version) {
   if (step === "proposed>rejected" && version.rejected.reviewedDigest !== previous.reviewDigest)
     problems.push(`${label} rejects something other than version ${previous.version}`)
   if (step === "accepted>accepted") {
-    if (previous.supersedes)
+    if (isEdit) {
+      if (
+        version.accepted.decision !== "edit" ||
+        !version.accepted.note ||
+        !version.accepted.edited ||
+        version.accepted.at !== version.updatedAt ||
+        version.accepted.reviewedDigest !== previous.digest ||
+        !version.accepted.requestedFields?.length ||
+        new Set(version.accepted.requestedFields).size !==
+          version.accepted.requestedFields.length ||
+        (version.title !== previous.title && !version.accepted.requestedFields.includes("title")) ||
+        (version.content !== previous.content &&
+          !version.accepted.requestedFields.includes("content")) ||
+        version.accepted.edited !==
+          (version.content !== previous.content || version.title !== previous.title)
+      )
+        problems.push(`${label} does not record the reviewed edit`)
+    } else if (previous.supersedes)
       problems.push(`${label} changes what the learning replaces, which is fixed once recorded`)
     else if (!version.supersedes || version.supersedes.includes(version.id))
       problems.push(`${label} records no valid replacement`)
+  }
+  if (step === "rejected>accepted" || step === "retired>accepted") {
+    if (
+      version.accepted.decision !== "reinstate" ||
+      version.accepted.requestedFields !== undefined ||
+      !version.accepted.note ||
+      version.accepted.edited ||
+      version.accepted.at !== version.updatedAt ||
+      version.accepted.reviewedDigest !== previous.digest
+    )
+      problems.push(`${label} does not record the reviewed reinstatement`)
+    if (step === "rejected>accepted") {
+      const expected = unique(previous.proposal.lifecycle.targets ?? [])
+      if (
+        version.supersedes?.includes(version.id) ||
+        canonicalJson([...(version.supersedes ?? [])].sort()) !==
+          canonicalJson([...expected].sort())
+      )
+        problems.push(`${label} replaces learnings the reviewed lifecycle does not name`)
+    }
   }
   return problems
 }
@@ -382,11 +689,19 @@ class LearningStore {
   #provider
   #manifest
   #clock
+  #legacyScopes
+  #originalDigests
+  #screenshots
 
-  constructor(provider, manifest, clock) {
+  constructor(provider, manifest, clock, legacyScopes, digestMappings, screenshots) {
     this.#provider = provider
+    this.#screenshots = screenshots
     this.#manifest = manifest
     this.#clock = clock
+    this.#legacyScopes = legacyScopes
+    this.#originalDigests = new Map(
+      Object.entries(digestMappings).map(([original, current]) => [current, original]),
+    )
   }
 
   /** The provider manifest the store checked when it opened. */
@@ -406,6 +721,22 @@ class LearningStore {
     return timestampFromMilliseconds(this.#clock())
   }
 
+  /** Resolve the active scope on each operation, including migrations committed after opening. */
+  async #migrationContext(scope) {
+    const migrations = (await this.#provider.scopeMigrations?.(scope)) ?? []
+    const scopes = new Map(
+      [...this.#legacyScopes, ...migrations.map((migration) => migration.oldScope)].map(
+        (legacy) => [canonicalJson(legacy), legacy],
+      ),
+    )
+    const originalDigests = new Map(this.#originalDigests)
+    for (const migration of migrations)
+      for (const mapping of migration.digestMappings ?? [])
+        if (mapping.kind === "memory" && mapping.field === "digest")
+          originalDigests.set(mapping.newDigest, mapping.oldDigest)
+    return { legacyScopes: [...scopes.values()], originalDigests, digest: digestOf(migrations) }
+  }
+
   /**
    * Records from a stream in the caller's scope. Any record that fails its scope, schema, or
    * digest check stops the operation: dropping a damaged withdrawal or retraction would
@@ -413,6 +744,10 @@ class LearningStore {
    */
   async #read(stream, context, query = {}) {
     const records = await this.#provider.readRecords(stream, { ...query, scope: context.scope })
+    return this.#validateRecords(stream, context, records)
+  }
+
+  #validateRecords(stream, context, records) {
     const damaged = records.filter(
       (record) =>
         !sameScope(record?.scope, context.scope) ||
@@ -422,6 +757,11 @@ class LearningStore {
       throw new LearningError(
         "storage_corrupt",
         `${damaged.length} ${stream} record(s) from provider ${this.#manifest.id} failed their checks. Run verify; learning operations stay blocked until the store is repaired.`,
+      )
+    if (stream === "collections" && conflictingCollections(records))
+      throw new LearningError(
+        "storage_corrupt",
+        "Collections disagree about a snapshot. Run verify; learning operations stay blocked until the store is repaired.",
       )
     return records
   }
@@ -474,32 +814,133 @@ class LearningStore {
     await this.#append("audit", [this.#auditEntry(context, operation, subjects, options)])
   }
 
-  async #eligibility(context, at = this.#now()) {
-    const [grants, withdrawals, collections] = await Promise.all([
-      this.#read("grants", context),
-      this.#read("withdrawals", context),
-      this.#read("collections", context),
-    ])
+  async #eligibility(context, at = this.#now(), observations) {
+    let grants
+    let withdrawals
+    let collections
+    let migrations
+    let indexedOrigins
+    if (observations) {
+      const episodes = new Map(observations.episodes.map((episode) => [episode.id, episode]))
+      const evidence = new Map()
+      for (const event of observations.events) {
+        const item = { source: episodes.get(event.episodeId).source.kind, at: event.at }
+        evidence.set(canonicalJson(item), item)
+      }
+      const hubSources = new Map()
+      for (const episode of observations.episodes) {
+        if (episode.source.kind !== HUB_SOURCE) continue
+        const source = {
+          hubOrigin: episode.source.hubOrigin,
+          repositoryId: episode.source.repositoryId,
+        }
+        hubSources.set(canonicalJson(source), source)
+      }
+      const inputs = await this.#provider.readDecisionInputs(context.scope, {
+        evidence: [...evidence.values()],
+        at,
+        purpose: observations.purpose,
+        hubSources: [...hubSources.values()],
+        eventIds: observations.events.map((event) => event.id),
+      })
+      grants = this.#validateRecords("grants", context, inputs.grants)
+      withdrawals = this.#validateRecords("withdrawals", context, inputs.withdrawals)
+      collections = this.#validateRecords("collections", context, inputs.collections)
+      indexedOrigins = inputs.origins
+    } else {
+      const result = await Promise.all([
+        this.#read("grants", context),
+        this.#read("withdrawals", context),
+        this.#read("collections", context),
+        this.#provider.scopeMigrations?.(context.scope) ?? [],
+      ])
+      grants = result[0]
+      withdrawals = result[1]
+      collections = result[2]
+      migrations = result[3]
+    }
     const eligibility = createEligibility({ grants, withdrawals, at })
+    const origins = new Map()
+    if (indexedOrigins)
+      for (const origin of indexedOrigins) origins.set(`${origin.kind} ${origin.id}`, origin.origin)
+    else
+      for (const migration of migrations)
+        for (const mapping of migration.digestMappings ?? [])
+          if (mapping.field === "digest" && ["grant", "event"].includes(mapping.kind))
+            origins.set(`${mapping.kind} ${mapping.id}`, canonicalJson(migration.oldScope))
+    const byOrigin = new Map()
+    const allGrantsFor = eligibility.grantsFor
+    eligibility.grantsForEvent = (episode, event, purpose) => {
+      const origin = origins.get(`event ${event.id}`)
+      if (!origin) return allGrantsFor(episode, event.at, purpose)
+      if (!byOrigin.has(origin))
+        byOrigin.set(
+          origin,
+          createEligibility({
+            grants: grants.filter((grant) => {
+              const grantOrigin = origins.get(`grant ${grant.id}`)
+              return !grantOrigin || grantOrigin === origin
+            }),
+            withdrawals,
+            at,
+          }),
+        )
+      return byOrigin.get(origin).grantsFor(episode, event.at, purpose)
+    }
     eligibility.stableSources = collections
       .filter((collection) => collection.reviewerIdentity === "stable-user-id")
       .map((collection) => collection.source)
+    eligibility.migrationScope = context.scope
+    if (migrations) eligibility.migrationDigest = digestOf(migrations)
     return { eligibility, grants, withdrawals }
   }
 
   async #observations(context, query = {}) {
+    let ids = query.episodeIds
+    let migrationDigest
     if (query.eventIds !== undefined) {
       const selected = await this.#read("events", context, { ids: query.eventIds })
-      query = {
-        episodeIds: unique(selected.map((event) => event.episodeId)).filter(
-          (id) => !query.episodeIds || query.episodeIds.includes(id),
-        ),
+      ids = unique(selected.map((event) => event.episodeId)).filter(
+        (id) => !query.episodeIds || query.episodeIds.includes(id),
+      )
+    }
+    if (ids) {
+      const migrations = query.decision
+        ? []
+        : ((await this.#provider.scopeMigrations?.(context.scope)) ?? [])
+      if (!query.decision) migrationDigest = digestOf(migrations)
+      const selected = new Set(
+        typeof this.#provider.readRelatedEpisodeIds === "function"
+          ? await this.#provider.readRelatedEpisodeIds(context.scope, ids)
+          : ids,
+      )
+      if (typeof this.#provider.readRelatedEpisodeIds !== "function") {
+        for (const migration of migrations)
+          for (const group of migration.overlappingEpisodes ?? [])
+            if (group.some((id) => selected.has(id))) for (const id of group) selected.add(id)
       }
+      if (migrations.length && typeof this.#provider.readRelatedEpisodeIds !== "function") {
+        const episodes = await this.#read("episodes", context)
+        const keys = new Set(
+          episodes
+            .filter((episode) => selected.has(episode.id))
+            .map(hubThreadKey)
+            .filter(Boolean),
+        )
+        for (const episode of episodes)
+          if (keys.has(hubThreadKey(episode))) selected.add(episode.id)
+      }
+      ids = [...selected]
     }
     const [episodes, events] = await Promise.all([
-      this.#read("episodes", context, query.episodeIds ? { ids: query.episodeIds } : {}),
-      this.#read("events", context, query.episodeIds ? { episodeIds: query.episodeIds } : {}),
+      this.#read("episodes", context, ids ? { ids } : {}),
+      this.#read("events", context, ids ? { episodeIds: ids } : {}),
     ])
+    if (
+      migrationDigest &&
+      migrationDigest !== digestOf((await this.#provider.scopeMigrations?.(context.scope)) ?? [])
+    )
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
     const known = new Set(episodes.map((episode) => episode.id))
     return { episodes, events: events.filter((event) => known.has(event.episodeId)) }
   }
@@ -511,10 +952,44 @@ class LearningStore {
    * usable only while that comment is, and its time is the comment's time. Retracted and
    * redacted events are never usable.
    */
-  #eligible({ episodes, events }, eligibility, purpose) {
+  async #eligible({ episodes, events }, eligibility, purpose) {
+    if (
+      eligibility.migrationDigest !== undefined &&
+      eligibility.migrationDigest !==
+        digestOf((await this.#provider.scopeMigrations?.(eligibility.migrationScope)) ?? [])
+    )
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
     const episodesById = new Map(episodes.map((episode) => [episode.id, episode]))
     const byId = new Map(events.map((event) => [event.id, event]))
-    const retracted = new Set(events.filter((event) => event.type === "retraction").map(targetOf))
+    const retracted = retractedEvents(episodes, events)
+    const copies = new Map()
+    const commentVersions = new Map()
+    const evidenceGrants = new Map()
+    // A session message's versions are linked by supersedes, so each joins its first version.
+    const sessionVersions = new Map()
+    for (const event of events) {
+      if (event.type !== "user_message" && event.type !== "agent_message") continue
+      let root = event
+      for (const seen = new Set(); root.supersedes && !seen.has(root.id);) {
+        seen.add(root.id)
+        const previous = byId.get(root.supersedes)
+        if (!previous || previous.episodeId !== event.episodeId) break
+        root = previous
+      }
+      if (!sessionVersions.has(root.id)) sessionVersions.set(root.id, [])
+      sessionVersions.get(root.id).push(event)
+    }
+    for (const event of events) {
+      if (event.type !== "human_comment") continue
+      const thread = hubThreadKey(episodesById.get(event.episodeId))
+      const commentId = commentIdOf(event)
+      if (!thread || commentId === undefined) continue
+      const key = canonicalJson([thread, commentId, event.at])
+      copies.set(key, [...(copies.get(key) ?? []), event])
+      const identity = canonicalJson([thread, commentId])
+      if (!commentVersions.has(identity)) commentVersions.set(identity, [])
+      commentVersions.get(identity).push(event)
+    }
     const identityObsolete = new Set(
       events
         .filter(
@@ -548,6 +1023,22 @@ class LearningStore {
           source.hubOrigin === episode.source.hubOrigin &&
           source.repositoryId === episode.source.repositoryId,
       )
+      const thread = hubThreadKey(episode)
+      const commentId = event.type === "human_comment" ? commentIdOf(event) : undefined
+      const related =
+        thread && commentId !== undefined
+          ? copies.get(canonicalJson([thread, commentId, event.at]))
+          : [event]
+      const grants = related.map((copy) =>
+        eligibility.grantsForEvent(episodesById.get(copy.episodeId), copy, purpose),
+      )
+      const permitted =
+        related.every(
+          (copy) =>
+            copy.payload !== undefined &&
+            (!retracted.has(copy.id) || copy.actor.id !== event.actor.id),
+        ) && grants.every((items) => items.length)
+      if (permitted) evidenceGrants.set(event.id, unique(grants.flat()))
       return (
         !retracted.has(event.id) &&
         event.payload !== undefined &&
@@ -555,7 +1046,7 @@ class LearningStore {
           !stableSource ||
           event.type !== "human_comment" ||
           stableReviewer(event.actor, episode.scope, episode.source)) &&
-        eligibility.evidenceEligible(episode, event.at, purpose)
+        permitted
       )
     }
     const kept = events.filter((event) => {
@@ -571,6 +1062,21 @@ class LearningStore {
       )
     })
     const eventsById = new Map(kept.map((event) => [event.id, event]))
+    const hiddenEdits = new Set()
+    for (const versions of commentVersions.values()) {
+      const latest = versions.reduce((time, event) => (event.at > time ? event.at : time), "")
+      if (versions.some((event) => event.at === latest && eventsById.has(event.id))) continue
+      for (const event of versions)
+        if (event.at < latest && eventsById.has(event.id)) hiddenEdits.add(event.id)
+    }
+    // A resent message may keep its time, so its newest version is the one nothing replaces.
+    for (const versions of sessionVersions.values()) {
+      const replaced = new Set(versions.map((event) => event.supersedes))
+      const newest = versions.filter((event) => !replaced.has(event.id))
+      if (newest.some((event) => eventsById.has(event.id))) continue
+      for (const event of versions)
+        if (replaced.has(event.id) && eventsById.has(event.id)) hiddenEdits.add(event.id)
+    }
     const episodeIds = new Set(kept.map((event) => event.episodeId))
     return {
       episodes: episodes.filter((episode) => episodeIds.has(episode.id)),
@@ -578,8 +1084,11 @@ class LearningStore {
       episodeIds,
       episodesById,
       eventsById,
+      evidenceGrants,
       retracted,
       identityObsolete,
+      migrationDigest: eligibility.migrationDigest,
+      hiddenEdits,
     }
   }
 
@@ -735,14 +1244,29 @@ class LearningStore {
    * learning stays as it was. Claims come only from intact versions, and a replacement that is
    * later retired or damaged keeps them, so nothing quietly brings an old learning back.
    */
-  async #statuses(context, purpose = "instruction") {
+  async #statuses(context, purpose = "instruction", ids) {
     const now = this.#now()
-    const [{ eligibility }, observations, entries] = await Promise.all([
-      this.#eligibility(context, now),
-      this.#observations(context),
-      this.#memories(context),
-    ])
-    const eligible = this.#eligible(observations, eligibility, purpose)
+    const entries = await this.#memories(context, ids)
+    const episodeIds = ids
+      ? unique(
+          [...entries.values()].flatMap((entry) =>
+            dependencies(entry.record).map((ref) => ref.episodeId),
+          ),
+        )
+      : undefined
+    // A decision reads only the evidence its learnings cite, which it must find first. A
+    // full read has no such dependency, so it reads both at once.
+    let observations, eligibility
+    if (ids) {
+      observations = await this.#observations(context, { episodeIds, decision: true })
+      ;({ eligibility } = await this.#eligibility(context, now, { ...observations, purpose }))
+    } else {
+      ;[observations, { eligibility }] = await Promise.all([
+        this.#observations(context),
+        this.#eligibility(context, now),
+      ])
+    }
+    const eligible = await this.#eligible(observations, eligibility, purpose)
     const items = [...entries.values()].map((entry) => ({
       ...entry,
       status: this.#statusOf(entry, eligible, now),
@@ -789,8 +1313,18 @@ class LearningStore {
       return { record: metadataOf(item.record), status: item.status, withheld: true }
     if (item.status.evidenceEligible)
       return { record: item.record, status: item.status, withheld: false }
-    const record = without(item.record, "content", "evidence", "contradictions", "appliesTo")
+    const record = without(
+      item.record,
+      "title",
+      "content",
+      "evidence",
+      "contradictions",
+      "appliesTo",
+    )
     record.proposal = without(item.record.proposal, "rationale")
+    if (record.accepted) record.accepted = without(record.accepted, "note")
+    if (record.rejected) record.rejected = without(record.rejected, "reason")
+    if (record.retired) record.retired = without(record.retired, "reason")
     return { record, status: item.status, withheld: true }
   }
 
@@ -961,7 +1495,8 @@ class LearningStore {
   }
 
   /**
-   * Remove the text of a review comment from storage, for example when its author asks.
+   * Remove the text of a review comment from storage, for example when its author asks. An
+   * agent session message or outcome is removed the same way, with its edits in the session.
    * Every stored version of the comment, and every label on those versions, keeps its ID and
    * digest but loses its payload, with a note of who removed it, when, and why. Other comments,
    * replies included, are untouched, and a history that links this comment to another one is
@@ -980,11 +1515,14 @@ class LearningStore {
     requireHuman(context, "redact a comment")
     assertRemovalReason(reason)
     this.#assertRedactable()
-    const { events } = await this.#observations(context)
+    const { episodes, events } = await this.#observations(context)
     const target = events.find((event) => event.id === eventId)
-    if (target?.type !== "human_comment")
-      throw new LearningError("not_found", `No review comment event ${eventId} in this scope.`)
-    return this.#removeCommentText(context, events, [target], reason)
+    if (!Object.hasOwn(TEXT_KINDS, target?.type ?? ""))
+      throw new LearningError(
+        "not_found",
+        `No review comment or agent session event ${eventId} in this scope.`,
+      )
+    return this.#removeCommentText(context, episodes, events, [target], reason)
   }
 
   /**
@@ -1012,12 +1550,12 @@ class LearningStore {
       throw new LearningError("invalid_input", "A Hub comment ID is a positive whole number.")
     assertRemovalReason(reason)
     this.#assertRedactable()
-    const { events } = await this.#observations(context)
+    const { episodes, events } = await this.#observations(context)
     const versions = events.filter(
       (event) => event.type === "human_comment" && commentIdOf(event) === commentId,
     )
     if (!versions.length) return { redacted: [], memoriesNeedingRebuild: [], exportsToFollowUp: [] }
-    return this.#removeCommentText(context, events, versions, reason)
+    return this.#removeCommentText(context, episodes, events, versions, reason)
   }
 
   #assertRedactable() {
@@ -1036,7 +1574,21 @@ class LearningStore {
    * each removal once, and reports the accepted learnings and exports that cite them. Running it
    * again finishes an interrupted removal and reports the same follow-ups.
    */
-  async #removeCommentText(context, events, targets, reason) {
+  async #removeCommentText(context, episodes, events, targets, reason) {
+    const episodeKeys = new Map(episodes.map((episode) => [episode.id, hubThreadKey(episode)]))
+    for (const target of [...targets]) {
+      const thread = episodeKeys.get(target.episodeId)
+      const commentId = commentIdOf(target)
+      if (!thread || commentId === undefined) continue
+      for (const event of events)
+        if (
+          event.type === "human_comment" &&
+          episodeKeys.get(event.episodeId) === thread &&
+          commentIdOf(event) === commentId &&
+          !targets.some((item) => item.id === event.id)
+        )
+          targets.push(event)
+    }
     const versions = new Set(targets.flatMap((target) => [...commentVersions(events, target)]))
     const chosen = events.filter(
       (event) =>
@@ -1137,11 +1689,11 @@ class LearningStore {
    * same comments again adds nothing, and edits, deletions, and resolution changes are
    * appended as new events.
    *
-   * A scope holds one collection for each snapshot ID, and it records the digest of the
-   * snapshot's normalized contents. Importing a snapshot again, from this log or another log of
-   * it, keeps the stored collection. A snapshot ID already imported with different contents is
-   * refused, and the provider refuses a second collection for the snapshot ID in the same write
-   * as the comments, so of two imports that race, only one is stored.
+   * A collection records the digest of the snapshot's normalized contents. Importing a
+   * snapshot again keeps the stored collection; scope migration can retain multiple matching
+   * collections. Different contents under the same snapshot ID are refused. Normal imports
+   * enforce uniqueness in the same write as the comments, so of two imports that race, only
+   * one is stored.
    *
    * A deletion retracts the comment from every purpose and keeps its text. With redactDeleted,
    * the import then removes the text of every comment the snapshot shows as deleted, and of
@@ -1180,7 +1732,33 @@ class LearningStore {
           `Grant ${grantId} does not currently permit review.`,
         )
     }
-    const collection = readHubReviewCollection(log, { repository: context.scope.repository })
+    const migration = await this.#migrationContext(context.scope)
+    if (migration.digest !== eligibility.migrationDigest)
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
+    const { legacyScopes } = migration
+    const collections = await this.#read("collections", context)
+    const repository = context.sourceRepository ?? context.scope.repository
+    let collection
+    let historicalSource = false
+    try {
+      collection = readHubReviewCollection(log, { repository })
+    } catch (error) {
+      if (error.code !== "scope_violation") throw error
+      const historicalRepositories = unique([
+        ...legacyScopes.map((scope) => scope.repository),
+        ...collections.map((item) => item.source.repository),
+      ]).filter((name) => name && name !== repository)
+      for (const name of historicalRepositories) {
+        try {
+          collection = readHubReviewCollection(log, { repository: name })
+          historicalSource = true
+          break
+        } catch (legacyError) {
+          if (legacyError.code !== "scope_violation") throw legacyError
+        }
+      }
+      if (!collection) throw error
+    }
     const { snapshotId } = collection.meta
     const snapshotDigest = digestOf({
       meta: collection.meta,
@@ -1189,20 +1767,43 @@ class LearningStore {
       problems: collection.problems,
       threads: collection.threads,
     })
+    const snapshot = {
+      snapshotId,
+      snapshotDigest,
+      source: {
+        kind: HUB_SOURCE,
+        hubOrigin: collection.meta.hubOrigin,
+        repository: collection.meta.repository,
+        repositoryId: collection.meta.repositoryId,
+      },
+      ...(collection.meta.reviewerIdentity
+        ? { reviewerIdentity: collection.meta.reviewerIdentity }
+        : {}),
+      capturedAt: collection.meta.capturedAt,
+      filters: collection.filters,
+      complete: collection.complete,
+      problems: collection.problems.slice(0, 1000).map((problem) => problem.slice(0, 2000)),
+      counts: { ...collection.counts, episodes: collection.threads.length },
+    }
     const id = derivedId("col", { scope: context.scope, snapshotId })
     const reused = new LearningError(
       "conflict",
       `Snapshot ${snapshotId} was already imported with different contents, so nothing was imported. Collect a new snapshot and import that.`,
     )
-    const collections = await this.#read("collections", context)
     const adopted = collections.some(
       (item) =>
         item.reviewerIdentity === "stable-user-id" &&
         item.source.hubOrigin === collection.meta.hubOrigin &&
         item.source.repositoryId === collection.meta.repositoryId,
     )
-    const previous = collections.find((item) => item.id === id)
-    if (previous && previous.snapshotDigest !== snapshotDigest) throw reused
+    const matches = collections.filter((item) => item.snapshotId === snapshotId)
+    const previous = matches[0]
+    if (historicalSource && !previous)
+      throw new LearningError(
+        "scope_violation",
+        "An earlier repository name may only be used to replay a snapshot already in this store.",
+      )
+    if (matches.some((item) => !sameCollectionSnapshot(item, snapshot))) throw reused
     const newer = collections.some(
       (item) =>
         item.source.kind === HUB_SOURCE &&
@@ -1215,40 +1816,104 @@ class LearningStore {
         "conflict",
         `Snapshot ${snapshotId} is older than a snapshot already imported from this Hub repository, so nothing was imported. Collect a new snapshot and import that.`,
       )
-    const episodeIds = collection.threads.map((thread) =>
-      hubEpisodeId(context.scope, collection.meta, thread.root),
+    const candidateIds = collection.threads.map((thread) =>
+      [context.scope, ...legacyScopes].map((scope) =>
+        hubEpisodeId(scope, collection.meta, thread.root),
+      ),
     )
-    const stored = await this.#read("episodes", context, { ids: episodeIds })
+    const stored = await this.#read("episodes", context, { ids: unique(candidateIds.flat()) })
     const known = new Set(stored.map((episode) => episode.id))
-    const existingEvents = await this.#read("events", context, { episodeIds })
+    const episodeIds = candidateIds.map((ids) => {
+      const matches = unique(ids.filter((id) => known.has(id)))
+      return matches.length ? matches : [ids[0]]
+    })
+    const existingEvents = await this.#read("events", context, {
+      episodeIds: unique(episodeIds.flat()),
+    })
     const episodes = []
     const events = []
-    for (const thread of collection.threads) {
-      if (newer) continue
-      const episodeId = hubEpisodeId(context.scope, collection.meta, thread.root)
-      if (!known.has(episodeId))
-        episodes.push(
-          sealEpisode(
-            hubThreadEpisode({
-              meta: collection.meta,
-              thread,
-              scope: context.scope,
-              grantIds,
-              principal: context.principal,
-              importedAt: now,
-            }),
-          ),
+    for (const [index, thread] of collection.threads.entries()) {
+      if (previous) continue
+      const ids = episodeIds[index]
+      const threadEvents = existingEvents.filter((event) => ids.includes(event.episodeId))
+      const byId = new Map(threadEvents.map((event) => [event.id, event]))
+      const deleted = new Set(
+        threadEvents
+          .filter((event) => {
+            if (event.type === "human_comment")
+              return event.payload?.body === null && event.payload.deletedAt
+            if (event.type !== "retraction") return false
+            const target = byId.get(event.parentEventId)
+            return (
+              event.payload?.reason === "deleted_at_source" ||
+              (target &&
+                event.id === derivedId("ev", { episodeId: event.episodeId, retracts: target.id }))
+            )
+          })
+          .map((event) => {
+            if (event.type === "human_comment") return commentIdOf(event)
+            const target = byId.get(event.parentEventId)
+            return target ? commentIdOf(target) : undefined
+          })
+          .filter((id) => id !== undefined),
+      )
+      if ([thread.root, ...thread.replies].some((item) => deleted.has(item.id) && !item.deletedAt))
+        throw new LearningError(
+          "conflict",
+          "A newer snapshot would restore a comment already deleted at its source.",
         )
-      const existing = existingEvents.filter((event) => event.episodeId === episodeId)
-      events.push(
-        ...hubThreadEvents({
+      for (const episodeId of ids) {
+        if (!known.has(episodeId))
+          episodes.push(
+            sealEpisode(
+              hubThreadEpisode({
+                meta: collection.meta,
+                thread,
+                scope: context.scope,
+                grantIds,
+                principal: context.principal,
+                importedAt: now,
+              }),
+            ),
+          )
+        const existing = threadEvents.filter((event) => event.episodeId === episodeId)
+        const additions = hubThreadEvents({
           meta: collection.meta,
           thread,
           scope: context.scope,
           episodeId,
           existing,
-        }).map(sealEvent),
-      )
+        })
+        const removedRoots = new Map()
+        for (const event of additions) {
+          if (event.type !== "human_comment") continue
+          const removed = threadEvents.some(
+            (item) =>
+              item.type === "human_comment" &&
+              item.redaction &&
+              commentIdOf(item) === event.payload.commentId &&
+              (event.at <= item.redaction.at || item.at === event.at),
+          )
+          if (!removed) continue
+          if (event.payload.role === "root") {
+            const root = existing.find(
+              (item) => item.type === "human_comment" && commentIdOf(item) === thread.root.id,
+            )
+            if (!root)
+              throw new LearningError("storage_corrupt", "A stored review thread has no root.")
+            removedRoots.set(event.id, root.id)
+          } else removedRoots.set(event.id, null)
+        }
+        for (const event of additions) {
+          if (removedRoots.has(event.id)) continue
+          if (removedRoots.has(event.parentEventId)) {
+            const parent = removedRoots.get(event.parentEventId)
+            if (!parent) continue
+            event.parentEventId = parent
+          }
+          events.push(sealEvent(event))
+        }
+      }
     }
     for (const episode of episodes) assertValid("episode", episode)
     for (const event of events) assertValid("event", event)
@@ -1257,25 +1922,10 @@ class LearningStore {
       sealRecord({
         schemaVersion: SCHEMA_VERSIONS.collection,
         id,
-        source: {
-          kind: HUB_SOURCE,
-          hubOrigin: collection.meta.hubOrigin,
-          repository: collection.meta.repository,
-          repositoryId: collection.meta.repositoryId,
-        },
+        ...snapshot,
         scope: context.scope,
-        snapshotId,
-        snapshotDigest,
-        ...(collection.meta.reviewerIdentity
-          ? { reviewerIdentity: collection.meta.reviewerIdentity }
-          : {}),
-        capturedAt: collection.meta.capturedAt,
-        filters: collection.filters,
-        complete: collection.complete,
-        problems: collection.problems.slice(0, 1000).map((problem) => problem.slice(0, 2000)),
         counts: {
-          ...collection.counts,
-          episodes: collection.threads.length,
+          ...snapshot.counts,
           events: events.length,
         },
         importedAt: now,
@@ -1287,6 +1937,24 @@ class LearningStore {
       await this.#provider.appendBatch(
         { episodes, events, collections: [record] },
         {
+          ...(this.#provider.atomicMigrationFence
+            ? {
+                expectedMigrations: {
+                  scope: context.scope,
+                  digest: migration.digest,
+                },
+              }
+            : {}),
+          ...(this.#provider.atomicCollectionImport
+            ? {
+                expectedCollection: {
+                  scope: context.scope,
+                  records: collections
+                    .map(({ id: collectionId, digest }) => ({ id: collectionId, digest }))
+                    .sort((a, b) => compare(a.id, b.id)),
+                },
+              }
+            : {}),
           audit: this.#auditEntries(context, "collection.import", [
             { kind: "collection", id: record.id, digest: record.digest },
             ...episodes.map((episode) => ({
@@ -1300,15 +1968,22 @@ class LearningStore {
       )
     } catch (error) {
       if (error?.code !== "conflict") throw error
-      const [stored] = await this.#read("collections", context, { ids: [id] })
-      if (stored && stored.snapshotDigest !== snapshotDigest) throw reused
+      const current = (await this.#read("collections", context)).filter(
+        (item) => item.snapshotId === snapshotId,
+      )
+      if (current.some((item) => !sameCollectionSnapshot(item, snapshot))) throw reused
       throw new LearningError(
         "conflict",
         `Another import stored some of these comments while this one ran, so nothing was imported. Import ${snapshotId} again.`,
       )
     }
     const removal = redactDeleted
-      ? await this.#removeDeletedText(context, collection, [...existingEvents, ...events])
+      ? await this.#removeDeletedText(
+          context,
+          collection,
+          [...stored, ...episodes],
+          [...existingEvents, ...events],
+        )
       : null
     const identityUpdates =
       collection.meta.reviewerIdentity || adopted
@@ -1345,7 +2020,7 @@ class LearningStore {
    * version with text and any label on a version. A removal cut short is finished by the next
    * import that asks, and a finished one is not reported again.
    */
-  async #removeDeletedText(context, collection, events) {
+  async #removeDeletedText(context, collection, episodes, events) {
     const deleted = new Set(
       collection.threads
         .flatMap((thread) => [thread.root, ...thread.replies])
@@ -1376,8 +2051,139 @@ class LearningStore {
       } else if (label || event.payload.body !== null) targets.set(commentIdOf(version), version)
     }
     return targets.size
-      ? this.#removeCommentText(context, events, [...targets.values()], DELETED_AT_SOURCE)
+      ? this.#removeCommentText(context, episodes, events, [...targets.values()], DELETED_AT_SOURCE)
       : null
+  }
+
+  /**
+   * Store an agent session as one episode: its user and agent messages in order, and its
+   * outcome. Tool calls, tool output, and the task are dropped, secrets are scrubbed, and long
+   * text is capped. Sending the same session ID again updates that episode: new messages are
+   * appended, and changed messages and outcomes supersede their earlier versions. Text a person
+   * removed stays removed, and two imports that change the same message at once leave one
+   * change and refuse the other as a conflict.
+   *
+   * The grant must name agent_session and currently permit review, so a person decides whether
+   * sessions may become learning evidence, separately from review comments. Pick & Polish notes
+   * sent with the session come under the same grant, each stored as its own episode.
+   *
+   * @param {object} context the principal is the agent that ran the session
+   * @param {unknown} input see readAgentSession
+   * @param {{ grantIds: string[] }} options
+   */
+  async importAgentSession(context, input, { grantIds = [] } = {}) {
+    assertContext(context)
+    if (context.principal.kind !== "agent")
+      throw new LearningError("invalid_input", "The agent that ran the session sends it.")
+    const session = readAgentSession(input)
+    const now = this.#now()
+    const { eligibility, grants } = await this.#eligibility(context, now)
+    if (!grantIds.length)
+      throw new LearningError(
+        "purpose_not_granted",
+        "Name the consent grant that covers agent sessions with --grant.",
+      )
+    for (const grantId of grantIds) {
+      const grant = grants.find((item) => item.id === grantId)
+      if (!grant) throw new LearningError("not_found", `No grant ${grantId} in this scope.`)
+      if (!grant.sources.includes(SESSION_SOURCE))
+        throw new LearningError(
+          "purpose_not_granted",
+          `Grant ${grantId} does not name ${SESSION_SOURCE}.`,
+        )
+      if (!eligibility.activePurposes(grant).includes("review"))
+        throw new LearningError(
+          "grant_inactive",
+          `Grant ${grantId} does not currently permit review.`,
+        )
+    }
+    // A migration keeps episode IDs, so a session first sent before it has its old ID.
+    const { legacyScopes } = await this.#migrationContext(context.scope)
+    const candidates = [context.scope, ...legacyScopes].map((scope) =>
+      sessionEpisodeId(scope, session.sessionId),
+    )
+    const [stored] = await this.#read("episodes", context, { ids: candidates })
+    const episodeId = stored?.id ?? candidates[0]
+    const episodes = stored
+      ? []
+      : [
+          sealEpisode(
+            sessionEpisode({
+              session,
+              scope: context.scope,
+              grantIds,
+              principal: context.principal,
+              importedAt: now,
+            }),
+          ),
+        ]
+    const existing = await this.#read("events", context, { episodeIds: [episodeId] })
+    const events = sessionEvents({
+      session,
+      scope: context.scope,
+      episodeId,
+      principal: context.principal,
+      existing,
+      now,
+    }).map(sealEvent)
+    // Each Pick & Polish note is its own episode, found the same way after a migration.
+    for (const note of session.notes) {
+      const noteCandidates = [context.scope, ...legacyScopes].map((scope) =>
+        noteEpisodeId(scope, note.localId),
+      )
+      const [storedNote] = await this.#read("episodes", context, { ids: noteCandidates })
+      const noteId = storedNote?.id ?? noteCandidates[0]
+      if (!storedNote)
+        episodes.push(
+          sealEpisode(
+            noteEpisode({
+              note,
+              session,
+              scope: context.scope,
+              grantIds,
+              principal: context.principal,
+              importedAt: now,
+            }),
+          ),
+        )
+      const noteExisting = storedNote
+        ? await this.#read("events", context, { episodeIds: [noteId] })
+        : []
+      events.push(
+        ...noteEvents({
+          note,
+          session,
+          scope: context.scope,
+          episodeId: noteId,
+          principal: context.principal,
+          existing: noteExisting,
+          now,
+        }).map(sealEvent),
+      )
+    }
+    for (const episode of episodes) assertValid("episode", episode)
+    for (const event of events) assertValid("event", event)
+    if (episodes.length || events.length)
+      await this.#provider.appendBatch(
+        { episodes, events },
+        {
+          audit: this.#auditEntries(context, "observation.append", [
+            ...episodes.map((episode) => ({
+              kind: "episode",
+              id: episode.id,
+              digest: episode.digest,
+            })),
+            ...events.map((event) => ({ kind: "event", id: event.id, digest: event.digest })),
+          ]),
+        },
+      )
+    return {
+      episodeId,
+      sessionId: session.sessionId,
+      addedEpisodes: episodes.length,
+      addedEvents: events.length,
+      skippedMessages: session.skipped,
+    }
   }
 
   /**
@@ -1427,9 +2233,10 @@ class LearningStore {
   }
 
   /**
-   * Label comment events with a theme, signal, and stance. A label is an annotation event in
-   * the target's episode. Labeling the same target the same way again adds nothing; a
-   * different label from the same labeler supersedes the earlier one.
+   * Label feedback events, review comments or a person's messages to an agent, with a theme,
+   * signal, and stance. A label is an annotation event in the target's episode. Labeling the
+   * same target the same way again adds nothing; a different label from the same labeler
+   * supersedes its earlier judgment, whether that was a label or nothing to label.
    *
    * @param {object} context the principal is the labeler, usually an agent
    * @param {Array<{ target: { eventId?: string, commentId?: number }, theme: { key: string, statement: string }, signal: string, observation: string, stance: string, proposedKind?: string, trace?: object, note?: string }>} labels
@@ -1438,18 +2245,20 @@ class LearningStore {
     assertContext(context)
     if (!Array.isArray(labels) || !labels.length)
       throw new LearningError("invalid_input", "Pass at least one label.")
-    const { events } = await this.#observations(context)
-    const retracted = new Set(events.filter((event) => event.type === "retraction").map(targetOf))
+    const { episodes, events } = await this.#observations(context)
+    const retracted = retractedEvents(episodes, events)
     const superseded = new Set(
       events.filter((event) => event.supersedes).map((event) => event.supersedes),
     )
     const comments = events.filter(
       (event) =>
-        event.type === "human_comment" && event.payload !== undefined && !retracted.has(event.id),
+        FEEDBACK_TYPES.includes(event.type) &&
+        event.payload !== undefined &&
+        !retracted.has(event.id),
     )
     const created = []
     for (const [index, label] of labels.entries()) {
-      const target = this.#labelTarget(label?.target, comments, superseded, index)
+      const target = this.#labelTarget(label?.target, comments, superseded, index, episodes)
       const payload = {
         target: { eventId: target.id },
         theme: label.theme,
@@ -1460,14 +2269,7 @@ class LearningStore {
         ...(label.trace ? { trace: label.trace } : {}),
         ...(label.note ? { note: label.note } : {}),
       }
-      const previous = [...events, ...created]
-        .filter(
-          (event) =>
-            event.type === "annotation" &&
-            targetOf(event) === target.id &&
-            event.actor.id === context.principal.id,
-        )
-        .at(-1)
+      const previous = latestJudgment([...events, ...created], target.id, context.principal.id)
       const event = sealEvent({
         schemaVersion: SCHEMA_VERSIONS.event,
         id: derivedId("ev", {
@@ -1503,9 +2305,11 @@ class LearningStore {
   }
 
   /**
-   * Records that the caller read these comment events and found nothing to label, so a labeler
-   * is not asked about them again. Each one must be a live comment version. A comment the
-   * caller already marked is skipped. Returns the no_annotation events it created.
+   * Records that the caller read these feedback events and found nothing to label, so a labeler
+   * is not asked about them again. Each one must be a live comment or message version. A comment the
+   * caller already marked is skipped. When the caller labeled it before, this supersedes that
+   * label, so a labeler that changes its mind stops the old theme counting. Returns the
+   * no_annotation events it created.
    *
    * @param {object} context
    * @param {string[]} eventIds
@@ -1514,41 +2318,39 @@ class LearningStore {
     assertContext(context)
     if (!Array.isArray(eventIds) || !eventIds.length)
       throw new LearningError("invalid_input", "Name at least one comment event.")
-    const { events } = await this.#observations(context)
-    const retracted = new Set(events.filter((event) => event.type === "retraction").map(targetOf))
+    const { episodes, events } = await this.#observations(context)
+    const retracted = retractedEvents(episodes, events)
     const comments = new Map(
       events
         .filter(
           (event) =>
-            event.type === "human_comment" &&
+            FEEDBACK_TYPES.includes(event.type) &&
             event.payload !== undefined &&
             !retracted.has(event.id),
         )
         .map((event) => [event.id, event]),
-    )
-    const marked = new Set(
-      events
-        .filter(
-          (event) => event.type === "no_annotation" && event.actor.id === context.principal.id,
-        )
-        .map(targetOf),
     )
     const created = []
     for (const [index, eventId] of eventIds.entries()) {
       const target = comments.get(eventId)
       if (!target)
         throw new LearningError("not_found", `Item ${index + 1}: no live comment event ${eventId}.`)
-      if (marked.has(target.id)) continue
-      marked.add(target.id)
+      const previous = latestJudgment([...events, ...created], target.id, context.principal.id)
+      if (previous?.type === "no_annotation") continue
       const event = sealEvent({
         schemaVersion: SCHEMA_VERSIONS.event,
-        id: derivedId("ev", { noAnnotationOf: target.id, by: context.principal.id }),
+        id: derivedId("ev", {
+          noAnnotationOf: target.id,
+          by: context.principal.id,
+          ...(previous ? { after: previous.id } : {}),
+        }),
         episodeId: target.episodeId,
         scope: context.scope,
         type: "no_annotation",
         at: this.#now(),
         actor: context.principal,
         parentEventId: target.id,
+        ...(previous ? { supersedes: previous.id } : {}),
         payload: { target: { eventId: target.id } },
       })
       assertValid("event", event)
@@ -1567,7 +2369,7 @@ class LearningStore {
     return created
   }
 
-  #labelTarget(target, comments, superseded, index) {
+  #labelTarget(target, comments, superseded, index, episodes) {
     if (target?.eventId) {
       const event = comments.find((item) => item.id === target.eventId)
       if (!event)
@@ -1584,6 +2386,14 @@ class LearningStore {
           !superseded.has(item.id) &&
           item.payload.body !== null,
       )
+      if (matches.length > 1) {
+        const byEpisode = new Map(episodes.map((episode) => [episode.id, episode]))
+        const threads = new Set(
+          matches.map((event) => hubThreadKey(byEpisode.get(event.episodeId))),
+        )
+        if (threads.size === 1 && !threads.has(null))
+          return matches.sort((a, b) => compare(b.at, a.at) || compare(a.id, b.id))[0]
+      }
       if (matches.length !== 1)
         throw new LearningError(
           matches.length ? "invalid_input" : "not_found",
@@ -1619,13 +2429,14 @@ class LearningStore {
       )
     const requested = eventIds === undefined ? null : new Set(eventIds)
     const { eligibility } = await this.#eligibility(context)
-    const eligible = this.#eligible(
+    const eligible = await this.#eligible(
       await this.#observations(context, { episodeIds, eventIds }),
       eligibility,
       purpose,
     )
     const events = eligible.events.filter(
       (event) =>
+        (!episodeIds || episodeIds.includes(event.episodeId)) &&
         (!requested || requested.has(event.id)) &&
         (!since || event.at >= since) &&
         (!until || event.at < until) &&
@@ -1635,7 +2446,7 @@ class LearningStore {
     return {
       episodes: requested
         ? eligible.episodes.filter((episode) => included.has(episode.id))
-        : eligible.episodes,
+        : eligible.episodes.filter((episode) => !episodeIds || episodeIds.includes(episode.id)),
       events,
     }
   }
@@ -1652,9 +2463,21 @@ class LearningStore {
     assertContext(context)
     const now = this.#now()
     const { eligibility } = await this.#eligibility(context, now)
-    const eligible = this.#eligible(await this.#observations(context), eligibility, "instruction")
+    const eligible = await this.#eligible(
+      await this.#observations(context),
+      eligibility,
+      "instruction",
+    )
     const entries = await this.#memories(context)
-    const { record } = await this.#storeProposal(context, proposal, { eligible, entries, now })
+    const migration = await this.#migrationContext(context.scope)
+    if (migration.digest !== eligible.migrationDigest)
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
+    const { record } = await this.#storeProposal(context, proposal, {
+      eligible,
+      entries,
+      now,
+      migration,
+    })
     return record
   }
 
@@ -1665,14 +2488,18 @@ class LearningStore {
   async #storeProposal(
     context,
     proposal,
-    { eligible, entries, now, purpose = "instruction", reason },
+    { eligible, entries, now, migration, purpose = "instruction", reason, prepared },
   ) {
-    const { record, latest } = this.#draftProposal(context, proposal, { eligible, entries, now })
+    const { record, latest } =
+      prepared ?? this.#draftProposal(context, proposal, { eligible, entries, now, migration })
     if (latest && latest.reviewDigest === record.reviewDigest)
       return { record: latest, changed: false }
     assertValid("memoryRecord", record)
     await this.#provider.appendMemoryVersion(record, {
       expectedPreviousDigest: latest?.digest ?? null,
+      ...(this.#provider.atomicMigrationFence
+        ? { expectedMigrations: { scope: context.scope, digest: migration.digest } }
+        : {}),
       audit: [
         this.#auditEntry(
           context,
@@ -1689,7 +2516,7 @@ class LearningStore {
    * The undecided learning a proposal would update, if any, and the version it would store.
    * Throws when the proposal cannot be stored. Writes nothing.
    */
-  #draftProposal(context, proposal, { eligible, entries, now }) {
+  #draftProposal(context, proposal, { eligible, entries, now, migration }) {
     assertValid("memoryProposal", proposal, { sealed: false })
     const evidence = proposal.evidence.map((reference) =>
       this.#canonicalEvidence(reference, eligible, "instruction"),
@@ -1711,16 +2538,28 @@ class LearningStore {
           `Lifecycle target ${target} is not an intact accepted memory.`,
         )
     }
-    let id = proposal.themeKey
-      ? derivedId("mem", {
-          scope: context.scope,
-          consolidator: proposal.consolidator.id,
-          themeKey: proposal.themeKey,
-        })
-      : derivedId("mem", { scope: context.scope, proposal: digestOf(proposal) })
+    function proposalId(scope) {
+      return proposal.themeKey
+        ? derivedId("mem", {
+            scope,
+            consolidator: proposal.consolidator.id,
+            themeKey: proposal.themeKey,
+          })
+        : derivedId("mem", { scope, proposal: digestOf(proposal) })
+    }
+    function findExisting(candidates) {
+      const matches = unique(candidates.filter((candidate) => entries.has(candidate)))
+      if (matches.length > 1) return candidates[0]
+      return matches[0] ?? candidates[0]
+    }
+    let id = findExisting([context.scope, ...migration.legacyScopes].map(proposalId))
     let latest = entries.get(id)?.record
     while (latest && latest.state !== "proposed") {
-      id = derivedId("mem", { after: latest.digest })
+      const original = migration.originalDigests.get(latest.digest)
+      id = findExisting([
+        derivedId("mem", { after: latest.digest }),
+        ...(original ? [derivedId("mem", { after: original })] : []),
+      ])
       latest = entries.get(id)?.record
     }
     if (latest && entries.get(id).problems.length)
@@ -1730,6 +2569,7 @@ class LearningStore {
       )
     const optional = {}
     for (const key of [
+      "title",
       "themeKey",
       "appliesTo",
       "support",
@@ -1862,6 +2702,12 @@ class LearningStore {
   async acceptMemory(context, id, { expectedDigest, content, note, operationId } = {}) {
     assertContext(context)
     requireHuman(context, "accept a learning")
+    // Read the fence before the evidence so a withdrawal or redaction that lands in
+    // between refuses the write instead of approving stale evidence.
+    const expectedDecisionFence =
+      this.#provider.atomicDecisionFence === true
+        ? await this.#provider.decisionFence(context.scope)
+        : undefined
     const { items, eligible, now } = await this.#statuses(context)
     const entries = new Map(items.map((item) => [item.id, item]))
     const latest = this.#reviewable(entries, id, expectedDigest)
@@ -1917,6 +2763,7 @@ class LearningStore {
         ],
         { purpose: "instruction", ...(edited ? { reason: "Accepted with edits." } : {}) },
       ),
+      expectedDecisionFence,
     )
     return record
   }
@@ -1967,6 +2814,168 @@ class LearningStore {
         `Only accepted memories can be retired; ${id} is ${entry.record.state}.`,
       )
     return this.#retire(entry.record, context, reason, this.#now(), operationId)
+  }
+
+  /** Edit an accepted learning without losing the approved history. */
+  async editMemory(context, id, { expectedDigest, title, content, reason, operationId } = {}) {
+    return this.#changeAccepted(context, id, "edit", {
+      expectedDigest,
+      title,
+      content,
+      reason,
+      operationId,
+    })
+  }
+
+  /** Restore a rejected or retired learning only while its evidence still permits use. */
+  async reinstateMemory(context, id, { expectedDigest, reason, operationId } = {}) {
+    return this.#changeAccepted(context, id, "reinstate", {
+      expectedDigest,
+      reason,
+      operationId,
+    })
+  }
+
+  async #changeAccepted(context, id, decision, options, retried = false) {
+    assertContext(context)
+    requireHuman(context, `${decision} a learning`)
+    const { expectedDigest, title, content, reason, operationId } = options
+    const requestedFields = [
+      ...(title !== undefined ? ["title"] : []),
+      ...(content !== undefined ? ["content"] : []),
+    ]
+    if (typeof reason !== "string" || !reason.trim() || reason.length > 2000)
+      throw new LearningError("invalid_input", "Give a reason for the decision.")
+    if (decision === "edit" && title === undefined && content === undefined)
+      throw new LearningError("invalid_input", "Give a title or text to edit.")
+    if (
+      this.#provider.atomicDecisionFence !== true ||
+      typeof this.#provider.decisionFence !== "function" ||
+      typeof this.#provider.readDecisionMemoryIds !== "function" ||
+      typeof this.#provider.readRelatedEpisodeIds !== "function" ||
+      typeof this.#provider.readDecisionInputs !== "function"
+    )
+      throw new LearningError(
+        "unsupported",
+        "This provider cannot atomically verify indexed learning decision evidence.",
+      )
+    const expectedDecisionFence = await this.#provider.decisionFence(context.scope)
+    const initial = (await this.#memories(context, [id])).get(id)
+    if (!initial) throw new LearningError("not_found", `No memory ${id} in this scope.`)
+    if (initial.problems.length)
+      throw new LearningError("invalid_record", `Memory ${id} failed its integrity checks.`)
+    const targets =
+      decision === "reinstate" && initial.record.state === "rejected"
+        ? (initial.record.proposal.lifecycle.targets ?? [])
+        : []
+    const ids = await this.#provider.readDecisionMemoryIds(context.scope, [id, ...targets])
+    const { items, eligible, now } = await this.#statuses(context, "instruction", ids)
+    const entries = new Map(items.map((item) => [item.id, item]))
+    const entry = entries.get(id)
+    if (!entry) throw new LearningError("not_found", `No memory ${id} in this scope.`)
+    if (entry.problems.length)
+      throw new LearningError("invalid_record", `Memory ${id} failed its integrity checks.`)
+    const latest = entry.record
+    if (!this.#evidenceEligible(dependencies(latest), eligible))
+      throw new LearningError(
+        "purpose_not_granted",
+        `Some evidence or counterevidence for ${id} is missing or no longer permitted for instruction.`,
+      )
+    if (entry.status.identityNeedsReview)
+      throw new LearningError(
+        "identity_revalidation_required",
+        `Reviewer identity for ${id} changed or remains unverified.`,
+      )
+    if (operationId) {
+      const previous = entry.intact.find(
+        (version) =>
+          version.accepted?.operationId === operationId ||
+          version.rejected?.operationId === operationId ||
+          version.retired?.operationId === operationId,
+      )
+      if (previous) {
+        if (
+          previous.accepted?.operationId !== operationId ||
+          previous.accepted.decision !== decision ||
+          previous.accepted.reviewedDigest !== expectedDigest ||
+          previous.accepted.note !== reason ||
+          canonicalJson(previous.accepted.by) !== canonicalJson(context.principal) ||
+          (decision === "edit" &&
+            canonicalJson(previous.accepted.requestedFields) !== canonicalJson(requestedFields)) ||
+          (title !== undefined && previous.title !== title) ||
+          (content !== undefined && previous.content !== content)
+        )
+          throw new LearningError("conflict", "This operation ID was used for another decision.")
+        if ((await this.#provider.decisionFence(context.scope)) !== expectedDecisionFence)
+          throw new LearningError("stale_review", "Decision eligibility changed while reading.")
+        return previous
+      }
+    }
+    if (
+      (decision === "edit" && latest.state !== "accepted") ||
+      (decision === "reinstate" && !["rejected", "retired"].includes(latest.state))
+    )
+      throw new LearningError(
+        "invalid_transition",
+        `Memory ${id} cannot be ${decision === "edit" ? "edited" : "reinstated"}.`,
+      )
+    if (latest.digest !== expectedDigest)
+      throw new LearningError("stale_review", `Memory ${id} changed since it was reviewed.`)
+    if (entry.status.superseded || entry.status.conflicts.length)
+      throw new LearningError("invalid_transition", `Memory ${id} has been replaced or conflicts.`)
+    const replacementTargets =
+      decision === "reinstate" && latest.state === "rejected"
+        ? (latest.proposal.lifecycle.targets ?? [])
+        : []
+    for (const target of replacementTargets) this.#assertReplaceable(entries.get(target), target)
+    const unusable = replacementTargets.length ? replacementProblem(validity(latest, now)) : null
+    if (unusable)
+      throw new LearningError("invalid_transition", `${id} cannot replace another learning now.`)
+    const draft = {
+      ...without(latest, "digest", "contentDigest", "accepted", "rejected", "retired"),
+      version: latest.version + 1,
+      previousDigest: latest.digest,
+      state: "accepted",
+      ...(title !== undefined ? { title } : {}),
+      ...(content !== undefined ? { content } : {}),
+      ...(replacementTargets.length ? { supersedes: unique(replacementTargets) } : {}),
+      updatedAt: now,
+    }
+    const edited = draft.title !== latest.title || draft.content !== latest.content
+    if (decision === "edit" && !edited)
+      throw new LearningError("invalid_input", "The title and text have not changed.")
+    draft.accepted = {
+      by: context.principal,
+      at: now,
+      contentDigest: memoryContentDigest(draft),
+      reviewedDigest: expectedDigest,
+      edited,
+      decision,
+      ...(decision === "edit" ? { requestedFields } : {}),
+      note: reason,
+      ...(operationId ? { operationId } : {}),
+    }
+    const record = sealMemory(draft)
+    assertValid("memoryRecord", record)
+    try {
+      await this.#appendVersion(
+        record,
+        latest.digest,
+        "stale_review",
+        this.#auditEntry(
+          context,
+          `memory.${decision}`,
+          [{ kind: "memory", id, digest: record.digest }],
+          { purpose: "instruction", reason },
+        ),
+        expectedDecisionFence,
+      )
+    } catch (error) {
+      if (error?.code === "stale_review" && operationId && !retried)
+        return this.#changeAccepted(context, id, decision, options, true)
+      throw error
+    }
+    return record
   }
 
   /**
@@ -2090,9 +3099,13 @@ class LearningStore {
   }
 
   /** Append a learning version with the audit entry that records it, in one provider write. */
-  async #appendVersion(record, expectedPreviousDigest, code, receipt) {
+  async #appendVersion(record, expectedPreviousDigest, code, receipt, expectedDecisionFence) {
     try {
-      await this.#provider.appendMemoryVersion(record, { expectedPreviousDigest, audit: [receipt] })
+      await this.#provider.appendMemoryVersion(record, {
+        expectedPreviousDigest,
+        audit: [receipt],
+        ...(expectedDecisionFence === undefined ? {} : { expectedDecisionFence }),
+      })
     } catch (error) {
       if (error?.code === "conflict")
         throw new LearningError(
@@ -2145,6 +3158,9 @@ class LearningStore {
       throw new LearningError("invalid_input", "maxProposals must be a positive whole number.")
     const { items, eligible } = await this.#statuses(context, purpose)
     const entries = new Map(items.map((item) => [item.id, item]))
+    const migration = await this.#migrationContext(context.scope)
+    if (migration.digest !== eligible.migrationDigest)
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
     const coverage = await this.#coverage(context, window)
     const view = deepFreeze(
       structuredClone({
@@ -2152,7 +3168,9 @@ class LearningStore {
         window,
         scope: context.scope,
         episodes: eligible.episodes,
-        events: eligible.events,
+        events: eligible.events.filter(
+          (event) => event.type !== "annotation" || !eligible.hiddenEdits.has(event.parentEventId),
+        ),
         memories: items.filter((item) => !item.status.problems.length).map(memoryView),
       }),
     )
@@ -2171,7 +3189,7 @@ class LearningStore {
     let room = maxProposals
     let overBudget = 0
     for (const proposal of output.proposals) {
-      const change = this.#proposalChange(context, proposal, { eligible, entries, now })
+      const change = this.#proposalChange(context, proposal, { eligible, entries, now, migration })
       if (change === "changed" && room === 0) {
         overBudget++
         continue
@@ -2182,17 +3200,11 @@ class LearningStore {
         if (change === "changed") room--
         continue
       }
+      let prepared
       try {
-        const { record, changed } = await this.#storeProposal(context, proposal, {
-          eligible,
-          entries,
-          now,
-          purpose,
-          reason: `Proposed by consolidator ${consolidator.manifest.id}.`,
-        })
-        entries.set(record.id, { id: record.id, record, versions: [], problems: [] })
-        results.push({ record, changed })
-        if (changed) room--
+        prepared = this.#draftProposal(context, proposal, { eligible, entries, now, migration })
+        if (!prepared.latest || prepared.latest.reviewDigest !== prepared.record.reviewDigest)
+          assertValid("memoryRecord", prepared.record)
       } catch (error) {
         if (!(error instanceof LearningError)) throw error
         diagnostics.push({
@@ -2200,7 +3212,20 @@ class LearningStore {
           themeKey: proposal?.themeKey,
           message: error.message,
         })
+        continue
       }
+      const { record, changed } = await this.#storeProposal(context, proposal, {
+        eligible,
+        entries,
+        now,
+        migration,
+        purpose,
+        reason: `Proposed by consolidator ${consolidator.manifest.id}.`,
+        prepared,
+      })
+      entries.set(record.id, { id: record.id, record, versions: [], problems: [] })
+      results.push({ record, changed })
+      if (changed) room--
     }
     if (overBudget)
       diagnostics.splice(budgetNoteAt, 0, {
@@ -2246,27 +3271,1146 @@ class LearningStore {
    * instruction; a preview, which shows a person what an agent would get, is not, because
    * nothing reaches an agent. Only a person may preview, so an agent cannot read the learnings
    * without leaving an audit entry.
+   *
+   * A recall also stores a guidance record, and one delivery per learning with the exact text
+   * the agent got, so a later usage report can say which of them the agent used. via says
+   * where the request came from, and session names the agent session when the agent knows it.
+   *
+   * shared holds accepted learnings that other repositories shared with this one. The host
+   * reads them from their own stores and decides they are still in effect; recall checks that
+   * each is intact and ranks it with this repository's own learnings. Only a preview takes
+   * them, because a stored delivery would outlive the source store's own deletion and audit.
    */
-  async recall(context, { task, limit = 20, budgetChars = 6000, preview = false } = {}) {
+  async recall(
+    context,
+    {
+      task,
+      limit = 20,
+      budgetChars = 6000,
+      preview = false,
+      via = "local",
+      session,
+      shared = [],
+    } = {},
+  ) {
     assertContext(context)
     if (!Number.isSafeInteger(limit) || limit < 1)
       throw new LearningError("invalid_input", "The recall limit must be a positive safe integer.")
     if (preview) requireHuman(context, "preview recall")
+    if (!preview && Array.isArray(shared) && shared.length > 0)
+      throw new LearningError("invalid_input", "Shared learnings can only be previewed.")
+    const named = sessionOf(session)
     const { items } = await this.#statuses(context)
-    const usable = items.filter((item) => item.status.recallEligible).map((item) => item.record)
-    const { selected, text } = renderRecall(rankForRecall(usable, { task }), {
+    const own = items.filter((item) => item.status.recallEligible).map((item) => item.record)
+    const ownIds = new Set(items.map((item) => item.record.id))
+    const usable = [...own, ...sharedForRecall(context, shared, ownIds)]
+    const { selected, text, blocks } = renderRecall(rankForRecall(usable, { task }), {
       limit,
       budgetChars,
       total: usable.length,
     })
-    if (!preview)
-      await this.#audit(
-        context,
-        "memory.recall",
-        selected.map((memory) => ({ kind: "memory", id: memory.id, digest: memory.contentDigest })),
-        { purpose: "instruction" },
+    if (preview) return { memories: selected, text, considered: usable.length }
+    const now = this.#now()
+    const guidance = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.guidance,
+      id: randomId("guidance"),
+      scope: context.scope,
+      requestedAt: now,
+      requestedBy: context.principal,
+      via,
+      ...(named ? { session: named } : {}),
+    })
+    assertValid("guidance", guidance)
+    const deliveries = selected.map((memory, index) =>
+      sealRecord({
+        schemaVersion: SCHEMA_VERSIONS.deliveredLearning,
+        id: derivedId("delivery", { guidanceId: guidance.id, memoryId: memory.id }),
+        scope: context.scope,
+        guidanceId: guidance.id,
+        memoryId: memory.id,
+        contentDigest: memory.contentDigest,
+        sourceScope: context.scope,
+        position: index + 1,
+        text: blocks[index],
+        deliveredAt: now,
+      }),
+    )
+    for (const delivery of deliveries) assertValid("deliveredLearning", delivery)
+    await this.#provider.appendBatch(
+      { guidance: [guidance], deliveries },
+      {
+        audit: this.#auditEntries(
+          context,
+          "memory.recall",
+          [
+            ...selected.map((memory) => ({
+              kind: "memory",
+              id: memory.id,
+              digest: memory.contentDigest,
+            })),
+            { kind: "guidance", id: guidance.id, digest: guidance.digest },
+            ...deliveries.map((delivery) => ({
+              kind: "delivery",
+              id: delivery.id,
+              digest: delivery.digest,
+            })),
+          ],
+          { purpose: "instruction" },
+        ),
+      },
+    )
+    return {
+      guidanceId: guidance.id,
+      memories: selected.map((memory, index) => ({ ...memory, deliveryId: deliveries[index].id })),
+      text,
+      considered: usable.length,
+    }
+  }
+
+  /**
+   * Store an agent's report of which delivered learnings it used for a change. Every
+   * guidance and delivery it names must be stored in this scope, and each delivery must come
+   * from one of the named guidance records. A used learning is always the agent's claim, never
+   * a verified result. A report may say it used none.
+   *
+   * reportId is the agent's own ID for the report. Sending the same report again returns the
+   * stored one and writes nothing; sending other content under the same ID is a conflict.
+   *
+   * Each used learning may carry a before and an after screenshot: { role, route, viewport,
+   * theme, capturedAt, bytes }. Records hold only each image's SHA-256. A store opened
+   * without a screenshot store refuses screenshots. A hosted store keeps no bytes, so its
+   * screenshots need consentGrantId: an active grant for evaluation of agent screenshots.
+   */
+  async reportUsage(
+    context,
+    { reportId, guidanceIds, commitSha, session, prototypeId, used = [], consentGrantId } = {},
+  ) {
+    assertContext(context)
+    if (typeof reportId !== "string" || !REPORT_ID.test(reportId))
+      throw new LearningError(
+        "invalid_input",
+        "A usage report needs a reportId of 1 to 128 letters, digits, dots, colons, underscores, or dashes.",
       )
-    return { memories: selected, text, considered: usable.length }
+    if (
+      !Array.isArray(guidanceIds) ||
+      !guidanceIds.length ||
+      guidanceIds.length > 100 ||
+      guidanceIds.some((id) => typeof id !== "string" || !RECORD_ID.test(id)) ||
+      new Set(guidanceIds).size !== guidanceIds.length
+    )
+      throw new LearningError(
+        "invalid_input",
+        "A usage report names 1 to 100 different guidance IDs that recall returned.",
+      )
+    if (typeof commitSha !== "string" || !COMMIT_SHA.test(commitSha))
+      throw new LearningError("invalid_input", "A usage report needs the full commit SHA.")
+    if (
+      prototypeId !== undefined &&
+      (typeof prototypeId !== "string" || !prototypeId || prototypeId.length > 200)
+    )
+      throw new LearningError("invalid_input", "A prototype ID is 1 to 200 characters.")
+    const named = sessionOf(session)
+    if (!Array.isArray(used) || used.length > 1000)
+      throw new LearningError("invalid_input", "used lists at most 1000 delivered learnings.")
+    const shots = []
+    const claims = used.map((item) => {
+      if (!item || typeof item !== "object" || typeof item.deliveryId !== "string")
+        throw new LearningError("invalid_input", "Each used learning names its deliveryId.")
+      const claim = { deliveryId: item.deliveryId }
+      for (const role of ["before", "after"]) {
+        if (item[role] === undefined) continue
+        const shot = screenshotOf(item[role], role)
+        claim[role] = shot
+        shots.push(shot)
+      }
+      return claim
+    })
+    if (new Set(claims.map((claim) => claim.deliveryId)).size !== claims.length)
+      throw new LearningError("invalid_input", "A usage report names each delivery once.")
+    if (shots.reduce((total, shot) => total + shot.bytes.length, 0) > MAX_REPORT_SCREENSHOT_BYTES)
+      throw new LearningError("invalid_input", "A report's screenshots can total at most 100 MB.")
+    if (shots.length && !this.#screenshots)
+      throw new LearningError(
+        "unsupported",
+        "This store does not keep screenshots. Send the report without them.",
+      )
+    if (
+      consentGrantId !== undefined &&
+      (typeof consentGrantId !== "string" || !RECORD_ID.test(consentGrantId))
+    )
+      throw new LearningError("invalid_input", "A consent grant ID names a stored grant.")
+    const grantId = shots.length ? consentGrantId : undefined
+    const contentDigest = digestOf({
+      reportId,
+      guidanceIds,
+      commitSha,
+      session: named ?? null,
+      prototypeId: prototypeId ?? null,
+      used: claims.map(({ deliveryId, before, after }) => ({
+        deliveryId,
+        before: before ? without(before, "bytes") : null,
+        after: after ? without(after, "bytes") : null,
+      })),
+    })
+    // Checked before a retry returns too, so a host never keeps bytes after consent ends.
+    if (grantId !== undefined || (shots.length && this.#screenshots.requiresGrant))
+      await this.#assertScreenshotGrant(context, grantId, shots)
+    const id = derivedId("usage", { scope: context.scope, reportId })
+    const [stored] = await this.#read("usageReports", context, { ids: [id] })
+    if (stored) {
+      if (stored.contentDigest !== contentDigest)
+        throw new LearningError(
+          "conflict",
+          `Usage report ${reportId} is already stored with other content. Use a new reportId.`,
+        )
+      return { id, reportId, stored: false }
+    }
+    const guidance = await this.#read("guidance", context, { ids: guidanceIds })
+    const missing = guidanceIds.filter((guidanceId) => !guidance.some((g) => g.id === guidanceId))
+    if (missing.length)
+      throw new LearningError("not_found", `No guidance ${missing.join(", ")} in this repository.`)
+    const deliveries = claims.length
+      ? await this.#read("deliveries", context, { ids: claims.map((claim) => claim.deliveryId) })
+      : []
+    const byId = new Map(deliveries.map((delivery) => [delivery.id, delivery]))
+    for (const { deliveryId } of claims) {
+      const delivery = byId.get(deliveryId)
+      if (!delivery || !guidanceIds.includes(delivery.guidanceId))
+        throw new LearningError(
+          "not_found",
+          `Delivery ${deliveryId} did not come from the guidance this report names.`,
+        )
+    }
+    const now = this.#now()
+    const report = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.usageReport,
+      id,
+      scope: context.scope,
+      reportId,
+      guidanceIds,
+      ...(named ? { session: named } : {}),
+      commitSha,
+      ...(prototypeId ? { prototypeId } : {}),
+      contentDigest,
+      reportedBy: context.principal,
+      reportedAt: now,
+    })
+    assertValid("usageReport", report)
+    const screenshots = new Map()
+    for (const shot of shots) {
+      const record = sealRecord({
+        schemaVersion: SCHEMA_VERSIONS.screenshot,
+        // The same image can be captured on other routes or viewports, so the capture
+        // details are part of the identity; the bytes are still stored once.
+        id: derivedId("shot", {
+          usageReportId: id,
+          sha256: shot.sha256,
+          role: shot.role,
+          route: shot.route,
+          viewport: shot.viewport,
+          theme: shot.theme,
+          capturedAt: shot.capturedAt,
+        }),
+        scope: context.scope,
+        usageReportId: id,
+        sha256: shot.sha256,
+        role: shot.role,
+        route: shot.route,
+        viewport: shot.viewport,
+        theme: shot.theme,
+        capturedAt: shot.capturedAt,
+        ...(grantId ? { consentGrantId: grantId } : {}),
+      })
+      assertValid("screenshot", record)
+      screenshots.set(record.id, record)
+      shot.recordId = record.id
+    }
+    const usedLearnings = claims.map((claim) => {
+      const record = sealRecord({
+        schemaVersion: SCHEMA_VERSIONS.usedLearning,
+        id: derivedId("used", { usageReportId: id, deliveryId: claim.deliveryId }),
+        scope: context.scope,
+        usageReportId: id,
+        deliveryId: claim.deliveryId,
+        memoryId: byId.get(claim.deliveryId).memoryId,
+        claimedBy: context.principal,
+        ...(claim.before ? { beforeScreenshotId: claim.before.recordId } : {}),
+        ...(claim.after ? { afterScreenshotId: claim.after.recordId } : {}),
+        reportedAt: now,
+      })
+      assertValid("usedLearning", record)
+      return record
+    })
+    // The images go first, so a stored record never names an image that is missing.
+    for (const shot of shots) await this.#screenshots.put(shot.bytes, context.scope)
+    const subjects = [
+      { kind: "usage_report", id, digest: report.digest },
+      ...usedLearnings.map((record) => ({
+        kind: "used_learning",
+        id: record.id,
+        digest: record.digest,
+      })),
+      ...[...screenshots.values()].map((record) => ({
+        kind: "screenshot",
+        id: record.id,
+        digest: record.digest,
+      })),
+    ]
+    const result = await this.#provider.appendBatch(
+      {
+        usageReports: [report],
+        usedLearnings,
+        screenshots: [...screenshots.values()],
+      },
+      { audit: this.#auditEntries(context, "usage.report", subjects) },
+    )
+    return { id, reportId, stored: result.usageReports.appended === 1 }
+  }
+
+  /**
+   * What agents said they used for one commit, so a host can show it beside the Build made
+   * from that commit. Each used learning names the latest version whose content the agent
+   * received. A learning deleted since leaves nothing here.
+   */
+  async usageForCommit(context, { commitSha } = {}) {
+    assertContext(context)
+    if (typeof commitSha !== "string" || !COMMIT_SHA.test(commitSha))
+      throw new LearningError("invalid_input", "Name the full commit SHA.")
+    const reports = (await this.#read("usageReports", context)).filter(
+      (report) => report.commitSha === commitSha,
+    )
+    if (!reports.length) return []
+    const reportIds = new Set(reports.map((report) => report.id))
+    const used = (await this.#read("usedLearnings", context)).filter((record) =>
+      reportIds.has(record.usageReportId),
+    )
+    const deliveries = new Map(
+      (
+        await this.#read("deliveries", context, { ids: used.map((record) => record.deliveryId) })
+      ).map((delivery) => [delivery.id, delivery]),
+    )
+    const shots = new Map(
+      (await this.#read("screenshots", context))
+        .filter((record) => reportIds.has(record.usageReportId))
+        .map((record) => [record.id, record]),
+    )
+    const delivered = await this.#deliveredVersions(context, "review")
+    function screenshot(id) {
+      const record = shots.get(id)
+      if (!record) return undefined
+      const { sha256, route, viewport, theme, capturedAt, consentGrantId } = record
+      return {
+        sha256,
+        route,
+        viewport,
+        theme,
+        capturedAt,
+        ...(consentGrantId ? { consentGrantId } : {}),
+      }
+    }
+    return reports.map((report) => ({
+      id: report.id,
+      reportId: report.reportId,
+      ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
+      reportedAt: report.reportedAt,
+      used: used
+        .filter((record) => record.usageReportId === report.id)
+        .map((record) => {
+          const delivery = deliveries.get(record.deliveryId)
+          const match = delivery && delivered(record.memoryId, delivery)
+          const shown = match?.allowed ? match.version : null
+          const before = screenshot(record.beforeScreenshotId)
+          const after = screenshot(record.afterScreenshotId)
+          return {
+            id: record.id,
+            memoryId: record.memoryId,
+            version: match?.version.version ?? null,
+            title: shown?.title ?? null,
+            text: shown ? delivery.text : null,
+            ...(before ? { before } : {}),
+            ...(after ? { after } : {}),
+          }
+        }),
+    }))
+  }
+
+  /**
+   * Finds the learning version each delivery carried, and whether its evidence still permits
+   * purpose. Retiring or superseding keeps the content, so the version must also predate the
+   * delivery, or a later version would be named for text the agent got earlier.
+   */
+  async #deliveredVersions(context, purpose) {
+    const view = await this.#statuses(context, purpose)
+    const items = new Map(view.items.map((item) => [item.id, item]))
+    return (memoryId, { contentDigest, deliveredAt }) => {
+      const item = items.get(memoryId)
+      const version = item?.versions.findLast(
+        (entry) => entry.contentDigest === contentDigest && entry.updatedAt <= deliveredAt,
+      )
+      if (!version) return null
+      const allowed =
+        !item.problems.length && this.#evidenceEligible(dependencies(version), view.eligible)
+      return { version, allowed }
+    }
+  }
+
+  /**
+   * What an evaluator may read about one used learning: the exact text the agent received,
+   * the report it came from, and the screenshots whose consent still allows evaluation. A
+   * screenshot's bytes are null when this store does not keep them, as on a host.
+   */
+  async evaluationInputs(context, { usedLearningId } = {}) {
+    assertContext(context)
+    if (typeof usedLearningId !== "string" || !RECORD_ID.test(usedLearningId))
+      throw new LearningError("invalid_input", "Name the used learning to evaluate.")
+    const { used, report, delivery, version } = await this.#permittedUse(
+      context,
+      usedLearningId,
+      "evaluation",
+    )
+    const ids = [used.beforeScreenshotId, used.afterScreenshotId].filter(Boolean)
+    const screenshots = []
+    for (const shot of ids.length ? await this.#read("screenshots", context, { ids }) : []) {
+      // A screenshot taken under a withdrawn grant is no longer the model's to see.
+      if (shot.consentGrantId !== undefined) {
+        const grantId = shot.consentGrantId
+        const allowed = await this.#assertScreenshotGrant(context, grantId, [shot]).then(
+          () => true,
+          (error) => {
+            if (error.code === "unsupported") return false
+            throw error
+          },
+        )
+        if (!allowed) continue
+      }
+      const { sha256, role, route, viewport, theme, capturedAt } = shot
+      const bytes = (await this.#screenshots?.read(sha256)) ?? null
+      screenshots.push({ sha256, role, route, viewport, theme, capturedAt, bytes })
+    }
+    return {
+      usedLearning: { id: used.id, memoryId: used.memoryId, usageReportId: report.id },
+      learning: { version: version.version, title: version.title, text: delivery.text },
+      report: {
+        commitSha: report.commitSha,
+        ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
+        ...(report.session ? { session: report.session } : {}),
+        reportedAt: report.reportedAt,
+      },
+      screenshots,
+    }
+  }
+
+  /**
+   * A used learning with its report, delivery, and the version the agent
+   * received, while that version's evidence still allows the purpose. Otherwise
+   * it fails with unavailable.
+   */
+  async #permittedUse(context, usedLearningId, purpose) {
+    const [used] = await this.#read("usedLearnings", context, { ids: [usedLearningId] })
+    if (!used)
+      throw new LearningError("not_found", `No used learning ${usedLearningId} in this repository.`)
+    const [report] = await this.#read("usageReports", context, { ids: [used.usageReportId] })
+    const [delivery] = await this.#read("deliveries", context, { ids: [used.deliveryId] })
+    if (!report || !delivery)
+      throw new LearningError("not_found", `Used learning ${usedLearningId} lost its report.`)
+    const delivered = (await this.#deliveredVersions(context, purpose))(used.memoryId, delivery)
+    if (!delivered?.allowed)
+      throw new LearningError(
+        "unavailable",
+        `The evidence behind used learning ${usedLearningId} no longer allows ${purpose}.`,
+      )
+    return { used, report, delivery, version: delivered.version }
+  }
+
+  /**
+   * Keep an evaluator's score for one used learning. The host names each scoring attempt with
+   * an operation ID, so a retry keeps the first score instead of adding another.
+   */
+  async recordScore(
+    context,
+    {
+      usedLearningId,
+      operationId,
+      efficiency,
+      followed,
+      reasoning,
+      issue,
+      inputs = [],
+      route,
+    } = {},
+  ) {
+    const existing = await this.scoreFor(context, { usedLearningId, operationId })
+    if (existing) return { id: existing.id, stored: false, score: existing }
+    if (!Number.isInteger(efficiency) || efficiency < 1 || efficiency > 4)
+      throw new LearningError("invalid_input", "A score is a whole number from 1 to 4.")
+    if (!FOLLOWED.includes(followed))
+      throw new LearningError("invalid_input", `followed is one of ${FOLLOWED.join(", ")}.`)
+    if (!Array.isArray(inputs) || inputs.some((input) => !SCORE_INPUTS.includes(input)))
+      throw new LearningError("invalid_input", `Score inputs are ${SCORE_INPUTS.join(", ")}.`)
+    const [used] = await this.#read("usedLearnings", context, { ids: [usedLearningId] })
+    if (!used)
+      throw new LearningError("not_found", `No used learning ${usedLearningId} in this repository.`)
+    const id = derivedId("score", { usedLearningId, operationId })
+    const score = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.score,
+      id,
+      scope: context.scope,
+      usedLearningId,
+      usageReportId: used.usageReportId,
+      memoryId: used.memoryId,
+      operationId,
+      rubricVersion: EFFICIENCY_RUBRIC,
+      efficiency,
+      followed,
+      reasoning,
+      ...(efficiency <= 2 ? { issue } : {}),
+      inputs: SCORE_INPUTS.filter((input) => inputs.includes(input)),
+      route,
+      scoredBy: context.principal,
+      scoredAt: this.#now(),
+    })
+    assertValid("score", score)
+    try {
+      const result = await this.#provider.appendBatch(
+        { scores: [score] },
+        {
+          audit: this.#auditEntries(context, "usage.score", [
+            { kind: "score", id, digest: score.digest },
+          ]),
+        },
+      )
+      return { id, stored: result.scores.appended === 1, score }
+    } catch (error) {
+      // Another attempt with the same operation ID stored first; its score is the one kept.
+      if (error?.code !== "conflict") throw error
+      const winner = await this.scoreFor(context, { usedLearningId, operationId })
+      if (!winner) throw error
+      return { id, stored: false, score: winner }
+    }
+  }
+
+  /**
+   * How agents' uses of one learning were scored, oldest first, so a host can show what was
+   * observed. Each outcome names the version the agent received and the commit it reported.
+   * A score of a version whose evidence no longer permits review is left out.
+   */
+  async outcomesFor(context, { memoryId } = {}) {
+    assertContext(context)
+    if (typeof memoryId !== "string" || !RECORD_ID.test(memoryId))
+      throw new LearningError("invalid_input", "Name the learning with its memory ID.")
+    const scores = (await this.#read("scores", context)).filter(
+      (record) => record.memoryId === memoryId,
+    )
+    if (!scores.length) return []
+    const used = new Map(
+      (
+        await this.#read("usedLearnings", context, {
+          ids: scores.map((record) => record.usedLearningId),
+        })
+      ).map((record) => [record.id, record]),
+    )
+    const reports = new Map(
+      (
+        await this.#read("usageReports", context, {
+          ids: scores.map((record) => record.usageReportId),
+        })
+      ).map((record) => [record.id, record]),
+    )
+    const deliveries = new Map(
+      (
+        await this.#read("deliveries", context, {
+          ids: [...used.values()].map((record) => record.deliveryId),
+        })
+      ).map((record) => [record.id, record]),
+    )
+    const shots = new Map(
+      (await this.#read("screenshots", context))
+        .filter((record) => reports.has(record.usageReportId))
+        .map((record) => [record.id, record]),
+    )
+    const delivered = await this.#deliveredVersions(context, "review")
+    function screenshot(id) {
+      const record = shots.get(id)
+      if (!record) return undefined
+      const { sha256, route, consentGrantId } = record
+      return { sha256, route, ...(consentGrantId ? { consentGrantId } : {}) }
+    }
+    return scores
+      .sort((a, b) => a.scoredAt.localeCompare(b.scoredAt))
+      .flatMap((score) => {
+        const record = used.get(score.usedLearningId)
+        const report = reports.get(score.usageReportId)
+        const delivery = record && deliveries.get(record.deliveryId)
+        const match = delivery && delivered(memoryId, delivery)
+        if (!report || !match?.allowed) return []
+        const before = screenshot(record.beforeScreenshotId)
+        const after = screenshot(record.afterScreenshotId)
+        return [
+          {
+            id: score.id,
+            usedLearningId: score.usedLearningId,
+            version: match.version.version,
+            commitSha: report.commitSha,
+            ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
+            efficiency: score.efficiency,
+            followed: score.followed,
+            reasoning: score.reasoning,
+            ...(score.issue ? { issue: score.issue } : {}),
+            inputs: score.inputs,
+            scoredAt: score.scoredAt,
+            ...(before ? { before } : {}),
+            ...(after ? { after } : {}),
+          },
+        ]
+      })
+  }
+
+  /**
+   * The score already kept for one scoring attempt, or null. A host checks this before asking
+   * Copilot, so retrying a finished attempt spends nothing.
+   *
+   * It fails with unavailable once the evidence behind the version the agent
+   * received no longer permits review.
+   */
+  async scoreFor(context, { usedLearningId, operationId } = {}) {
+    assertContext(context)
+    if (typeof usedLearningId !== "string" || !RECORD_ID.test(usedLearningId))
+      throw new LearningError("invalid_input", "Name the used learning to evaluate.")
+    if (typeof operationId !== "string" || !OPERATION_ID.test(operationId))
+      throw new LearningError("invalid_input", "Name the scoring attempt with a UUID operation ID.")
+    const id = derivedId("score", { usedLearningId, operationId })
+    const [stored] = await this.#read("scores", context, { ids: [id] })
+    if (!stored) return null
+    // A score's reasoning retells the evidence, so it follows outcomesFor's rule.
+    await this.#permittedUse(context, usedLearningId, "review")
+    return stored
+  }
+
+  /**
+   * Keep suggested new wording for one version of an accepted learning. The caller decides the
+   * evidence is strong enough; the store checks that the version is the learning's current
+   * one and that every score belongs to it. The ID comes from the version, issue, and scores,
+   * so a retry with the same evidence keeps the first proposal instead of a second one.
+   */
+  async proposeUpdate(context, { memoryId, versionDigest, evidenceThrough, ...update } = {}) {
+    const [result] = await this.proposeUpdates(context, {
+      memoryId,
+      versionDigest,
+      evidenceThrough,
+      updates: [update],
+    })
+    return result
+  }
+
+  /**
+   * Keep every proposal one drafting run made, or none of them, so a run that fails partway
+   * is drafted again in full. evidenceThrough is the newest score time the run read; a later
+   * run uses it to tell which scores it has not seen. Each update is checked as
+   * proposeUpdate describes.
+   *
+   * @param {object} context
+   * @param {{ memoryId: string, versionDigest: string, evidenceThrough?: string, updates: Array<{ issueKey: string, issue: string, title?: string, content: string, reasoning: string, support: string[], counter?: string[], route: object }> }} input
+   */
+  async proposeUpdates(context, { memoryId, versionDigest, evidenceThrough, updates } = {}) {
+    assertContext(context)
+    if (!Array.isArray(updates) || !updates.length)
+      throw new LearningError("invalid_input", "Pass at least one update.")
+    for (const { support, counter = [] } of updates)
+      if (!Array.isArray(support) || !Array.isArray(counter))
+        throw new LearningError("invalid_input", "List the supporting and opposing score IDs.")
+    const entry = (await this.#memories(context, [memoryId])).get(memoryId)
+    if (!entry) throw new LearningError("not_found", `No memory ${memoryId} in this scope.`)
+    const latest = entry.record
+    if (entry.problems.length || latest.state !== "accepted" || latest.digest !== versionDigest)
+      throw new LearningError(
+        "stale_review",
+        `Memory ${memoryId} is no longer at the version this update would replace.`,
+      )
+    if (!(await this.#updatable(context, memoryId)))
+      throw new LearningError(
+        "invalid_transition",
+        `Memory ${memoryId} is superseded or conflicts with another learning.`,
+      )
+    const current = new Set(
+      (await this.outcomesFor(context, { memoryId }))
+        .filter((outcome) => outcome.version === latest.version)
+        .map((outcome) => outcome.id),
+    )
+    const now = this.#now()
+    const proposals = updates.map(
+      ({ issueKey, issue, title, content, reasoning, support, counter = [], route }) => {
+        if (
+          new Set([...support, ...counter]).size !== support.length + counter.length ||
+          [...support, ...counter].some((scoreId) => !current.has(scoreId))
+        )
+          throw new LearningError(
+            "invalid_input",
+            "Every score must be a different score of this learning's current version.",
+          )
+        const proposal = sealRecord({
+          schemaVersion: SCHEMA_VERSIONS.updateProposal,
+          id: derivedId("update", {
+            memoryId,
+            versionDigest,
+            issueKey,
+            support: [...support].sort(),
+            counter: [...counter].sort(),
+          }),
+          scope: context.scope,
+          memoryId,
+          version: latest.version,
+          versionDigest,
+          issueKey,
+          issue,
+          ...(title !== undefined ? { title } : {}),
+          content,
+          reasoning,
+          support,
+          counter,
+          route,
+          proposedBy: context.principal,
+          proposedAt: now,
+          ...(evidenceThrough !== undefined ? { evidenceThrough } : {}),
+        })
+        assertValid("updateProposal", proposal)
+        return proposal
+      },
+    )
+    // Two updates with the same issue and scores share an ID; the first one is kept.
+    const first = new Map()
+    for (const proposal of proposals) if (!first.has(proposal.id)) first.set(proposal.id, proposal)
+    // Read after the scores are checked, so a retry cannot read wording its evidence no
+    // longer allows. A run with the same evidence that stored first keeps its wording.
+    const ids = [...first.keys()]
+    const kept = async () =>
+      new Map(
+        (await this.#read("updateProposals", context, { ids })).map((record) => [
+          record.id,
+          record,
+        ]),
+      )
+    let existing = await kept()
+    for (let attempt = 0; ; attempt++) {
+      const fresh = [...first.values()].filter((proposal) => !existing.has(proposal.id))
+      if (!fresh.length) break
+      try {
+        await this.#provider.appendBatch(
+          { updateProposals: fresh },
+          {
+            audit: this.#auditEntries(
+              context,
+              "update.propose",
+              fresh.map((proposal) => ({
+                kind: "update_proposal",
+                id: proposal.id,
+                digest: proposal.digest,
+              })),
+            ),
+          },
+        )
+        break
+      } catch (error) {
+        if (error?.code !== "conflict" || attempt) throw error
+        existing = await kept()
+        if (!fresh.some((proposal) => existing.has(proposal.id))) throw error
+      }
+    }
+    return proposals.map((proposal) => {
+      const winner = existing.get(proposal.id) ?? first.get(proposal.id)
+      return { id: proposal.id, stored: winner === proposal, proposal: winner }
+    })
+  }
+
+  /**
+   * One learning's update proposals, oldest first, each with its state. A proposal is open
+   * until a person applies or dismisses it. It goes stale when the learning's wording
+   * changes, when a score it relied on can no longer be shown, or when a newer proposal for
+   * the same issue replaces it, so a person only ever sees one open proposal per issue.
+   */
+  async updatesFor(context, { memoryId } = {}) {
+    assertContext(context)
+    if (typeof memoryId !== "string" || !RECORD_ID.test(memoryId))
+      throw new LearningError("invalid_input", "Name the learning with its memory ID.")
+    const proposals = (await this.#read("updateProposals", context)).filter(
+      (record) => record.memoryId === memoryId,
+    )
+    if (!proposals.length) return []
+    const decisions = new Map(
+      (await this.#read("updateDecisions", context))
+        .filter((record) => record.memoryId === memoryId)
+        .map((record) => [record.proposalId, record]),
+    )
+    const entry = (await this.#memories(context, [memoryId])).get(memoryId)
+    const current = entry && !entry.problems.length ? entry.record : null
+    const shown = new Set((await this.outcomesFor(context, { memoryId })).map((item) => item.id))
+    const updatable = await this.#updatable(context, memoryId)
+    const sorted = proposals.sort((a, b) => a.proposedAt.localeCompare(b.proposedAt))
+    return sorted.map((proposal, index) => {
+      const decision = decisions.get(proposal.id)
+      const replaced = sorted
+        .slice(index + 1)
+        .some(
+          (later) =>
+            later.versionDigest === proposal.versionDigest && later.issueKey === proposal.issueKey,
+        )
+      // Wording drawn from scores that may no longer be read is withheld, like the scores.
+      const withheld = !proposal.support.every((id) => shown.has(id))
+      const state = decision
+        ? decision.decision
+        : current?.state !== "accepted" ||
+            current.digest !== proposal.versionDigest ||
+            withheld ||
+            replaced ||
+            !updatable
+          ? "stale"
+          : "open"
+      return {
+        id: proposal.id,
+        memoryId,
+        version: proposal.version,
+        issueKey: proposal.issueKey,
+        ...(withheld
+          ? { withheld: true }
+          : {
+              issue: proposal.issue,
+              ...(proposal.title !== undefined ? { title: proposal.title } : {}),
+              content: proposal.content,
+              reasoning: proposal.reasoning,
+            }),
+        support: proposal.support,
+        counter: proposal.counter,
+        proposedAt: proposal.proposedAt,
+        state,
+        ...(decision
+          ? {
+              decision: {
+                reason: decision.reason,
+                decidedBy: decision.decidedBy,
+                decidedAt: decision.decidedAt,
+                ...(decision.appliedVersion ? { appliedVersion: decision.appliedVersion } : {}),
+                ...(decision.operationId ? { operationId: decision.operationId } : {}),
+              },
+            }
+          : {}),
+      }
+    })
+  }
+
+  /**
+   * Apply an open update proposal: its wording, or a person's edit of it, becomes the
+   * learning's next version through the same edit a person makes by hand. Retrying with the
+   * same operation ID finishes an apply that stopped after the edit.
+   */
+  async applyUpdate(context, proposalId, { title, content, reason, operationId } = {}) {
+    assertContext(context)
+    requireHuman(context, "apply an update")
+    // Without an ID, an apply that stopped after the edit could never be finished.
+    if (typeof operationId !== "string" || !operationId)
+      throw new LearningError("invalid_input", "Name the apply with an operation ID.")
+    const { proposal, update } = await this.#update(context, proposalId)
+    if (update.state === "applied") return { update, memory: null, stored: false }
+    const entry = (await this.#memories(context, [proposal.memoryId])).get(proposal.memoryId)
+    // Later edits replace the latest version, so look for this apply in all intact ones.
+    const retried = entry?.intact.some((version) => version.accepted?.operationId === operationId)
+    if (update.state !== "open" && !retried)
+      throw new LearningError("invalid_transition", `Update ${proposalId} is ${update.state}.`)
+    const memory = await this.editMemory(context, proposal.memoryId, {
+      expectedDigest: proposal.versionDigest,
+      title: title ?? proposal.title,
+      content: content ?? proposal.content,
+      reason,
+      operationId,
+    })
+    const stored = await this.#decideUpdate(context, proposal, {
+      decision: "applied",
+      appliedVersion: memory.version,
+      reason,
+    })
+    return { update: (await this.#update(context, proposalId)).update, memory, stored }
+  }
+
+  /** Dismiss an open update proposal, so it returns only with new evidence. */
+  async dismissUpdate(context, proposalId, { reason, operationId } = {}) {
+    assertContext(context)
+    requireHuman(context, "dismiss an update")
+    if (typeof reason !== "string" || !reason.trim() || reason.length > 2000)
+      throw new LearningError("invalid_input", "Give a reason for the decision.")
+    if (operationId !== undefined && !OPERATION_ID.test(operationId))
+      throw new LearningError("invalid_input", "Name the dismissal with a UUID operation ID.")
+    const { proposal, update } = await this.#update(context, proposalId)
+    if (update.state === "dismissed") return { update, stored: false }
+    if (update.state !== "open")
+      throw new LearningError("invalid_transition", `Update ${proposalId} is ${update.state}.`)
+    const stored = await this.#decideUpdate(context, proposal, {
+      decision: "dismissed",
+      reason,
+      operationId,
+    })
+    return { update: (await this.#update(context, proposalId)).update, stored }
+  }
+
+  /** Whether recall can still take new wording for this learning. */
+  async #updatable(context, memoryId) {
+    const { items } = await this.#statuses(context, "instruction")
+    const status = items.find((item) => item.id === memoryId)?.status
+    return Boolean(status) && !status.superseded && !status.conflicts.length
+  }
+
+  async #update(context, proposalId) {
+    if (typeof proposalId !== "string" || !RECORD_ID.test(proposalId))
+      throw new LearningError("invalid_input", "Name the update with its proposal ID.")
+    const [proposal] = await this.#read("updateProposals", context, { ids: [proposalId] })
+    if (!proposal) throw new LearningError("not_found", `No update ${proposalId} in this scope.`)
+    const update = (await this.updatesFor(context, { memoryId: proposal.memoryId })).find(
+      (item) => item.id === proposalId,
+    )
+    return { proposal, update }
+  }
+
+  /** Keep one decision per proposal; when two people decide at once, the first one stands. */
+  async #decideUpdate(context, proposal, { decision, appliedVersion, reason, operationId }) {
+    const record = sealRecord({
+      schemaVersion: SCHEMA_VERSIONS.updateDecision,
+      id: derivedId("update_decision", { proposalId: proposal.id }),
+      scope: context.scope,
+      proposalId: proposal.id,
+      memoryId: proposal.memoryId,
+      decision,
+      ...(appliedVersion ? { appliedVersion } : {}),
+      reason,
+      decidedBy: context.principal,
+      decidedAt: this.#now(),
+      ...(operationId ? { operationId } : {}),
+    })
+    assertValid("updateDecision", record)
+    try {
+      const result = await this.#provider.appendBatch(
+        { updateDecisions: [record] },
+        {
+          audit: this.#auditEntries(context, "update.decide", [
+            { kind: "update_decision", id: record.id, digest: record.digest },
+          ]),
+        },
+      )
+      return result.updateDecisions.appended === 1
+    } catch (error) {
+      if (error?.code !== "conflict") throw error
+      const [winner] = await this.#read("updateDecisions", context, { ids: [record.id] })
+      if (winner?.decision !== decision) throw error
+      return false
+    }
+  }
+
+  /**
+   * Refuse screenshots unless the grant lets agent screenshots be evaluated now, and each was
+   * captured inside the period the grant covers.
+   */
+  async #assertScreenshotGrant(context, grantId, shots = []) {
+    const { eligibility, grants } = await this.#eligibility(context)
+    const grant = grants.find((item) => item.id === grantId)
+    if (
+      !grant ||
+      !grant.sources.includes(SCREENSHOT_SOURCE) ||
+      !eligibility.activePurposes(grant).includes("evaluation") ||
+      shots.some(
+        ({ capturedAt }) =>
+          (grant.evidenceFrom && capturedAt < grant.evidenceFrom) ||
+          (grant.evidenceUntil && capturedAt >= grant.evidenceUntil),
+      )
+    )
+      throw new LearningError(
+        "unsupported",
+        "Screenshots are not allowed for this repository. Send the report without them.",
+      )
+  }
+
+  /**
+   * Remove one learning for good, at a person's request: every version, the deliveries that
+   * gave it to agents, the claims that agents used it, their screenshots and scores, and its
+   * update proposals. A usage report goes too once none of its used learnings remain; one
+   * that said it used none stays, as does the guidance. A learning that replaced another, or
+   * was replaced, stays: removing it would break the history recall follows, so retire it
+   * instead.
+   */
+  async deleteMemory(context, id, { reason } = {}) {
+    assertContext(context)
+    requireHuman(context, "delete a learning")
+    assertDeletionReason(reason)
+    this.#assertDeletable()
+    const entries = await this.#memories(context)
+    const entry = entries.get(id)
+    if (!entry) throw new LearningError("not_found", `No learning ${id} in this repository.`)
+    const linked =
+      entry.versions.some((version) => version.supersedes?.length) ||
+      [...entries.values()].some((other) =>
+        other.versions.some(
+          (version) =>
+            version.supersedes?.includes(id) || version.proposal?.lifecycle?.targets?.includes(id),
+        ),
+      )
+    if (linked)
+      throw new LearningError(
+        "conflict",
+        `Learning ${id} is part of another learning's replacement. Retire it instead.`,
+      )
+    const deliveries = (await this.#read("deliveries", context)).filter(
+      (record) => record.memoryId === id,
+    )
+    const allUsed = await this.#read("usedLearnings", context)
+    const used = allUsed.filter((record) => record.memoryId === id)
+    const gone = new Set(used.map((record) => record.id))
+    const remaining = allUsed.filter((record) => !gone.has(record.id))
+    const reportIds = new Set(used.map((record) => record.usageReportId))
+    const reports = (await this.#read("usageReports", context)).filter(
+      (record) =>
+        reportIds.has(record.id) && !remaining.some((other) => other.usageReportId === record.id),
+    )
+    const kept = new Set(
+      remaining.flatMap((record) => [record.beforeScreenshotId, record.afterScreenshotId]),
+    )
+    const shots = (await this.#read("screenshots", context)).filter(
+      (record) => reportIds.has(record.usageReportId) && !kept.has(record.id),
+    )
+    const scores = (await this.#read("scores", context)).filter((record) =>
+      gone.has(record.usedLearningId),
+    )
+    const updateProposals = (await this.#read("updateProposals", context)).filter(
+      (record) => record.memoryId === id,
+    )
+    const updateDecisions = (await this.#read("updateDecisions", context)).filter(
+      (record) => record.memoryId === id,
+    )
+    const selection = {
+      deliveries,
+      usedLearnings: used,
+      usageReports: reports,
+      screenshots: shots,
+      scores,
+      updateProposals,
+      updateDecisions,
+    }
+    const subjects = [
+      { kind: "memory", id },
+      ...Object.entries(selection).flatMap(([stream, records]) =>
+        records.map((record) => ({ kind: SUBJECT_KINDS[stream], id: record.id })),
+      ),
+    ]
+    const removed = await this.#provider.deleteRecords(
+      context.scope,
+      {
+        records: Object.fromEntries(
+          Object.entries(selection).map(([stream, records]) => [
+            stream,
+            records.map((record) => record.id),
+          ]),
+        ),
+        memories: [id],
+      },
+      { audit: this.#auditEntries(context, "memory.delete", subjects, { reason }) },
+    )
+    await this.#removeUnreferencedScreenshots(context, shots)
+    return removed
+  }
+
+  /**
+   * Remove guidance older than the retention period that no usage report names, with its
+   * deliveries. Guidance a report names stays, so the report keeps its meaning.
+   */
+  async expireGuidance(context, { days = 365 } = {}) {
+    assertContext(context)
+    requireHuman(context, "expire guidance")
+    if (!Number.isSafeInteger(days) || days < 1)
+      throw new LearningError("invalid_input", "Keep guidance for a positive number of days.")
+    this.#assertDeletable()
+    const cutoff = timestampFromMilliseconds(this.#clock() - days * DAY_MS)
+    const named = new Set(
+      (await this.#read("usageReports", context)).flatMap((record) => record.guidanceIds),
+    )
+    const guidance = (await this.#read("guidance", context, { until: cutoff })).filter(
+      (record) => !named.has(record.id),
+    )
+    if (!guidance.length) return { records: { guidance: 0, deliveries: 0 }, memories: 0 }
+    const ids = new Set(guidance.map((record) => record.id))
+    const deliveries = (await this.#read("deliveries", context)).filter((record) =>
+      ids.has(record.guidanceId),
+    )
+    const subjects = [
+      ...guidance.map((record) => ({ kind: "guidance", id: record.id })),
+      ...deliveries.map((record) => ({ kind: "delivery", id: record.id })),
+    ]
+    return this.#provider.deleteRecords(
+      context.scope,
+      {
+        records: {
+          guidance: [...ids],
+          deliveries: deliveries.map((record) => record.id),
+        },
+      },
+      {
+        audit: this.#auditEntries(context, "guidance.expire", subjects, {
+          reason: `Guidance older than ${days} days that no usage report names.`,
+        }),
+      },
+    )
+  }
+
+  /**
+   * Remove everything this repository's scope holds: observations, grants, learnings, guidance,
+   * usage reports, screenshots, and the audit trail itself, so nothing about the repository
+   * remains. Records kept under a scope the repository used before a migration stay.
+   */
+  async deleteRepository(context) {
+    assertContext(context)
+    requireHuman(context, "delete a repository's learning records")
+    this.#assertDeletable()
+    const records = {}
+    // Damaged records go too, so they are read without the checks #read applies.
+    for (const stream of Object.keys(STREAMS))
+      records[stream] = (await this.#provider.readRecords(stream, { scope: context.scope }))
+        .filter((record) => sameScope(record?.scope, context.scope))
+        .map((record) => record.id)
+    const shots = (
+      await this.#provider.readRecords("screenshots", { scope: context.scope })
+    ).filter((record) => sameScope(record?.scope, context.scope))
+    const memories = unique(
+      (await this.#provider.readMemoryVersions({ scope: context.scope }))
+        .filter((record) => sameScope(record?.scope, context.scope))
+        .map((record) => record.id),
+    )
+    // Read before deleting, since the deletion can take the migration records with it.
+    const owners = await this.#screenshotOwners(context)
+    const removed = await this.#provider.deleteRecords(context.scope, { records, memories })
+    for (const sha256 of unique(shots.map((record) => record.sha256)))
+      if (DIGEST.test(sha256 ?? "")) await this.#screenshots?.remove(sha256, owners)
+    return removed
+  }
+
+  #assertDeletable() {
+    if (
+      !this.#manifest.capabilities.includes(DELETE_CAPABILITY) ||
+      typeof this.#provider.deleteRecords !== "function"
+    )
+      throw new LearningError(
+        "unsupported",
+        `Provider ${this.#manifest.id} cannot delete records. Move the store to SQLite to delete them.`,
+      )
+  }
+
+  /**
+   * The scopes whose image markers belong to this repository: its own and the
+   * ones it used before a migration, which hold copies of the same records.
+   */
+  async #screenshotOwners(context) {
+    return [context.scope, ...(await this.#migrationContext(context.scope)).legacyScopes]
+  }
+
+  /** Remove the images of removed screenshot records that no remaining record names. */
+  async #removeUnreferencedScreenshots(context, removed) {
+    if (!this.#screenshots || !removed.length) return
+    const left = new Set((await this.#read("screenshots", context)).map((record) => record.sha256))
+    const owners = await this.#screenshotOwners(context)
+    for (const sha256 of unique(removed.map((record) => record.sha256)))
+      if (!left.has(sha256)) await this.#screenshots.remove(sha256, owners)
   }
 
   /**
@@ -2471,10 +4615,11 @@ class LearningStore {
       : eligible.events
     const usedGrants = new Set(
       permittingEvents.flatMap((event) => {
-        const time = JUDGMENTS.has(event.type)
-          ? eligible.eventsById.get(targetOf(event)).at
-          : event.at
-        return eligibility.grantsFor(eligible.episodesById.get(event.episodeId), time, purpose)
+        const target = JUDGMENTS.has(event.type) ? eligible.eventsById.get(targetOf(event)) : event
+        return (
+          eligible.evidenceGrants.get(target.id) ??
+          eligibility.grantsForEvent(eligible.episodesById.get(event.episodeId), target, purpose)
+        )
       }),
     )
     const exportedGrants = grants.filter((grant) => usedGrants.has(grant.id))
@@ -2573,6 +4718,21 @@ class LearningStore {
       }
     }
     const [{ eligibility, grants }, observations, { items }, collections] = read
+    const migrations = (await this.#provider.scopeMigrations?.(context.scope)) ?? []
+    const followUps = {
+      memoriesNeedingRebuild: unique(
+        migrations.flatMap(
+          (migration) => migration.redactionFollowUps?.memoriesNeedingRebuild ?? [],
+        ),
+      ),
+      exportsToFollowUp: [
+        ...new Map(
+          migrations
+            .flatMap((migration) => migration.redactionFollowUps?.exportsToFollowUp ?? [])
+            .map((item) => [item.id, item]),
+        ).values(),
+      ],
+    }
     const states = { proposed: 0, accepted: 0, rejected: 0, retired: 0 }
     for (const item of items) states[item.record.state]++
     const attention = [
@@ -2609,6 +4769,9 @@ class LearningStore {
           (item) =>
             `Collection ${item.id} is incomplete: ${item.problems[0] ?? "pages are missing"}`,
         ),
+      ...followUps.exportsToFollowUp.map(
+        (item) => `Export ${item.id} at ${item.destination} may contain removed comment text.`,
+      ),
     ]
     return {
       provider,
@@ -2624,6 +4787,9 @@ class LearningStore {
         recallable: items.filter((item) => item.status.recallEligible).length,
       },
       attention,
+      ...(followUps.memoriesNeedingRebuild.length || followUps.exportsToFollowUp.length
+        ? { migrationRedactionFollowUps: followUps }
+        : {}),
     }
   }
 
@@ -2668,6 +4834,9 @@ class LearningStore {
     const stored = {}
     for (const stream of Object.keys(STREAMS))
       if (stream !== "audit") stored[stream] = await read(stream)
+    const conflict = conflictingCollections(stored.collections.filter((item) => !damaged.has(item)))
+    if (conflict)
+      problems.push(`collections ${conflict[0].id}, ${conflict[1].id}: snapshot contents disagree`)
     const memories = await this.#memories(context)
     for (const entry of memories.values())
       for (const problem of entry.problems) problems.push(`memories ${entry.id}: ${problem}`)
@@ -2755,12 +4924,26 @@ const RECEIPTS = {
   withdrawals: [["grant.withdraw"], "withdrawal"],
   collections: [["collection.import"], "collection"],
   exports: [["export.create"], "export"],
+  guidance: [["memory.recall"], "guidance"],
+  deliveries: [["memory.recall"], "delivery"],
+  usageReports: [["usage.report"], "usage_report"],
+  usedLearnings: [["usage.report"], "used_learning"],
+  screenshots: [["usage.report"], "screenshot"],
+  scores: [["usage.score"], "score"],
+  updateProposals: [["update.propose"], "update_proposal"],
+  updateDecisions: [["update.decide"], "update_decision"],
 }
 
 /** The audit operation that records a learning version, named for the step that wrote it. */
 function versionOperation(previous, version) {
-  if (version.state === "accepted")
-    return previous?.state === "accepted" ? "memory.supersede" : "memory.accept"
+  if (version.state === "accepted") {
+    if (previous?.state === "accepted")
+      return canonicalJson(previous.accepted) !== canonicalJson(version.accepted)
+        ? "memory.edit"
+        : "memory.supersede"
+    if (previous?.state === "rejected" || previous?.state === "retired") return "memory.reinstate"
+    return "memory.accept"
+  }
   return { proposed: "memory.propose", rejected: "memory.reject", retired: "memory.retire" }[
     version.state
   ]
@@ -2810,6 +4993,18 @@ function unaudited(stored, memories, audit, damaged) {
   return problems
 }
 
+/** The audit subject kind for each usage stream. */
+const SUBJECT_KINDS = {
+  guidance: "guidance",
+  deliveries: "delivery",
+  usageReports: "usage_report",
+  usedLearnings: "used_learning",
+  screenshots: "screenshot",
+  scores: "score",
+  updateProposals: "update_proposal",
+  updateDecisions: "update_decision",
+}
+
 /** The stream that holds each kind of record an audit entry names, other than a learning. */
 const SUBJECTS = {
   episode: "episodes",
@@ -2818,6 +5013,14 @@ const SUBJECTS = {
   withdrawal: "withdrawals",
   collection: "collections",
   export: "exports",
+  guidance: "guidance",
+  delivery: "deliveries",
+  usage_report: "usageReports",
+  used_learning: "usedLearnings",
+  screenshot: "screenshots",
+  score: "scores",
+  update_proposal: "updateProposals",
+  update_decision: "updateDecisions",
 }
 
 /**
@@ -2827,6 +5030,11 @@ const SUBJECTS = {
  */
 function unresolved(stored, memories, audit) {
   const held = new Set()
+  // A deletion names what it removed, so every version of those records is expected to be gone.
+  const deleted = new Set()
+  for (const entry of audit)
+    if (entry.operation === "memory.delete" || entry.operation === "guidance.expire")
+      for (const subject of entry.subjects) deleted.add(`${subject.kind} ${subject.id}`)
   function hold(kind, id, ...digests) {
     held.add(`${kind} ${id}`)
     for (const digest of digests) held.add(`${kind} ${id} ${digest}`)
@@ -2840,6 +5048,7 @@ function unresolved(stored, memories, audit) {
     entry.subjects
       .filter(
         (subject) =>
+          !deleted.has(`${subject.kind} ${subject.id}`) &&
           !held.has(
             subject.digest
               ? `${subject.kind} ${subject.id} ${subject.digest}`

@@ -7,6 +7,7 @@ export {
 export { LearningError, ProviderConflictError } from "./src/errors.mjs"
 export { PURPOSES } from "./src/policy.mjs"
 export {
+  DELETE_CAPABILITY,
   PROVIDER_CONTRACT,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
@@ -18,7 +19,9 @@ export { createInMemoryProvider } from "./src/providers/in-memory.mjs"
 export { createJsonLinesMemoryProvider } from "./src/providers/json-lines.mjs"
 export { createCopilotLabeler } from "./src/labelers/copilot.mjs"
 export { labelComments } from "./src/labeling.mjs"
+export { createScreenshotStore } from "./src/screenshots.mjs"
 export { createSqliteMemoryProvider } from "./src/providers/sqlite.mjs"
+export { createPostgresMemoryProvider } from "./src/providers/postgres.mjs"
 export { brandCheckQuestions } from "./src/decision/questions.mjs"
 export { planDecisionTasks } from "./src/decision/tasks.mjs"
 export { writeDecisionTaskset } from "./src/decision/taskset.mjs"

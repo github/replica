@@ -56,6 +56,7 @@
             "annotation",
             "no_annotation",
             "status_change",
+            "session_outcome",
             "retraction"
           ]
         },
@@ -222,6 +223,23 @@
         "properties": {
           "payload": {
             "$ref": "#/$defs/memoryRetrieved"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "const": "session_outcome"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/sessionOutcome"
           }
         }
       }
@@ -448,6 +466,8 @@
             "usability",
             "content",
             "interaction",
+            "design_system",
+            "scenario",
             "performance",
             "agreement",
             "replica_workflow",
@@ -556,6 +576,22 @@
           }
         },
         "task": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      }
+    },
+    "sessionOutcome": {
+      "description": "How an agent session ended. A later outcome for the same session supersedes the earlier one.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["success", "failure", "partial", "unknown"]
+        },
+        "summary": {
           "type": "string",
           "minLength": 1,
           "maxLength": 2000

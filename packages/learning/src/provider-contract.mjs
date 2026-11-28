@@ -1,3 +1,4 @@
+import { digestOf } from "./canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "./errors.mjs"
 import { sameScope } from "./policy.mjs"
 
@@ -42,11 +43,37 @@ import { sameScope } from "./policy.mjs"
  * { redacted: false } when the stored event has no payload already, and throws not_found,
  * conflict, or invalid_input as redactionProblem describes. This is the only
  * rewrite the contract allows, because an event's digest leaves out its payload.
+ *
+ * A provider that declares the optional records.delete capability also implements
+ * deleteRecords(scope, { records, memories }, { audit }). records maps stream names to record
+ * IDs, and memories lists learning IDs. In one atomic write it removes those records and every
+ * version of those learnings in scope, then appends the audit entries; if any part fails,
+ * nothing changes. It skips IDs it does not hold and returns { records, memories } with how
+ * many it removed from each stream and how many learning versions it removed. Deletion serves
+ * retention and a person's request to remove a learning or a repository; with redaction, it is
+ * the only change to stored records the contract allows.
+ *
+ * A provider with atomicDecisionFence === true implements decisionFence(scope). The returned
+ * opaque token changes when eligibility records, memory versions, or scope migrations change.
+ * A caller obtains it before reading eligibility and passes it as expectedDecisionFence to
+ * appendMemoryVersion. The provider compares it under the same lock as the version and audit
+ * write, and throws conflict without writing if any covered state changed.
+ *
+ * A provider that supports indexed learning decisions also implements
+ * readDecisionMemoryIds(scope, ids). It returns the supplied IDs and the connected replacement
+ * histories using indexed links, and refuses a component larger than 1,000 IDs.
+ * readRelatedEpisodeIds(scope, ids) returns those IDs and other episodes of the same Hub
+ * review threads, using indexed source identities.
+ * readDecisionInputs(scope, selection) returns only grants, withdrawals, stable-identity
+ * collections, and migration origins relevant to the selected episodes and events.
  */
 export const PROVIDER_CONTRACT = Object.freeze({ name: "replica.memory-provider", version: 1 })
 
 /** The optional capability for removing an event's payload; see redactRecord above. */
 export const REDACT_CAPABILITY = "observation.redact"
+
+/** The optional capability for removing records and learnings; see deleteRecords above. */
+export const DELETE_CAPABILITY = "records.delete"
 
 export const REQUIRED_CAPABILITIES = Object.freeze([
   "observation.append",
@@ -67,7 +94,69 @@ export const STREAMS = Object.freeze({
   collections: "capturedAt",
   audit: "at",
   exports: "createdAt",
+  guidance: "requestedAt",
+  deliveries: "deliveredAt",
+  usageReports: "reportedAt",
+  usedLearnings: "reportedAt",
+  screenshots: "capturedAt",
+  scores: "scoredAt",
+  updateProposals: "proposedAt",
+  updateDecisions: "decidedAt",
 })
+
+/** Streams whose contents can change whether evidence or a learning may be used. */
+export const DECISION_FENCE_STREAMS = Object.freeze([
+  "grants",
+  "withdrawals",
+  "collections",
+  "episodes",
+  "events",
+])
+
+/** Bind a scope's change generation to an opaque decision token. */
+export function decisionGenerationFence(scope, generation) {
+  assertQuery({ scope })
+  return digestOf({ scope, generation: String(generation) })
+}
+
+/** Hash complete records, including redacted event bodies, without returning their contents. */
+export function decisionFenceDigest(scope, { records = {}, memories = [], migrations = [] } = {}) {
+  assertQuery({ scope })
+  try {
+    return digestOf({
+      scope,
+      records: Object.fromEntries(
+        DECISION_FENCE_STREAMS.map((stream) => [
+          stream,
+          (records[stream] ?? []).map((record) => digestOf(record)),
+        ]),
+      ),
+      memories: memories.map((record) => digestOf(record)),
+      migrations: migrations.map((migration) => digestOf(migration)),
+    })
+  } catch {
+    throw new LearningError("storage_corrupt", "Could not read the decision eligibility state.")
+  }
+}
+
+/** Refuse an invalid or stale fence without exposing its contents. */
+export function assertDecisionFence(expected, actual) {
+  if (expected === undefined) return
+  if (typeof expected !== "string" || !/^sha256:[0-9a-f]{64}$/.test(expected))
+    throw new LearningError("invalid_input", "The decision fence is invalid.")
+  if (expected !== actual)
+    throw new ProviderConflictError("Decision eligibility changed during the write.")
+}
+
+/**
+ * Refuse a stable-identity collection without a snapshot ID. Its snapshot proves which
+ * reviewers were adopted, so skipping it would quietly let withheld evidence through.
+ */
+export function assertSnapshotIds(collections) {
+  for (const collection of collections)
+    if (typeof collection.snapshotId !== "string")
+      throw new LearningError("storage_corrupt", "A stable-identity collection has no snapshot.")
+}
 
 export function assertStream(stream) {
   if (!Object.hasOwn(STREAMS, stream))
@@ -132,6 +221,28 @@ export function redactionProblem(stored, record) {
       )
   }
   return null
+}
+
+/**
+ * The records and learnings a deleteRecords call removes, checked before a provider changes
+ * anything: a scope, known streams, and string IDs.
+ *
+ * @returns {{ records: Map<string, Set<string>>, memories: Set<string> }}
+ */
+export function deletionPlan(scope, { records = {}, memories = [] } = {}) {
+  assertQuery({ scope })
+  if (!records || typeof records !== "object" || Array.isArray(records) || !Array.isArray(memories))
+    throw new LearningError("invalid_input", "A deletion names records by stream and learning IDs.")
+  const plan = new Map()
+  for (const [stream, ids] of Object.entries(records)) {
+    assertStream(stream)
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string"))
+      throw new LearningError("invalid_input", "A deletion names records by their string IDs.")
+    plan.set(stream, new Set(ids))
+  }
+  if (memories.some((id) => typeof id !== "string"))
+    throw new LearningError("invalid_input", "A deletion names learnings by their string IDs.")
+  return { records: plan, memories: new Set(memories) }
 }
 
 /** Check that records are objects with an ID and a digest before a provider stores them. */

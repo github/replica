@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/learning/v1/used-learning.schema.json",
+  "title": "Replica used learning v1",
+  "description": "One delivered learning an agent says it used. It is always the agent's claim, never a verified result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "scope",
+    "usageReportId",
+    "deliveryId",
+    "memoryId",
+    "claimedBy",
+    "reportedAt",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "replica.used-learning/v1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/scope"
+    },
+    "usageReportId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "deliveryId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "memoryId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "claimedBy": {
+      "$ref": "common.schema.json#/$defs/actor"
+    },
+    "beforeScreenshotId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "afterScreenshotId": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "reportedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "digest": {
+      "$ref": "common.schema.json#/$defs/digest"
+    }
+  }
+}

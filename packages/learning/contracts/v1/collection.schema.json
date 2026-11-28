@@ -28,7 +28,7 @@
     "scope": { "$ref": "common.schema.json#/$defs/scope" },
     "snapshotId": { "type": "string", "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$" },
     "snapshotDigest": {
-      "description": "The digest of the snapshot's normalized contents. Each scope stores one collection per snapshotId, and importing the snapshot again matches this digest.",
+      "description": "The digest of the snapshot's normalized contents. A scope normally stores one collection per snapshotId; migration can retain multiple matching historical collections. Reimports must match every retained collection.",
       "$ref": "common.schema.json#/$defs/digest"
     },
     "reviewerIdentity": {

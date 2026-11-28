@@ -14,7 +14,33 @@ export const SCHEMA_VERSIONS = Object.freeze({
   exportManifest: "replica.export/v1",
   auditEntry: "replica.audit/v1",
   collection: "replica.collection/v1",
+  guidance: "replica.guidance/v1",
+  deliveredLearning: "replica.delivered-learning/v1",
+  usageReport: "replica.usage-report/v1",
+  usedLearning: "replica.used-learning/v1",
+  screenshot: "replica.screenshot/v1",
+  score: "replica.score/v1",
+  updateProposal: "replica.update-proposal/v1",
+  updateDecision: "replica.update-decision/v1",
 })
+
+/**
+ * Event types that carry a person's feedback and can be labeled: review comments and the
+ * messages a person sends a coding agent. Both count toward recurring themes the same way.
+ */
+export const FEEDBACK_TYPES = Object.freeze(["human_comment", "user_message"])
+
+/**
+ * A feedback event's text, or null when it was deleted at its source or removed. A user
+ * message counts only when a person sent it as text: v1 lets user_message hold any payload
+ * from any actor, and an agent's words are not a person's feedback.
+ */
+export function feedbackText(event) {
+  if (!FEEDBACK_TYPES.includes(event?.type)) return null
+  if (event.type === "human_comment") return event.payload?.body ?? null
+  if (event.actor?.kind !== "human" || typeof event.payload?.text !== "string") return null
+  return event.payload.text
+}
 
 /** A shallow copy without the named fields. */
 export function without(record, ...keys) {
@@ -55,6 +81,7 @@ export function memoryContentDigest(memory) {
   return digestOf({
     scope: memory.scope,
     kind: memory.kind,
+    ...(memory.title !== undefined ? { title: memory.title } : {}),
     content: memory.content,
     appliesTo: memory.appliesTo ?? [],
     lifecycle: memory.proposal?.lifecycle ?? null,

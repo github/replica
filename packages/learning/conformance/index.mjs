@@ -2,8 +2,9 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
 import { LearningError } from "../src/errors.mjs"
-import { REQUIRED_CAPABILITIES, STREAMS } from "../src/provider-contract.mjs"
+import { DELETE_CAPABILITY, REQUIRED_CAPABILITIES, STREAMS } from "../src/provider-contract.mjs"
 import { SCHEMA_VERSIONS, sealEpisode, sealEvent, sealMemory, sealRecord } from "../src/records.mjs"
+import { migrateRepositoryScope } from "../src/scope-migration.mjs"
 import { createLearningStore } from "../src/store.mjs"
 import { validateRecord } from "../src/validate.mjs"
 import { REPOSITORY, weekOneLabels, weekOneLog, weekTwoLog } from "./fixtures.mjs"
@@ -41,10 +42,21 @@ export function memoryProviderConformance({ name, createProvider }) {
   async function fresh() {
     return createProvider()
   }
-  async function open(wrap = (provider) => provider, clock = () => NOW) {
-    const provider = await fresh()
+  async function open(wrap = (provider) => provider, clock = () => NOW, suppliedProvider) {
+    const provider = suppliedProvider ?? (await fresh())
     const store = await createLearningStore({ provider: wrap(provider), clock })
     return { store, provider }
+  }
+  function supportsIndexedDecisions(provider) {
+    return (
+      provider.atomicDecisionFence === true &&
+      [
+        "decisionFence",
+        "readDecisionMemoryIds",
+        "readRelatedEpisodeIds",
+        "readDecisionInputs",
+      ].every((method) => typeof provider[method] === "function")
+    )
   }
 
   describe(`${name}: storage contract`, () => {
@@ -76,6 +88,88 @@ export function memoryProviderConformance({ name, createProvider }) {
         existing: 0,
       })
       assert.deepEqual(await provider.readRecords("grants", { scope: SCOPE }), records)
+    })
+
+    it("selects only grants matching the evidence, purpose, and decision time", async (t) => {
+      const provider = await fresh()
+      if (!supportsIndexedDecisions(provider)) {
+        t.skip("Provider does not support indexed learning decisions.")
+        return
+      }
+      const firstAt = "2026-10-03T00:00:00.000000Z"
+      const secondAt = "2026-10-08T00:00:00.000000Z"
+      const at = "2026-10-09T12:00:00.000000Z"
+      function makeGrant(id, fields) {
+        return sealRecord({ ...grant(id), ...fields })
+      }
+      const records = [
+        makeGrant("grant_selected1", {
+          grantedAt: at,
+          expiresAt: "2026-10-10T00:00:00.000000Z",
+          evidenceFrom: firstAt,
+          evidenceUntil: "2026-10-04T00:00:00.000000Z",
+        }),
+        makeGrant("grant_selected2", { sources: ["other_source"], evidenceFrom: secondAt }),
+        makeGrant("grant_wrongsource1", { sources: ["unselected_source"] }),
+        makeGrant("grant_wrongpurpose1", { purposes: ["review"] }),
+        makeGrant("grant_future1", { grantedAt: "2026-10-10T00:00:00.000000Z" }),
+        makeGrant("grant_expired1", { expiresAt: at }),
+        makeGrant("grant_outsidewindow1", { evidenceUntil: firstAt }),
+        makeGrant("grant_wrongpair1", { evidenceFrom: "2026-10-06T00:00:00.000000Z" }),
+        makeGrant("grant_otherscope1", { scope: OTHER }),
+      ]
+      await provider.appendRecords("grants", records)
+      const inputs = await provider.readDecisionInputs(SCOPE, {
+        evidence: [
+          { source: "hub_review_comments", at: firstAt },
+          { source: "other_source", at: secondAt },
+        ],
+        at,
+        purpose: "instruction",
+        hubSources: [],
+        eventIds: [],
+      })
+      assert.deepEqual(
+        inputs.grants.map(({ id }) => id),
+        ["grant_selected1", "grant_selected2"],
+      )
+    })
+
+    it("returns only the earliest stable collection for each Hub source", async (t) => {
+      const provider = await fresh()
+      if (!supportsIndexedDecisions(provider)) {
+        t.skip("Provider does not support indexed learning decisions.")
+        return
+      }
+      const source = { hubOrigin: "https://replica.example.com", repositoryId: 42 }
+      function collection(id, fields) {
+        return {
+          id,
+          scope: SCOPE,
+          snapshotId: `snapshot-${id}`,
+          reviewerIdentity: "stable-user-id",
+          source,
+          digest: `sha256:${id}`,
+          ...fields,
+        }
+      }
+      await provider.appendRecords("collections", [
+        collection("collection_first"),
+        collection("collection_second"),
+        collection("collection_third"),
+        collection("collection_othersource", { source: { ...source, repositoryId: 43 } }),
+      ])
+      const inputs = await provider.readDecisionInputs(SCOPE, {
+        evidence: [],
+        at: "2026-10-09T12:00:00.000000Z",
+        purpose: "instruction",
+        hubSources: [source],
+        eventIds: [],
+      })
+      assert.deepEqual(
+        inputs.collections.map(({ id }) => id),
+        ["collection_first"],
+      )
     })
 
     it("skips a record whose ID and digest are already stored", async () => {
@@ -145,6 +239,138 @@ export function memoryProviderConformance({ name, createProvider }) {
         second,
         third,
       ])
+    })
+
+    it("refuses a decision when its eligibility changes without writing its audit", async (t) => {
+      const provider = await fresh()
+      if (provider.atomicDecisionFence !== true) {
+        t.skip("Provider does not claim atomic decision fences.")
+        return
+      }
+      const fence = await provider.decisionFence(SCOPE)
+      await provider.appendRecords("grants", [grant("grant_otherfence1", undefined, OTHER)])
+      const first = memory("mem_fencefirst1", 1)
+      const receipt = auditEntry("audit_fencefirst1")
+      await provider.appendMemoryVersion(first, {
+        expectedPreviousDigest: null,
+        expectedDecisionFence: fence,
+        audit: [receipt],
+      })
+      assert.notEqual(await provider.decisionFence(SCOPE), fence)
+      const beforeWithdrawal = await provider.decisionFence(SCOPE)
+      await provider.appendRecords("withdrawals", [
+        sealRecord({ id: "withdraw_fence1", scope: SCOPE, at: "2026-10-02T00:00:00.000000Z" }),
+      ])
+      const second = memory("mem_fencesecond1", 1)
+      const secondReceipt = auditEntry("audit_fencesecond1")
+      await assert.rejects(
+        provider.appendMemoryVersion(second, {
+          expectedPreviousDigest: null,
+          expectedDecisionFence: beforeWithdrawal,
+          audit: [secondReceipt],
+        }),
+        { code: "conflict" },
+      )
+      assert.deepEqual(await provider.readMemoryVersions({ scope: SCOPE }), [first])
+      assert.deepEqual(await provider.readRecords("audit", { scope: SCOPE }), [receipt])
+      await provider.appendMemoryVersion(second, {
+        expectedPreviousDigest: null,
+        expectedDecisionFence: await provider.decisionFence(SCOPE),
+        audit: [secondReceipt],
+      })
+      assert.deepEqual(await provider.readMemoryVersions({ scope: SCOPE }), [first, second])
+    })
+
+    it("detects changes to each eligibility stream", async (t) => {
+      const provider = await fresh()
+      if (provider.atomicDecisionFence !== true) {
+        t.skip("Provider does not claim atomic decision fences.")
+        return
+      }
+      for (const stream of ["grants", "withdrawals", "collections", "episodes", "events"]) {
+        const fence = await provider.decisionFence(SCOPE)
+        const record = sealRecord({ id: `fence_${stream}`, scope: SCOPE })
+        await provider.appendRecords(stream, [record])
+        assert.notEqual(await provider.decisionFence(SCOPE), fence, stream)
+      }
+    })
+
+    it("detects event redaction even though the event digest stays the same", async (t) => {
+      const provider = await fresh()
+      if (
+        provider.atomicDecisionFence !== true ||
+        !provider.manifest().capabilities.includes("observation.redact")
+      ) {
+        t.skip("Provider does not claim atomic decision fences and redaction.")
+        return
+      }
+      const event = sealEvent({
+        id: "ev_fenceredact1",
+        scope: SCOPE,
+        episodeId: "ep_fenceredact1",
+        type: "annotation",
+        at: "2026-10-01T00:00:00.000000Z",
+        payload: { text: "Removed evidence" },
+      })
+      await provider.appendRecords("events", [event])
+      const fence = await provider.decisionFence(SCOPE)
+      const rest = { ...event }
+      delete rest.payload
+      await provider.redactRecord("events", {
+        ...rest,
+        redaction: {
+          at: "2026-10-02T00:00:00.000000Z",
+          by: designer().principal,
+          reason: "Asked.",
+        },
+      })
+      assert.equal((await provider.readRecords("events", { scope: SCOPE }))[0].digest, event.digest)
+      await assert.rejects(
+        provider.appendMemoryVersion(memory("mem_fenceredact1", 1), {
+          expectedPreviousDigest: null,
+          expectedDecisionFence: fence,
+          audit: [auditEntry("audit_fenceredact1")],
+        }),
+        { code: "conflict" },
+      )
+      assert.deepEqual(await provider.readMemoryVersions({ scope: SCOPE }), [])
+      assert.deepEqual(await provider.readRecords("audit", { scope: SCOPE }), [])
+    })
+
+    it("invalidates both scopes when a migration mapping is added", async (t) => {
+      const provider = await fresh()
+      if (
+        provider.atomicDecisionFence !== true ||
+        (!provider.migrateScope && !provider.registerLegacyScope)
+      ) {
+        t.skip("Provider does not support repository scope migration.")
+        return
+      }
+      const oldFence = await provider.decisionFence(OTHER)
+      const newFence = await provider.decisionFence(SCOPE)
+      if (provider.registerLegacyScope) await provider.registerLegacyScope(OTHER, SCOPE)
+      else
+        await provider.migrateScope({
+          oldScope: OTHER,
+          newScope: SCOPE,
+          transform: ({ records, memories }) => ({
+            records,
+            memories,
+            metadata: { oldScope: OTHER, newScope: SCOPE, digestMappings: [] },
+          }),
+        })
+      assert.notEqual(await provider.decisionFence(OTHER), oldFence)
+      assert.notEqual(await provider.decisionFence(SCOPE), newFence)
+      await assert.rejects(
+        provider.appendMemoryVersion(memory("mem_fencemigration1", 1), {
+          expectedPreviousDigest: null,
+          expectedDecisionFence: newFence,
+          audit: [auditEntry("audit_fencemigration1")],
+        }),
+        { code: "conflict" },
+      )
+      assert.deepEqual(await provider.readMemoryVersions({ scope: SCOPE }), [])
+      assert.deepEqual(await provider.readRecords("audit", { scope: SCOPE }), [])
     })
 
     it("appends to several streams and their audit entries in one write, or writes nothing", async () => {
@@ -414,15 +640,15 @@ export function memoryProviderConformance({ name, createProvider }) {
   })
 
   describe(`${name}: learning rules`, () => {
-    async function imported(wrap) {
-      const opened = await open(wrap)
+    async function imported(wrap, provider) {
+      const opened = await open(wrap, undefined, provider)
       const grantId = (await opened.store.addGrant(designer(), grantInput())).id
       await opened.store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grantId] })
       return { ...opened, grantId }
     }
 
-    async function proposed(wrap) {
-      const opened = await imported(wrap)
+    async function proposed(wrap, provider) {
+      const opened = await imported(wrap, provider)
       await opened.store.annotate(agent(), weekOneLabels().labels)
       const result = await opened.store.consolidate(agent(), {
         consolidator: createRecurrenceConsolidator(),
@@ -430,6 +656,415 @@ export function memoryProviderConformance({ name, createProvider }) {
       })
       return { ...opened, result, proposal: result.proposals[0] }
     }
+
+    it("finds matching review threads only in the same repository", async (t) => {
+      const provider = await fresh()
+      if (!supportsIndexedDecisions(provider)) {
+        t.skip("Provider does not support indexed learning decisions.")
+        return
+      }
+      await imported(undefined, provider)
+      const [template] = await provider.readRecords("episodes", { scope: SCOPE })
+      const source = { ...template.source, threadId: 987_654 }
+      const selected = sealEpisode({ ...template, id: "ep_relatedselected1", source })
+      const copy = sealEpisode({
+        ...selected,
+        id: "ep_relatedcopy1",
+        source: { ...source, buildNumber: source.buildNumber + 1 },
+      })
+      const differentThread = sealEpisode({
+        ...selected,
+        id: "ep_relatedthread1",
+        source: { ...source, threadId: source.threadId + 1 },
+      })
+      const differentPrototype = sealEpisode({
+        ...selected,
+        id: "ep_relatedprototype1",
+        source: { ...source, prototypeId: source.prototypeId + 1 },
+      })
+      const differentRepository = sealEpisode({
+        ...selected,
+        id: "ep_relatedrepository1",
+        source: { ...source, repositoryId: source.repositoryId + 1 },
+      })
+      const differentOrigin = sealEpisode({
+        ...selected,
+        id: "ep_relatedorigin1",
+        source: { ...source, hubOrigin: "https://other.example.com" },
+      })
+      const differentScope = sealEpisode({
+        ...copy,
+        id: "ep_relatedscope1",
+        scope: OTHER,
+      })
+      await provider.appendRecords("episodes", [
+        selected,
+        copy,
+        differentThread,
+        differentPrototype,
+        differentRepository,
+        differentOrigin,
+        differentScope,
+      ])
+      assert.deepEqual(
+        new Set(await provider.readRelatedEpisodeIds(SCOPE, [selected.id])),
+        new Set([selected.id, copy.id]),
+      )
+      assert.deepEqual(await provider.readRelatedEpisodeIds(SCOPE, []), [])
+    })
+
+    const decisionRaces = [
+      { decision: "edit", change: "withdrawal" },
+      { decision: "reinstate", change: "redaction" },
+      { decision: "edit", change: "supersession" },
+      { decision: "reinstate", change: "supersession" },
+      { decision: "reinstate", change: "scope migration" },
+      { decision: "edit", change: "another repository" },
+    ]
+    for (const { decision, change } of decisionRaces) {
+      const name =
+        change === "another repository"
+          ? `${decision} succeeds while another repository changes`
+          : `${decision} refuses a concurrent ${change}`
+      it(name, { timeout: 60_000 }, async (t) => {
+        const provider = await fresh()
+        if (!supportsIndexedDecisions(provider)) {
+          t.skip("Provider does not support indexed learning decisions.")
+          return
+        }
+        if (
+          change === "redaction" &&
+          !provider.manifest().capabilities.includes("observation.redact")
+        ) {
+          t.skip("Provider does not support redaction.")
+          return
+        }
+        if (
+          change === "scope migration" &&
+          !provider.migrateScope &&
+          !provider.registerLegacyScope
+        ) {
+          t.skip("Provider does not support repository scope migration.")
+          return
+        }
+        const ready = Promise.withResolvers()
+        const resume = Promise.withResolvers()
+        let pause = false
+        const { store, grantId, proposal } = await proposed(
+          (inner) => ({
+            ...inner,
+            async appendMemoryVersion(record, options) {
+              if (pause && record.accepted?.decision === decision) {
+                ready.resolve()
+                await resume.promise
+              }
+              return inner.appendMemoryVersion(record, options)
+            },
+          }),
+          provider,
+        )
+
+        function replacementInput(lifecycle) {
+          return {
+            schemaVersion: SCHEMA_VERSIONS.memoryProposal,
+            kind: "rule",
+            content: "Keep field labels visible while people type.",
+            evidence: proposal.evidence,
+            rationale: {
+              recurrence: "The same feedback supports this wording.",
+              expectedBenefit: "Clearer fields.",
+              falsification: "Reviewers still report problems.",
+            },
+            lifecycle,
+            consolidator: { id: "manual", version: "1" },
+          }
+        }
+
+        let target = proposal
+        let current
+        let replaced
+        let replacement
+        if (decision === "edit" || change === "supersession") {
+          replaced = await store.acceptMemory(designer(), proposal.id, {
+            expectedDigest: proposal.reviewDigest,
+          })
+        }
+        if (decision === "edit") current = replaced
+        else {
+          if (change === "supersession") {
+            target = await store.proposeMemory(
+              designer(),
+              replacementInput({ action: "supersede", targets: [replaced.id] }),
+            )
+          }
+          current = await store.rejectMemory(designer(), target.id, {
+            expectedDigest: target.reviewDigest,
+            reason: "Review later.",
+          })
+        }
+        if (change === "supersession") {
+          const candidate = await store.proposeMemory(
+            designer(),
+            replacementInput({ action: "new" }),
+          )
+          replacement = await store.acceptMemory(designer(), candidate.id, {
+            expectedDigest: candidate.reviewDigest,
+          })
+        }
+        let comment
+        if (change === "redaction") {
+          const evidence = new Set(target.evidence.flatMap((reference) => reference.eventIds))
+          const { events } = await store.queryObservations(designer(), { purpose: "review" })
+          comment = events.find((event) => evidence.has(event.id) && event.type === "human_comment")
+          assert.ok(comment)
+        }
+        const versions = await provider.readMemoryVersions({ scope: SCOPE, ids: [target.id] })
+        const operation = `memory.${decision}`
+        const audits = await provider.readRecords("audit", {
+          scope: SCOPE,
+          operations: [operation],
+        })
+        pause = true
+        const pending =
+          decision === "edit"
+            ? store.editMemory(designer(), target.id, {
+                expectedDigest: current.digest,
+                title: "Keep labels visible",
+                reason: "Clarify the guidance.",
+              })
+            : store.reinstateMemory(designer(), target.id, {
+                expectedDigest: current.digest,
+                reason: "The team confirmed the guidance.",
+              })
+        let resultScope = SCOPE
+        try {
+          await Promise.race([
+            ready.promise,
+            pending.then(
+              () => {
+                throw new Error("The decision finished before its write was paused.")
+              },
+              (error) => {
+                throw error
+              },
+            ),
+          ])
+          if (change === "withdrawal")
+            await store.withdrawGrant(designer(), grantId, { purposes: ["instruction"] })
+          else if (change === "redaction")
+            await store.redactComment(designer(), comment.id, { reason: "The author asked." })
+          else if (change === "supersession")
+            await store.supersedeMemory(designer(), [replaced.id], replacement.id)
+          else if (change === "scope migration") {
+            if (provider.registerLegacyScope) await provider.registerLegacyScope(OTHER, SCOPE)
+            else {
+              resultScope = { host: "github.com", repository: "repositories/123456" }
+              await migrateRepositoryScope({
+                provider,
+                oldScope: SCOPE,
+                newScope: resultScope,
+                clock: () => NOW,
+              })
+            }
+          } else {
+            const old = { repository: "acme/another-legacy-repository" }
+            if (provider.registerLegacyScope) await provider.registerLegacyScope(old, OTHER)
+            else if (provider.migrateScope)
+              await provider.migrateScope({
+                oldScope: old,
+                newScope: OTHER,
+                transform: ({ records, memories }) => ({
+                  records,
+                  memories,
+                  metadata: { oldScope: old, newScope: OTHER, digestMappings: [] },
+                }),
+              })
+            await store.addGrant(designer(OTHER), grantInput())
+            const event = sealEvent({
+              id: "ev_otherdecision1",
+              scope: OTHER,
+              episodeId: "ep_otherdecision1",
+              type: "annotation",
+              at: "2026-10-01T00:00:00.000000Z",
+              payload: { text: "Other repository evidence." },
+            })
+            await provider.appendRecords("events", [event])
+            if (provider.manifest().capabilities.includes("observation.redact"))
+              await provider.redactRecord("events", redacted(event))
+            await provider.appendMemoryVersion(
+              sealMemory({ ...memory("mem_otherdecision1", 1), scope: OTHER }),
+              { expectedPreviousDigest: null },
+            )
+          }
+          resume.resolve()
+          if (change === "another repository") {
+            const saved = await pending
+            const after = await provider.readMemoryVersions({ scope: SCOPE, ids: [target.id] })
+            assert.equal(after.length, versions.length + 1)
+            assert.equal(after.at(-1).digest, saved.digest)
+            assert.equal(
+              (await provider.readRecords("audit", { scope: SCOPE, operations: [operation] }))
+                .length,
+              audits.length + 1,
+            )
+          } else {
+            await assert.rejects(pending, (error) =>
+              [
+                "conflict",
+                "stale_review",
+                "purpose_not_granted",
+                "invalid_transition",
+                "not_found",
+              ].includes(error.code),
+            )
+            if (change === "supersession") {
+              const retry =
+                decision === "edit"
+                  ? store.editMemory(designer(), target.id, {
+                      expectedDigest: current.digest,
+                      title: "Keep labels visible",
+                      reason: "Clarify the guidance.",
+                    })
+                  : store.reinstateMemory(designer(), target.id, {
+                      expectedDigest: current.digest,
+                      reason: "The team confirmed the guidance.",
+                    })
+              await assert.rejects(retry, { code: "invalid_transition" })
+            }
+            const after = await provider.readMemoryVersions({
+              scope: resultScope,
+              ids: [target.id],
+            })
+            assert.deepEqual(
+              after.map((version) => version.version),
+              versions.map((version) => version.version),
+            )
+            assert.equal(
+              (
+                await provider.readRecords("audit", {
+                  scope: resultScope,
+                  operations: [operation],
+                })
+              ).length,
+              audits.length,
+            )
+          }
+        } finally {
+          resume.resolve()
+          await pending.catch(() => {})
+        }
+      })
+    }
+
+    it("edit reads only the learning's evidence and replacement history", async (t) => {
+      const provider = await fresh()
+      if (!supportsIndexedDecisions(provider)) {
+        t.skip("Provider does not support indexed learning decisions.")
+        return
+      }
+      const reads = []
+      let trackReads = false
+      const { store, proposal } = await proposed(
+        (inner) => ({
+          ...inner,
+          async readRecords(stream, query) {
+            const records = await inner.readRecords(stream, query)
+            if (trackReads && (stream === "events" || stream === "episodes"))
+              reads.push({ stream, records })
+            return records
+          },
+          async readMemoryVersions(query) {
+            const records = await inner.readMemoryVersions(query)
+            if (trackReads) reads.push({ stream: "memories", records })
+            return records
+          },
+          async readDecisionInputs(scope, query) {
+            const inputs = await inner.readDecisionInputs(scope, query)
+            if (trackReads)
+              for (const stream of ["grants", "withdrawals", "collections"])
+                reads.push({ stream, records: inputs[stream] })
+            return inputs
+          },
+        }),
+        provider,
+      )
+      const current = await store.acceptMemory(designer(), proposal.id, {
+        expectedDigest: proposal.reviewDigest,
+      })
+      const unrelated = await store.proposeMemory(designer(), {
+        schemaVersion: SCHEMA_VERSIONS.memoryProposal,
+        kind: "rule",
+        content: "Use clear labels for unrelated guidance.",
+        evidence: proposal.evidence,
+        rationale: {
+          recurrence: "Other guidance.",
+          expectedBenefit: "Clearer fields.",
+          falsification: "Reviewers still report problems.",
+        },
+        lifecycle: { action: "new" },
+        consolidator: { id: "manual", version: "1" },
+      })
+      const unrelatedGrant = await store.addGrant(designer(), {
+        ...grantInput(),
+        sources: ["unrelated_source"],
+      })
+      await store.withdrawGrant(designer(), unrelatedGrant.id, { purposes: ["instruction"] })
+      const relevantEpisodes = new Set(
+        [...proposal.evidence, ...(proposal.contradictions ?? [])].map(
+          (reference) => reference.episodeId,
+        ),
+      )
+      const episodes = await provider.readRecords("episodes", { scope: SCOPE })
+      const events = await provider.readRecords("events", { scope: SCOPE })
+      const unrelatedEpisodes = episodes.filter((episode) => !relevantEpisodes.has(episode.id))
+      const unrelatedIds = new Set(unrelatedEpisodes.map((episode) => episode.id))
+      assert.ok(unrelatedEpisodes.length > 0)
+      assert.ok(events.some((event) => unrelatedIds.has(event.episodeId)))
+
+      trackReads = true
+      const saved = await store.editMemory(designer(), proposal.id, {
+        expectedDigest: current.digest,
+        title: "Keep labels visible",
+        reason: "Clarify the guidance.",
+      })
+      trackReads = false
+      assert.equal(saved.version, current.version + 1)
+      for (const stream of ["episodes", "events", "memories", "grants", "withdrawals"])
+        assert.ok(
+          reads.some((read) => read.stream === stream),
+          stream,
+        )
+      assert.ok(
+        reads
+          .filter(({ stream }) => stream === "episodes")
+          .flatMap(({ records }) => records)
+          .every((episode) => !unrelatedIds.has(episode.id)),
+      )
+      assert.ok(
+        reads
+          .filter(({ stream }) => stream === "events")
+          .flatMap(({ records }) => records)
+          .every((event) => !unrelatedIds.has(event.episodeId)),
+      )
+      assert.ok(
+        reads
+          .filter(({ stream }) => stream === "memories")
+          .flatMap(({ records }) => records)
+          .every((memory) => memory.id !== unrelated.id),
+      )
+      assert.ok(
+        reads
+          .filter(({ stream }) => stream === "grants")
+          .flatMap(({ records }) => records)
+          .every((grant) => grant.id !== unrelatedGrant.id),
+      )
+      assert.ok(
+        reads
+          .filter(({ stream }) => stream === "withdrawals")
+          .flatMap(({ records }) => records)
+          .every((withdrawal) => withdrawal.grantId !== unrelatedGrant.id),
+      )
+    })
 
     it("refuses invalid recall limits through the public store API", async () => {
       const { store, proposal } = await proposed()
@@ -483,12 +1118,38 @@ export function memoryProviderConformance({ name, createProvider }) {
     })
 
     it("selects only requested eligible events and their episodes", async () => {
-      const { store, provider, grantId } = await proposed()
+      const reads = []
+      let trackReads = false
+      const { store, provider, grantId } = await proposed((inner) => ({
+        ...inner,
+        async readRecords(stream, query) {
+          const records = await inner.readRecords(stream, query)
+          if (trackReads && (stream === "events" || stream === "episodes"))
+            reads.push({ stream, records })
+          return records
+        },
+      }))
       const all = await store.queryObservations(designer(), { purpose: "review" })
       const label = all.events.find((event) => event.type === "annotation")
       const comment = all.events.find((event) => event.id === label.parentEventId)
       const eventIds = [label.id, comment.id]
+      assert.ok(all.events.some((event) => event.episodeId !== comment.episodeId))
+      trackReads = true
       const selected = await store.queryObservations(designer(), { purpose: "review", eventIds })
+      trackReads = false
+      assert.ok(reads.some(({ stream }) => stream === "events"))
+      assert.ok(
+        reads
+          .filter(({ stream }) => stream === "events")
+          .flatMap(({ records }) => records)
+          .every((event) => event.episodeId === comment.episodeId),
+      )
+      assert.ok(
+        reads
+          .filter(({ stream }) => stream === "episodes")
+          .flatMap(({ records }) => records)
+          .every((episode) => episode.id === comment.episodeId),
+      )
       assert.deepEqual(
         selected.events,
         all.events.filter((event) => eventIds.includes(event.id)),
@@ -898,6 +1559,269 @@ export function memoryProviderConformance({ name, createProvider }) {
       await store.retireMemory(designer(), replacement.id, { reason: "No longer needed." })
       assert.equal((await store.recall(agent())).memories.length, 0)
       assert.equal((await store.getMemory(designer(), first.id)).status.superseded, true)
+    })
+
+    it("usage: recall records what an agent got, and a report and score are stored once", async () => {
+      const { store, provider, proposal } = await proposed()
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+
+      const recalled = await store.recall(agent(), { session: { id: "session-one" } })
+      const [delivery] = await provider.readRecords("deliveries", { scope: SCOPE })
+      const report = {
+        reportId: "change-1",
+        guidanceIds: [recalled.guidanceId],
+        commitSha: "a".repeat(40),
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      }
+      const first = await store.reportUsage(agent(), report)
+      const again = await store.reportUsage(agent(), report)
+
+      assert.equal(delivery.memoryId, proposal.id)
+      assert.equal(delivery.text.includes(recalled.memories[0].content), true)
+      assert.deepEqual([first.stored, again.stored], [true, false])
+      await assert.rejects(store.reportUsage(agent(), { ...report, used: [] }), {
+        code: "conflict",
+      })
+      const [used] = await provider.readRecords("usedLearnings", { scope: SCOPE })
+      assert.equal(used.memoryId, proposal.id)
+      const score = {
+        usedLearningId: used.id,
+        operationId: "33333333-3333-4333-8333-333333333333",
+        efficiency: 2,
+        followed: "followed",
+        reasoning: "The label stayed visible, but the agent rebuilt the field twice.",
+        issue: "The rule did not say where the label goes.",
+        route: { kind: "fusion", fusionTier: "max" },
+      }
+      const scored = await store.recordScore(agent(), score)
+      const rescored = await store.recordScore(agent(), { ...score, efficiency: 4 })
+      assert.deepEqual([scored.stored, rescored.stored], [true, false])
+      assert.equal(rescored.score.efficiency, 2)
+      const raced = await Promise.all(
+        [3, 4].map((efficiency) =>
+          store.recordScore(agent(), {
+            ...score,
+            operationId: "44444444-4444-4444-8444-444444444444",
+            efficiency,
+          }),
+        ),
+      )
+      assert.deepEqual(raced.map((result) => result.stored).sort(), [false, true])
+      assert.equal(raced[0].score.digest, raced[1].score.digest)
+      // Review comments were shared for review and instruction only, not evaluation.
+      await assert.rejects(store.evaluationInputs(agent(), { usedLearningId: used.id }), {
+        code: "unavailable",
+      })
+      await store.addGrant(designer(), { ...grantInput(), purposes: ["evaluation"] })
+      const inputs = await store.evaluationInputs(agent(), { usedLearningId: used.id })
+      assert.equal(inputs.learning.text, delivery.text)
+      const outcomes = await store.outcomesFor(designer(), { memoryId: proposal.id })
+      assert.deepEqual(
+        outcomes.map((outcome) => [outcome.version, outcome.commitSha, outcome.issue]),
+        [
+          [inputs.learning.version, "a".repeat(40), "The rule did not say where the label goes."],
+          [inputs.learning.version, "a".repeat(40), undefined],
+        ],
+      )
+      assert.equal((await store.verify(designer())).ok, true)
+    })
+
+    it("usage: a retried score stops returning its text once review is withdrawn", async () => {
+      const { store, provider, grantId, proposal } = await proposed()
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+      const recalled = await store.recall(agent())
+      await store.reportUsage(agent(), {
+        reportId: "change-1",
+        guidanceIds: [recalled.guidanceId],
+        commitSha: "a".repeat(40),
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      })
+      const [used] = await provider.readRecords("usedLearnings", { scope: SCOPE })
+      const score = {
+        usedLearningId: used.id,
+        operationId: "33333333-3333-4333-8333-333333333333",
+        efficiency: 3,
+        followed: "followed",
+        reasoning: "The label sat above the field, as the review comment asked.",
+        route: { kind: "fusion", fusionTier: "max" },
+      }
+      await store.recordScore(agent(), score)
+
+      await store.withdrawGrant(designer(), grantId, { purposes: ["review"], reason: "Stop." })
+
+      const attempt = { usedLearningId: used.id, operationId: score.operationId }
+      await assert.rejects(store.scoreFor(agent(), attempt), { code: "unavailable" })
+      await assert.rejects(store.recordScore(agent(), score), { code: "unavailable" })
+    })
+
+    it("updates: a suggestion is kept once, replaced, dismissed, or applied as a new version", async (t) => {
+      const { store, provider, proposal } = await proposed()
+      if (!supportsIndexedDecisions(provider)) {
+        t.skip("Provider does not support indexed learning decisions.")
+        return
+      }
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+      const recalled = await store.recall(agent())
+      for (const [reportId, commit] of [
+        ["change-1", "a"],
+        ["change-2", "b"],
+        ["change-3", "c"],
+      ])
+        await store.reportUsage(agent(), {
+          reportId,
+          guidanceIds: [recalled.guidanceId],
+          commitSha: commit.repeat(40),
+          used: [{ deliveryId: recalled.memories[0].deliveryId }],
+        })
+      const scores = []
+      for (const used of await provider.readRecords("usedLearnings", { scope: SCOPE }))
+        scores.push(
+          await store.recordScore(agent(), {
+            usedLearningId: used.id,
+            operationId: "33333333-3333-4333-8333-333333333333",
+            efficiency: 2,
+            followed: "followed",
+            reasoning: "The agent added labels but put them beside the fields.",
+            issue: "The rule does not say where the label goes.",
+            inputs: ["build_diff"],
+            route: { kind: "fusion", fusionTier: "max" },
+          }),
+        )
+      const { record } = await store.getMemory(designer(), proposal.id)
+      const update = {
+        memoryId: proposal.id,
+        versionDigest: record.digest,
+        issueKey: "label-placement",
+        issue: "The rule does not say where the label goes.",
+        content: "Show a visible label above every form field.",
+        reasoning: "Naming the position removes the guess.",
+        support: scores.slice(0, 2).map((item) => item.id),
+        route: { kind: "fusion", fusionTier: "max" },
+      }
+      const operationId = "55555555-5555-4555-8555-555555555555"
+
+      // One bad update keeps the whole run out, so the first one below is still new.
+      const { memoryId, versionDigest, ...draft } = update
+      await assert.rejects(
+        store.proposeUpdates(agent(), {
+          memoryId,
+          versionDigest,
+          updates: [
+            draft,
+            { ...draft, issueKey: "label-contrast", support: [scores[0].id, scores[0].id] },
+          ],
+        }),
+        { code: "invalid_input" },
+      )
+      const first = await store.proposeUpdate(agent(), update)
+      const again = await store.proposeUpdate(agent(), { ...update, content: "Other wording." })
+      const other = await store.proposeUpdate(agent(), { ...update, issueKey: "label-contrast" })
+      const dismissed = await store.dismissUpdate(designer(), other.id, {
+        reason: "Not it.",
+        operationId: "77777777-7777-4777-8777-777777777777",
+      })
+      const redismissed = await store.dismissUpdate(designer(), other.id, { reason: "Not it." })
+      // A newer suggestion for the same issue replaces the first one.
+      const newer = await store.proposeUpdate(agent(), {
+        ...update,
+        support: scores.map((item) => item.id),
+      })
+      // The edit lands but saving the decision fails, so a retry must finish the apply.
+      const append = provider.appendBatch
+      provider.appendBatch = async (batch, options) => {
+        if (batch.updateDecisions) throw new Error("The decision could not be saved.")
+        return append.call(provider, batch, options)
+      }
+      const decision = { reason: "Matches reviews.", content: "Put a label above each field." }
+      await assert.rejects(
+        store.applyUpdate(designer(), newer.id, { ...decision, operationId }),
+        /could not be saved/,
+      )
+      provider.appendBatch = append
+      await assert.rejects(
+        store.applyUpdate(designer(), newer.id, {
+          ...decision,
+          operationId: "66666666-6666-4666-8666-666666666666",
+        }),
+        { code: "invalid_transition" },
+      )
+      const applied = await store.applyUpdate(designer(), newer.id, { ...decision, operationId })
+
+      assert.deepEqual([first.stored, again.stored], [true, false])
+      assert.equal(again.proposal.content, update.content)
+      assert.deepEqual([dismissed.stored, redismissed.stored], [true, false])
+      // The host's recovery tells its own dismissal apart by this ID.
+      assert.equal(redismissed.update.decision.operationId, "77777777-7777-4777-8777-777777777777")
+      assert.equal(applied.memory.version, record.version + 1)
+      assert.equal(applied.memory.content, decision.content)
+      assert.equal(
+        (await store.getMemory(designer(), proposal.id)).record.version,
+        record.version + 1,
+      )
+      assert.deepEqual(
+        (await store.updatesFor(designer(), { memoryId: proposal.id })).map((item) => [
+          item.id,
+          item.state,
+          item.decision?.appliedVersion,
+        ]),
+        [
+          [first.id, "stale", undefined],
+          [other.id, "dismissed", undefined],
+          [newer.id, "applied", record.version + 1],
+        ],
+      )
+      await assert.rejects(
+        store.applyUpdate(designer(), other.id, {
+          reason: "Changed my mind.",
+          operationId: "77777777-7777-4777-8777-777777777777",
+        }),
+        { code: "invalid_transition" },
+      )
+      await assert.rejects(store.proposeUpdate(agent(), { ...update, issueKey: "late" }), {
+        code: "stale_review",
+      })
+      assert.equal((await store.verify(designer())).ok, true)
+    })
+
+    it("deletion: a deleted learning takes its usage records, and old guidance expires", async (t) => {
+      let now = NOW
+      const { store, provider, proposal } = await proposed(undefined, undefined)
+      if (!provider.manifest().capabilities.includes(DELETE_CAPABILITY)) {
+        t.skip("Provider does not delete records.")
+        return
+      }
+      const clocked = await createLearningStore({ provider, clock: () => now })
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+      const recalled = await clocked.recall(agent())
+      await clocked.reportUsage(agent(), {
+        reportId: "change-1",
+        guidanceIds: [recalled.guidanceId],
+        commitSha: "a".repeat(40),
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      })
+      const [used] = await provider.readRecords("usedLearnings", { scope: SCOPE })
+      await clocked.recordScore(agent(), {
+        usedLearningId: used.id,
+        operationId: "33333333-3333-4333-8333-333333333333",
+        efficiency: 4,
+        followed: "followed",
+        reasoning: "The agent kept the label visible on the first try.",
+        route: { kind: "auto", model: "gpt-test", reasoningEffort: "high" },
+      })
+
+      await clocked.deleteMemory(designer(), proposal.id, { reason: "The rule was wrong." })
+      now += 366 * 24 * 60 * 60 * 1000
+      const expired = await clocked.expireGuidance(designer())
+
+      for (const stream of ["deliveries", "usedLearnings", "usageReports", "scores", "guidance"])
+        assert.deepEqual(await provider.readRecords(stream, { scope: SCOPE }), [], stream)
+      assert.equal(expired.records.guidance, 1)
+      assert.equal(
+        (await clocked.getMemory(designer(), proposal.id).catch((e) => e)).code,
+        "not_found",
+      )
+      const checked = await clocked.verify(designer())
+      assert.equal(checked.ok, true, JSON.stringify(checked.problems ?? checked))
     })
 
     it("no automatic learning: consolidation stores proposals only, and nothing is recalled", async () => {
