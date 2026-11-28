@@ -158,7 +158,10 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       ? { origin: current.hubOrigin, hops: current.hops }
       : { origin, hops }
 
+  // Hub keeps any reader secret it already uses: a release cannot delete Hub's grant on it.
+  const savedSecret = inputs.runtime_secret_references?.HUB_PRIVATE_PREVIEW_READER_SECRET
   let secret: SecretReference | undefined
+  const sharedSecret = async () => savedSecret ?? (await readerSecret())
   const variablesFile = join(directory, "private-preview.tfvars.json")
   const bindCertificate = async (hostname: string) => {
     const list = async () => {
@@ -207,7 +210,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     return typeof id === "string" && guid.test(id) ? id : block("the reader identity could not be verified.")
   }
   const applyVariables = async (variables: PreviewVariables, hub = { origin, hops }) => {
-    if (variables.reader === "enabled") secret ??= await readerSecret()
+    if (variables.reader === "enabled") secret ??= await sharedSecret()
     await writePrivateFile(variablesFile, JSON.stringify({
       subscription_id: subscriptionId,
       resource_group_name: config.azure.resourceGroup,
@@ -248,7 +251,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
   }
 
   ui.status("Preparing the private prototype service")
-  if (expand.reader === "enabled") secret ??= await readerSecret()
+  if (expand.reader === "enabled") secret ??= await sharedSecret()
   // Stop before any change on grants the wizard did not make, such as hand-made pilot access.
   if (current.reader !== "absent" || current.writer) {
     const problems = await verifyPreviewGrants(

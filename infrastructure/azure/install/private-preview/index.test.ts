@@ -162,7 +162,8 @@ async function fixture({
   const live = {
     reader: current?.reader ?? "absent",
     writer: Boolean(current?.writer),
-    secret: current?.reader === "enabled",
+    // Terraform grants the reader access to the secret it was given.
+    secretScope: current?.reader === "enabled" ? `${vaultId}/secrets/private-preview-reader` : null,
     // Earlier wizard versions granted the reader without the listing-denied condition.
     unconditioned: Boolean(current?.uncounted),
     hostname: current?.boundHostname ?? null,
@@ -193,7 +194,10 @@ async function fixture({
       live.reader = variables.reader
       live.unconditioned = conditionDroppedOnApply
       live.writer = variables.writer_principal_id !== null
-      live.secret = variables.reader === "enabled" && variables.reader_secret !== null
+      const secret = variables.reader_secret as typeof readerSecret | null
+      live.secretScope = variables.reader === "enabled" && secret
+        ? `${secret.key_vault_id}/secrets/${secret.secret_id.split("/")[4]}`
+        : null
       live.hostname = variables.reader === "enabled" ? variables.custom_hostname : null
       live.bound = Boolean(live.hostname && variables.bind_custom_hostname)
       for (const name of live.bindings.keys())
@@ -237,8 +241,7 @@ async function fixture({
           grant(readerPrincipal, "AcrPull", registryId),
           grant(readerPrincipal, "Storage Blob Data Reader", containerId, live.unconditioned ? null : listingDeniedCondition),
         )
-      if (live.secret)
-        grants.push(grant(readerPrincipal, "Key Vault Secrets User", `${vaultId}/secrets/private-preview-reader`))
+      if (live.secretScope) grants.push(grant(readerPrincipal, "Key Vault Secrets User", live.secretScope))
       if (unexpectedReaderGrant) grants.push(grant(readerPrincipal, "Storage Blob Data Contributor", storageAccountId))
       return JSON.stringify(grants)
     }
@@ -255,6 +258,7 @@ async function fixture({
     throw new Error(`Unexpected Azure command: ${args.join(" ")}`)
   })
   const notice = vi.fn()
+  const newSecret = vi.fn(async () => readerSecret)
   const prepare = (inputs: Record<string, unknown>, resolver?: DnsResolver) =>
     preparePrivatePreview(
       { config, directory, run: vi.fn(), azure, env: {}, ui: { status: vi.fn(), notice, confirm: vi.fn(), wait: vi.fn() } },
@@ -273,13 +277,13 @@ async function fixture({
           url: null,
         },
         inputs,
-        readerSecret: async () => readerSecret,
+        readerSecret: newSecret,
         lock: { verify: vi.fn() },
         resolver: resolver ?? { cname: async () => [], txt: async () => [] },
       },
     )
   const uploads = () => azure.mock.calls.filter((call) => call.slice(0, 3).join(" ") === "storage blob upload")
-  return { prepare, applied, inits, leases, uploads, azure, notice }
+  return { prepare, applied, inits, leases, uploads, azure, notice, newSecret }
 }
 
 describe("preparePrivatePreview", () => {
@@ -342,6 +346,24 @@ describe("preparePrivatePreview", () => {
       },
       runtime_secret_references: { HUB_PRIVATE_PREVIEW_READER_SECRET: readerSecret },
     })
+  })
+
+  it("reuses the reader secret Hub already references instead of creating another", async () => {
+    const savedSecret = {
+      key_vault_id: vaultId,
+      secret_id: "https://samplevault.vault.azure.net/secrets/earlier-reader-secret/1",
+    }
+    const inputs = { ...generatedHub, runtime_secret_references: { HUB_PRIVATE_PREVIEW_READER_SECRET: savedSecret } }
+    const { prepare, applied, newSecret } = await fixture({ choice: on(), current: { reader: "disabled" } })
+
+    // The fake grants access only on the applied secret, so the grant check passes only for that scope.
+    const prepared = await prepare(inputs)
+    await prepared.finish()
+
+    expect(newSecret).not.toHaveBeenCalled()
+    expect(applied).toEqual([expect.objectContaining({ reader: "enabled", reader_secret: savedSecret })])
+    expect(prepared.inputs.runtime_secret_references).toEqual({ HUB_PRIVATE_PREVIEW_READER_SECRET: savedSecret })
+    expect(prepared.inputs.runtime_environment_variables).toMatchObject({ HUB_PRIVATE_PREVIEW_ENABLED: "true" })
   })
 
   it("keeps an upgraded install's uncounted disabled reader disabled when the choice is off", async () => {

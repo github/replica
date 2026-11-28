@@ -242,6 +242,16 @@ export function checkWorkflows(root: string): void {
       configuration.run.includes("runtime_secret_references: references"),
     "Deployment must preserve the storage principal and separate public runtime settings from secret references",
   )
+  const names = deploy.steps?.map((step) => step.name) ?? []
+  const preview = deploy.steps?.find((step) => step.name === "Keep the private prototype service")
+  assert(
+    preview?.run?.includes("node infrastructure/azure/deploy-hub/private-preview/index.ts") &&
+      preview.run.includes('--image "$HUB_IMAGE"') &&
+      preview.env?.HUB_IMAGE === "${{ steps.image.outputs.reference }}" &&
+      names.indexOf("Prepare non-secret deployment configuration") < names.indexOf("Keep the private prototype service") &&
+      names.indexOf("Keep the private prototype service") < names.indexOf("Run the serialized maintenance-window release"),
+    "Deployment must keep the private prototype service settings and image before the release",
+  )
   const release = deploy.steps?.find(
     (step) => step.name === "Run the serialized maintenance-window release",
   )

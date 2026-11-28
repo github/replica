@@ -411,6 +411,18 @@ jobs:
           ].join("\n")
           writeFileSync(join(runnerTemp, "backend.hcl"), backend)
           NODE
+      - name: Keep the private prototype service
+        env:
+          TF_DATA_DIR: ${{ runner.temp }}/private-preview-terraform
+          HUB_IMAGE: ${{ steps.image.outputs.reference }}
+        run: |
+          node infrastructure/azure/deploy-hub/private-preview/index.ts \
+            --variables "$RUNNER_TEMP/installation.tfvars.json" \
+            --image "$HUB_IMAGE" \
+            --key-vault-id "$AZURE_KEY_VAULT_ID" \
+            --state-resource-group "$AZURE_STATE_RESOURCE_GROUP" \
+            --state-account "$AZURE_STATE_STORAGE_ACCOUNT" \
+            --state-container "$AZURE_STATE_CONTAINER"
       - name: Run the serialized maintenance-window release
         env:
           TF_DATA_DIR: ${{ runner.temp }}/terraform
