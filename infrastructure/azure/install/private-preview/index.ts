@@ -156,7 +156,18 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       : undefined
   const dnsReady = knownRecords ? await dnsRecordsReady(knownRecords, resolver) : false
   const target = targetVariables(choice, current, { dnsReady })
-  const hubUsesReader = inputs.runtime_environment_variables?.HUB_PRIVATE_PREVIEW_ENABLED === "true"
+  // Saved inputs may hold a release that never happened; the serving Hub is the evidence.
+  const servingHub = async () => {
+    const apps = await read(
+      "containerapp", "list", "--resource-group", config.azure.resourceGroup,
+      "--query", `[?name=='${config.name}-hub'].{env:properties.template.containers[?name=='hub'] | [0].env}`,
+    )
+    if (!Array.isArray(apps) || apps.length > 1) return block("Hub's current settings could not be read.")
+    const env = (apps[0] as { env?: { name?: unknown; value?: unknown }[] | null } | undefined)?.env ?? []
+    return new Map(env.flatMap(({ name, value }) =>
+      typeof name === "string" && typeof value === "string" && name.startsWith("HUB_PRIVATE_PREVIEW_") ? [[name, value]] : []))
+  }
+  const hubUsesReader = (await servingHub()).get("HUB_PRIVATE_PREVIEW_ENABLED") === "true"
   const expand = expandVariables(current, target, { hubUsesReader })
   // The running Hub keeps calling the reader with the settings it was released with.
   const expandHub =
@@ -169,6 +180,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
   let secret: SecretReference | undefined
   const sharedSecret = async () => savedSecret ?? (await readerSecret())
   const variablesFile = join(directory, "private-preview.tfvars.json")
+  const warn = (message: string) => (ui.notice ? ui.notice("warning", message) : ui.status(message))
   const bindCertificate = async (hostname: string) => {
     const list = async () => {
       const hosts = await read(
@@ -187,20 +199,16 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       )
     } catch (error) {
       if (signal?.aborted) throw error
-      ui.notice?.(
-        "warning",
-        `Azure has not issued the certificate for ${hostname} yet. Hub playback stays off. Check the DNS records, then run Update again.`,
+      warn(
+        `Azure did not bind ${hostname}: ${error instanceof Error ? error.message : "the request failed."} Hub playback stays off. Check the DNS records and the setup identity's access to the reader, then run Update again.`,
       )
       return false
     }
     if ((await binding()) === "SniEnabled") return true
-    ui.notice?.(
-      "warning",
-      `Azure accepted ${hostname} but has not bound its certificate yet. Hub playback stays off. Run Update again later.`,
-    )
+    warn(`Azure accepted ${hostname} but has not bound its certificate yet. Hub playback stays off. Run Update again later.`)
     return false
   }
-  const expectedGrants = (variables: PreviewVariables, readerPrincipalId: string) => ({
+  const expectedGrants = (variables: PreviewVariables, readerPrincipalId: string | undefined) => ({
     subscriptionId,
     reader: variables.reader,
     readerPrincipalId,
@@ -215,7 +223,11 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     const id = await read("identity", "show", "--ids", readerIdentityId, "--query", "principalId")
     return typeof id === "string" && guid.test(id) ? id : block("the reader identity could not be verified.")
   }
-  const applyVariables = async (variables: PreviewVariables, hub = { origin, hops }) => {
+  const applyVariables = async (
+    variables: PreviewVariables,
+    hub = { origin, hops },
+    underLease?: () => Promise<void>,
+  ) => {
     if (variables.reader === "enabled") secret ??= await sharedSecret()
     await writePrivateFile(variablesFile, JSON.stringify({
       subscription_id: subscriptionId,
@@ -243,6 +255,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     )
     applying = false
     try {
+      await underLease?.()
       await terraform.apply(variablesFile)
       guard.verify(await terraform.rawState())
       const bound = variables.bind_custom_hostname && variables.custom_hostname
@@ -264,12 +277,17 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
   ui.status("Preparing the private prototype service")
   if (expand.reader === "enabled") secret ??= await sharedSecret()
   // Stop before any change on grants the wizard did not make, such as hand-made pilot access.
-  if (current.reader !== "absent" || current.writer) {
-    const problems = await verifyPreviewGrants(
-      read, expectedGrants(expand, await readerPrincipal()), { unexpectedOnly: true },
-    )
-    if (problems.length) block(`${problems.join("\n")}\nRemove or review that access before retrying. No changes were made.`)
-  }
+  // The reader identity survives Remove, so check it whenever it exists.
+  const existingReader = (await read("group", "exists", "--name", previewName)) === true
+    ? await read("identity", "list", "--resource-group", previewName, "--query", `[?name=='${previewName}'].principalId`)
+    : []
+  if (!Array.isArray(existingReader) || existingReader.length > 1 ||
+      existingReader.some((id) => typeof id !== "string" || !guid.test(id)))
+    block("the reader identity could not be verified.")
+  const problems = await verifyPreviewGrants(
+    read, expectedGrants(expand, (existingReader as string[])[0]), { unexpectedOnly: true },
+  )
+  if (problems.length) block(`${problems.join("\n")}\nRemove or review that access before retrying. No changes were made.`)
   const { bound } = await applyVariables(expand, expandHub)
   const notes: string[] = []
   let playback: { origin: string; inline: boolean } | undefined
@@ -290,14 +308,13 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       await delay(readiness.delayMs, undefined, { signal })
       ready = await readerReady()
     }
-    const boundNow = bound || current.boundHostname === choice.hostname
     const targetOrigin = choice.hostname ? `https://${choice.hostname}` : `https://${reader.generated_hostname}`
-    if (choice.hostname && !boundNow && !target.bind_custom_hostname && records) {
+    if (choice.hostname && !bound && !target.bind_custom_hostname && records) {
       const message = `Add these DNS records for ${choice.hostname}, then run Update again. Hub playback stays off until Azure binds the certificate.\n${formatDnsRecords(records)}`
       notes.push(message)
       ui.notice?.("warning", message)
     } else if (
-      readerOrigin !== targetOrigin || (choice.hostname && !boundNow) ||
+      readerOrigin !== targetOrigin || (choice.hostname && !bound) ||
       expandHub.origin !== origin || expandHub.hops !== hops
     ) {
       notes.push(
@@ -313,15 +330,24 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     }
   }
   if (target.writer) notes.push(`Private preview publishing is on for repositories ${choice.writerRepositoryIds.join(", ")}.`)
+  const released = hubPreviewInputs(inputs, {
+    ...(playback && { playback, readerSecret: secret }),
+    writerRepositoryIds: target.writer ? choice.writerRepositoryIds : [],
+  })
+  // Another release may have run between the Hub release and this cleanup.
+  const hubUnchanged = async () => {
+    const serving = await servingHub()
+    const expected = new Map(Object.entries(released.runtime_environment_variables ?? {})
+      .filter(([name]) => name.startsWith("HUB_PRIVATE_PREVIEW_")))
+    if (serving.size !== expected.size || [...expected].some(([name, value]) => serving.get(name) !== value))
+      block("Hub's private preview settings changed after this release. Nothing was removed; review the serving Hub and run Update again.")
+  }
   return {
-    inputs: hubPreviewInputs(inputs, {
-      ...(playback && { playback, readerSecret: secret }),
-      writerRepositoryIds: target.writer ? choice.writerRepositoryIds : [],
-    }),
+    inputs: released,
     async finish() {
       if (!sameVariables(expand, target) || expandHub.origin !== origin || expandHub.hops !== hops) {
         ui.status("Removing private prototype service access that Hub no longer uses")
-        await applyVariables(target)
+        await applyVariables(target, { origin, hops }, hubUnchanged)
       }
       return notes
     },

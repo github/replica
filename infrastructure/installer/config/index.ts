@@ -72,7 +72,10 @@ export function parseConfig(value: unknown): DeploymentConfig {
 }
 
 export const readerHostname = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/
-export const repositoryId = /^[1-9][0-9]{0,18}$/
+// Hub's private preview addresses accept positive IDs up to the largest signed 64-bit integer.
+export function isRepositoryId(value: unknown): value is string {
+  return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n
+}
 
 function parsePrivatePreview(value: Record<string, unknown>): PrivatePreviewChoice {
   const invalid = () => new Error("Invalid private preview settings in installation configuration.")
@@ -86,7 +89,7 @@ function parsePrivatePreview(value: Record<string, unknown>): PrivatePreviewChoi
     (hostname !== undefined &&
       (typeof hostname !== "string" || hostname.length > 253 || !readerHostname.test(hostname))) ||
     !Array.isArray(writerRepositoryIds) ||
-    writerRepositoryIds.some((id) => typeof id !== "string" || !repositoryId.test(id)) ||
+    writerRepositoryIds.some((id) => !isRepositoryId(id)) ||
     new Set(writerRepositoryIds).size !== writerRepositoryIds.length ||
     (reader === "removed" && writerRepositoryIds.length > 0)
   )

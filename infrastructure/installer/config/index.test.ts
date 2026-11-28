@@ -188,6 +188,15 @@ describe("deployment configuration", () => {
   })
 
   it.each([
+    ["the largest signed 64-bit repository ID", "9223372036854775807", true],
+    ["one past it", "9223372036854775808", false],
+  ])("checks %s against Hub's repository ID limit", (_, id, accepted) => {
+    const config = { ...configuration(), privatePreview: { reader: "off", inline: false, writerRepositoryIds: [id] } }
+    if (accepted) expect(parseConfig(config).privatePreview?.writerRepositoryIds).toEqual([id])
+    else expect(() => parseConfig(config)).toThrow(/private preview/)
+  })
+
+  it.each([
     ["inline playback while the reader is off", { reader: "off", inline: true, writerRepositoryIds: [] }],
     ["writer repositories when the reader is removed", { reader: "removed", inline: false, writerRepositoryIds: ["123"] }],
     ["an uppercase hostname", { reader: "on", inline: false, hostname: "Preview.example.com", writerRepositoryIds: [] }],

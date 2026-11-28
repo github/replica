@@ -2,6 +2,10 @@ type SecretReference = { key_vault_id: string; secret_id: string }
 
 export interface HubPreviewInputs {
   hub_application_origin?: string
+  github_app_id?: string
+  github_client_id?: string
+  github_app_installation_id?: string
+  github_provider_revision?: number
   runtime_environment_variables?: Record<string, string>
   runtime_secret_references?: Record<string, SecretReference>
 }
@@ -68,21 +72,54 @@ export function hubPreviewInputs<T extends HubPreviewInputs>(
 
 export class PrivatePreviewChoiceError extends Error {}
 
-// Checks a choice against saved Hub inputs; setup runs it before any Azure change.
+// Hub starts private preview only with complete GitHub sign-in or local administrator sign-in.
+const githubSignIn = [
+  "GITHUB_APP_ID",
+  "GITHUB_APP_PRIVATE_KEY_BASE64",
+  "GITHUB_APP_INSTALLATION_ID",
+  "GITHUB_WEBHOOK_SECRET",
+  "GITHUB_CLIENT_ID",
+  "GITHUB_CLIENT_SECRET",
+  "GITHUB_PROVIDER_REVISION",
+] as const
+
+function signInConfigured(inputs: HubPreviewInputs) {
+  const named: Record<string, unknown> = {
+    GITHUB_APP_ID: inputs.github_app_id,
+    GITHUB_CLIENT_ID: inputs.github_client_id,
+    GITHUB_APP_INSTALLATION_ID: inputs.github_app_installation_id,
+    GITHUB_PROVIDER_REVISION: inputs.github_provider_revision,
+  }
+  const supplied = (name: string) =>
+    named[name] != null ||
+    Boolean(inputs.runtime_environment_variables?.[name]?.trim()) ||
+    name in (inputs.runtime_secret_references ?? {})
+  return (
+    githubSignIn.every(supplied) ||
+    inputs.runtime_environment_variables?.HUB_LOCAL_SIGN_IN?.trim() === "true" ||
+    "HUB_LOCAL_SIGN_IN" in (inputs.runtime_secret_references ?? {})
+  )
+}
+
+// Checks a choice against saved Hub inputs; setup runs it before saving the choice or any Azure change.
 export function checkPrivatePreviewChoice(
   choice: { reader: string; hostname?: string } | undefined,
   inputs: HubPreviewInputs,
+  previous?: { reader: string; hostname?: string },
 ): void {
-  if (choice?.reader !== "on") return
   const block = (reason: string): never => {
     throw new PrivatePreviewChoiceError(
       `Private preview blocked: ${reason} The private prototype service was not changed.`,
     )
   }
+  const referenced = ownedHubSettings.filter((name) => name in (inputs.runtime_secret_references ?? {}))
+  if (referenced.length)
+    block(`remove the Key Vault references for ${referenced.join(", ")} from the saved Hub inputs. The wizard sets those values.`)
+  if (choice?.reader !== "on") return
   const origin = hubOrigin(inputs)
-  if (!origin || !hubTrustedProxyHops(inputs))
+  if (!origin || !hubTrustedProxyHops(inputs) || !signInConfigured(inputs))
     block(
-      "turning on the private prototype service needs Hub's sign-in settings. Choose Off, run npm run setup:post to configure sign-in, including HUB_APPLICATION_ORIGIN and HUB_TRUSTED_PROXY_HOPS, then run Update and choose On.",
+      "turning on the private prototype service needs Hub's sign-in settings: HUB_APPLICATION_ORIGIN, HUB_TRUSTED_PROXY_HOPS, and complete GitHub sign-in or local administrator sign-in. Choose Off, run npm run setup:post to configure sign-in, then run Update and choose On.",
     )
   const hubHost = new URL(origin!).hostname
   if (choice.hostname ? !sameSiteHosts(hubHost, choice.hostname) : !hubHost.endsWith(".azurecontainerapps.io"))
@@ -90,6 +127,10 @@ export function checkPrivatePreviewChoice(
       choice.hostname
         ? `${choice.hostname} must be a hostname under Hub's hostname ${hubHost}, such as preview.${hubHost}.`
         : `Hub uses ${hubHost}, so the reader needs a custom hostname under it, such as preview.${hubHost}.`,
+    )
+  if (previous?.reader === "on" && previous.hostname && previous.hostname !== choice.hostname)
+    block(
+      `the reader uses ${previous.hostname}. Changing or removing its hostname while it is on is not supported. Choose Off first, run Update, then choose the new hostname.`,
     )
 }
 

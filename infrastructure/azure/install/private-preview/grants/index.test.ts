@@ -29,10 +29,19 @@ const acrPull = () => grant(readerPrincipalId, "AcrPull", acrId)
 const readerArtifacts = (condition: string | null = listingDeniedCondition, version: string | null = "2.0") =>
   grant(readerPrincipalId, "Storage Blob Data Reader", containerId, condition, version)
 
-// Azure returns the reader's grants by assignee and Hub's through the container scope.
-function azure(reader: ReturnType<typeof grant>[], container: ReturnType<typeof grant>[] = []) {
-  return async (...args: string[]) => (args.includes("--assignee-object-id") ? reader : container)
+// Azure returns each identity's effective grants, including those made to its groups.
+function azure(reader: ReturnType<typeof grant>[], hub: ReturnType<typeof grant>[] = []) {
+  return async (...args: string[]) => {
+    const assignee = args[args.indexOf("--assignee-object-id") + 1]
+    if (assignee === readerPrincipalId) return reader
+    if (assignee === hubPrincipalId) return hub
+    throw new Error(`Unexpected role assignment query: ${args.join(" ")}`)
+  }
 }
+const groupId = "33333333-3333-4333-8333-333333333333"
+const accountId = containerId.replace(/\/blobServices\/.*$/, "")
+const hubArtifacts = () =>
+  grant(hubPrincipalId, "Storage Blob Data Contributor", containerId.replace(/private-preview-artifacts$/, "artifacts"))
 
 describe("verifyPreviewGrants", () => {
   it("accepts a disabled reader with image pull and a listing-denied artifact grant", async () => {
@@ -89,10 +98,10 @@ describe("verifyPreviewGrants", () => {
 
   it("accepts exactly one listing-denied writer grant for Hub when the writer is on", async () => {
     const writer = grant(hubPrincipalId, writerRole, containerId, listingDeniedCondition, "2.0")
-    const unrelated = grant(readerPrincipalId, "Storage Blob Data Reader", containerId, listingDeniedCondition, "2.0")
 
+    // Hub's grant on its own artifacts container does not reach the private preview container.
     await expect(
-      verifyPreviewGrants(azure([acrPull(), readerArtifacts()], [writer, unrelated]), { ...expected, writer: true }),
+      verifyPreviewGrants(azure([acrPull(), readerArtifacts()], [writer, hubArtifacts()]), { ...expected, writer: true }),
     ).resolves.toEqual([])
   })
 
@@ -106,5 +115,36 @@ describe("verifyPreviewGrants", () => {
     })
 
     expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    ["a grant to one of its groups", grant(groupId, "Storage Blob Data Reader", containerId)],
+    ["a grant on the storage account", grant(hubPrincipalId, "Storage Blob Data Reader", accountId)],
+    ["a grant on a management group", grant(hubPrincipalId, "Storage Blob Data Reader", "/providers/Microsoft.Management/managementGroups/sample")],
+  ])("flags Hub reaching the container through %s", async (_, hubGrant) => {
+    const problems = await verifyPreviewGrants(azure([acrPull(), readerArtifacts()], [hubGrant]), expected)
+
+    expect(problems).toEqual([expect.stringContaining(`Hub identity has access to the private preview container that the wizard does not manage: ${hubGrant.id}`)])
+  })
+
+  it("does not accept a writer grant that Hub receives through a group", async () => {
+    const indirect = grant(groupId, writerRole, containerId, listingDeniedCondition, "2.0")
+
+    const problems = await verifyPreviewGrants(azure([acrPull(), readerArtifacts()], [indirect]), { ...expected, writer: true })
+
+    expect(problems).toEqual([
+      expect.stringContaining(`does not manage: ${indirect.id}`),
+      expect.stringContaining("exactly one listing-denied private preview writer grant"),
+    ])
+  })
+
+  it("checks only Hub before the reader identity exists", async () => {
+    const { readerPrincipalId: _, ...withoutReader } = expected
+    const writer = grant(hubPrincipalId, writerRole, containerId, listingDeniedCondition, "2.0")
+
+    await expect(verifyPreviewGrants(azure([], []), { ...withoutReader, reader: "enabled" })).resolves.toEqual([])
+    await expect(verifyPreviewGrants(azure([], [writer]), { ...withoutReader, reader: "enabled" })).resolves.toEqual([
+      expect.stringContaining("Hub identity has access"),
+    ])
   })
 })

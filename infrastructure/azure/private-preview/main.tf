@@ -139,8 +139,8 @@ locals {
   hub_group_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
   container_id = "${var.storage_account_id}/blobServices/default/containers/${azurerm_storage_container.reader.name}"
   blob_action  = "Microsoft.Storage/storageAccounts/blobServices/containers/blobs"
-  # A custom hostname becomes the origin only once it is bound.
-  reader_origin = var.bind_custom_hostname ? "https://${var.custom_hostname}" : "https://${local.reader_name}.${azurerm_container_app_environment.reader.default_domain}"
+  # The reader must start with Hub's same-site origin; Hub playback waits for the certificate.
+  reader_origin = var.custom_hostname == null ? "https://${local.reader_name}.${azurerm_container_app_environment.reader.default_domain}" : "https://${var.custom_hostname}"
   # Exact text the wizard compares with Azure before accepting or replacing a grant.
   without_listing = trimspace(<<-EOT
     (

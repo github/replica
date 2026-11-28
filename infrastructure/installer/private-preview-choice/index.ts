@@ -1,4 +1,4 @@
-import { readerHostname, repositoryId } from "../config/index.ts"
+import { isRepositoryId, readerHostname } from "../config/index.ts"
 import type { PrivatePreviewChoice, WizardUI } from "../types.ts"
 
 const readerOptions = [
@@ -70,7 +70,7 @@ export async function askPrivatePreview(
     saved?.writerRepositoryIds.join(",") ?? "",
     (value) => {
       const ids = value ? value.split(",").map((id) => id.trim()) : []
-      return ids.every((id) => repositoryId.test(id)) && new Set(ids).size === ids.length ? ids : undefined
+      return ids.every(isRepositoryId) && new Set(ids).size === ids.length ? ids : undefined
     },
     "Enter distinct numeric repository IDs separated by commas, or leave blank.",
   )

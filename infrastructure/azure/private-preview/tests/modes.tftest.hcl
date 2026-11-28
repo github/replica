@@ -137,7 +137,7 @@ run "bind_a_custom_hostname_with_a_managed_certificate" {
   }
 }
 
-run "keep_the_generated_origin_until_the_custom_hostname_is_bound" {
+run "use_the_custom_origin_before_the_hostname_is_bound" {
   command = plan
 
   variables {
@@ -154,10 +154,11 @@ run "keep_the_generated_origin_until_the_custom_hostname_is_bound" {
   assert {
     condition = (
       length(azurerm_container_app_custom_domain.reader) == 0 &&
-      output.reader.origin == "https://test-hub-preview.calm-1234.eastus2.azurecontainerapps.io" &&
+      output.reader.origin == "https://preview.replica.example.com" &&
+      output.reader.generated_hostname != null &&
       output.reader.custom_domain_verification_id == "VERIFICATIONID"
     )
-    error_message = "Before DNS is ready, the reader keeps its generated origin and reports the verification ID."
+    error_message = "Before DNS is ready, the reader already uses its same-site custom origin and reports the DNS values."
   }
 }
 

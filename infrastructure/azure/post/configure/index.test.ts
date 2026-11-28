@@ -353,6 +353,27 @@ it.each([
   expect(test.provider.verifications).toBe(0)
 })
 
+it.each([
+  ["origin", "https://bound.example.com", "2"],
+  ["proxy hop count Hub is serving with", "https://sample-hub.eastus2.azurecontainerapps.io", "3"],
+])("blocks changing the %s when only the serving Hub plays private Builds", async (_, origin, hops) => {
+  const test = await scenario()
+  await configuredGithub(test)
+  // A workflow release turned playback on; the saved inputs do not say so.
+  Object.assign(test.deployment.environment, { HUB_PRIVATE_PREVIEW_ENABLED: "true", HUB_TRUSTED_PROXY_HOPS: "2" })
+  const original = structuredClone(test.inputs)
+  vi.mocked(test.ui.text).mockImplementation(async (label) =>
+    label.startsWith("Public HTTPS origin") ? origin : hops,
+  )
+
+  await expect(
+    configurePostSetup(test.context, "sign-in", test.inputs, test.deployment),
+  ).rejects.toThrow(PostSetupExit)
+
+  expect(test.inputs).toEqual(original)
+  expect(test.run.mock.calls.filter(([, args]) => args[2] === "set")).toEqual([])
+})
+
 it("rejects a bound hostname with an unbound port and accepts its canonical HTTPS origin", async () => {
   const test = await scenario()
   test.deployment.customHosts = ["BoUnD.ExAmPlE.CoM"]

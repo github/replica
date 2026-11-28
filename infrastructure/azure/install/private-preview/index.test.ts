@@ -60,7 +60,7 @@ const readerSecret = {
 }
 const generatedHub = {
   hub_application_origin: "https://sample-hub.example.eastus2.azurecontainerapps.io",
-  runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1" },
+  runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_LOCAL_SIGN_IN: "true" },
 }
 const customHub = { ...generatedHub, hub_application_origin: "https://replica.coreai.design" }
 // Hub inputs saved by an earlier run that turned playback on.
@@ -68,6 +68,7 @@ const playingHub = {
   ...generatedHub,
   runtime_environment_variables: {
     HUB_TRUSTED_PROXY_HOPS: "1",
+    HUB_LOCAL_SIGN_IN: "true",
     HUB_PRIVATE_PREVIEW_ENABLED: "true",
     HUB_PRIVATE_PREVIEW_ORIGIN: `https://${generated}`,
     HUB_PRIVATE_PREVIEW_INLINE_ENABLED: "true",
@@ -135,6 +136,10 @@ async function fixture({
   bindFailure,
   conditionDroppedOnApply = false,
   planBlocked = false,
+  serving,
+  servingAfterRelease,
+  bindingType = "SniEnabled",
+  withoutNotice = false,
 }: {
   choice?: PrivatePreviewChoice
   current?: Current
@@ -146,6 +151,13 @@ async function fixture({
   bindFailure?: "rejected" | "never bound"
   conditionDroppedOnApply?: boolean
   planBlocked?: boolean
+  // The serving Hub's HUB_PRIVATE_PREVIEW_* settings; by default, those in the saved inputs.
+  serving?: Record<string, string>
+  // After the release; by default, the settings this run returned for the release.
+  servingAfterRelease?: Record<string, string>
+  // Azure's binding for a hostname that saved state records as bound.
+  bindingType?: string
+  withoutNotice?: boolean
 }) {
   const directory = resolve(`.preview-prepare-test-${randomUUID()}`)
   directories.push(directory)
@@ -171,7 +183,7 @@ async function fixture({
     unconditioned: Boolean(current?.uncounted),
     hostname: current?.boundHostname ?? null,
     bound: Boolean(current?.boundHostname),
-    bindings: new Map<string, string>(current?.boundHostname ? [[current.boundHostname, "SniEnabled"]] : []),
+    bindings: new Map<string, string>(current?.boundHostname ? [[current.boundHostname, bindingType]] : []),
   }
   const applied: Variables[] = []
   const inits = vi.fn()
@@ -185,7 +197,7 @@ async function fixture({
     async output() {
       const present = live.reader !== "absent"
       return {
-        origin: live.reader === "enabled" ? `https://${live.bound && live.hostname ? live.hostname : generated}` : null,
+        origin: live.reader === "enabled" ? `https://${live.hostname ?? generated}` : null,
         generated_hostname: present ? generated : null,
         custom_domain_verification_id: present ? "VERIFY123" : null,
       }
@@ -219,6 +231,12 @@ async function fixture({
     return lease
   }
   let readinessChecks = 0
+  const grantQueries: { assignee: string; beforeApply: boolean }[] = []
+  let servingEnv: Record<string, string> = {}
+  const previewSettings = (inputs: Record<string, unknown>) => Object.fromEntries(
+    Object.entries((inputs.runtime_environment_variables ?? {}) as Record<string, string>)
+      .filter(([name]) => name.startsWith("HUB_PRIVATE_PREVIEW_")),
+  )
   const azure = vi.fn(async (...args: string[]) => {
     const operation = args.slice(0, 3).join(" ")
     const value = (flag: string) => args[args.indexOf(flag) + 1]!
@@ -232,11 +250,16 @@ async function fixture({
       return ""
     }
     if (operation === "group exists --name") return JSON.stringify(orphaned || current !== undefined)
+    if (operation === "identity list --resource-group")
+      return JSON.stringify(orphaned || current !== undefined ? [readerPrincipal] : [])
+    if (operation === "containerapp list --resource-group")
+      return JSON.stringify([{ env: Object.entries(servingEnv).map(([name, value]) => ({ name, value })) }])
     if (operation === "storage container-rm exists") return JSON.stringify({ exists: orphaned || current !== undefined })
     if (operation === "identity show --ids")
       return JSON.stringify(value("--ids").endsWith("/sample-hub-hub") ? hubPrincipal : readerPrincipal)
     if (operation === "role assignment list") {
-      if (!args.includes("--assignee-object-id"))
+      grantQueries.push({ assignee: value("--assignee-object-id"), beforeApply: applied.length === 0 })
+      if (value("--assignee-object-id") === hubPrincipal)
         return JSON.stringify(
           live.writer ? [grant(hubPrincipal, "Replica sample-hub private preview writer", containerId, listingDeniedCondition)] : [],
         )
@@ -267,9 +290,10 @@ async function fixture({
   const notice = vi.fn()
   const newSecret = vi.fn(async () => readerSecret)
   const status = vi.fn()
-  const prepare = (inputs: Record<string, unknown>, resolver?: DnsResolver) =>
-    preparePrivatePreview(
-      { config, directory, run: vi.fn(), azure, env: {}, ui: { status, notice, confirm: vi.fn(), wait: vi.fn() } },
+  const prepare = async (inputs: Record<string, unknown>, resolver?: DnsResolver) => {
+    servingEnv = serving ?? previewSettings(inputs)
+    const prepared = await preparePrivatePreview(
+      { config, directory, run: vi.fn(), azure, env: {}, ui: { status, ...(!withoutNotice && { notice }), confirm: vi.fn(), wait: vi.fn() } },
       {
         image: `registry.azurecr.io/replica-hub@sha256:${"a".repeat(64)}`,
         foundation: { vault_id: vaultId, vault_url: "https://samplevault.vault.azure.net/", registry_id: registryId, registry_url: "registry.azurecr.io" },
@@ -292,9 +316,13 @@ async function fixture({
         resolver: resolver ?? { cname: async () => [], txt: async () => [] },
       },
     )
+    // The Hub release deploys the returned inputs before finish() runs.
+    servingEnv = servingAfterRelease ?? previewSettings(prepared.inputs)
+    return prepared
+  }
   const uploads = () => azure.mock.calls.filter((call) => call.slice(0, 3).join(" ") === "storage blob upload")
   const readiness = () => readinessChecks
-  return { prepare, applied, inits, leases, uploads, azure, notice, newSecret, status, readiness }
+  return { prepare, applied, inits, leases, uploads, azure, notice, newSecret, status, readiness, grantQueries }
 }
 
 describe("preparePrivatePreview", () => {
@@ -302,10 +330,10 @@ describe("preparePrivatePreview", () => {
     const { prepare, inits, uploads } = await fixture({})
 
     const prepared = await prepare({
-      runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_PRIVATE_PREVIEW_ENABLED: "true" },
+      runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_LOCAL_SIGN_IN: "true", HUB_PRIVATE_PREVIEW_ENABLED: "true" },
     })
 
-    expect(prepared.inputs).toEqual({ runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1" } })
+    expect(prepared.inputs).toEqual({ runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_LOCAL_SIGN_IN: "true" } })
     await expect(prepared.finish()).resolves.toEqual([])
     expect(inits).not.toHaveBeenCalled()
     expect(uploads()).toEqual([])
@@ -351,6 +379,7 @@ describe("preparePrivatePreview", () => {
       ...generatedHub,
       runtime_environment_variables: {
         HUB_TRUSTED_PROXY_HOPS: "1",
+    HUB_LOCAL_SIGN_IN: "true",
         HUB_PRIVATE_PREVIEW_ENABLED: "true",
         HUB_PRIVATE_PREVIEW_ORIGIN: `https://${generated}`,
         HUB_PRIVATE_PREVIEW_INLINE_ENABLED: "true",
@@ -396,7 +425,7 @@ describe("preparePrivatePreview", () => {
     expect(applied).toEqual([expect.objectContaining({ reader: "enabled", inline_enabled: true })])
     expect(prepared.inputs).toEqual({
       ...generatedHub,
-      runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_PRIVATE_PREVIEW_ENABLED: "false" },
+      runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_LOCAL_SIGN_IN: "true", HUB_PRIVATE_PREVIEW_ENABLED: "false" },
       runtime_secret_references: { HUB_PRIVATE_PREVIEW_READER_SECRET: readerSecret },
     })
 
@@ -441,6 +470,7 @@ describe("preparePrivatePreview", () => {
     expect(applied).toEqual([expect.objectContaining({ reader: "enabled", writer_principal_id: hubPrincipal })])
     expect(prepared.inputs.runtime_environment_variables).toEqual({
       HUB_TRUSTED_PROXY_HOPS: "1",
+    HUB_LOCAL_SIGN_IN: "true",
       HUB_PRIVATE_PREVIEW_ENABLED: "false",
     })
 
@@ -486,6 +516,7 @@ describe("preparePrivatePreview", () => {
       ...customHub,
       runtime_environment_variables: {
         HUB_TRUSTED_PROXY_HOPS: "1",
+    HUB_LOCAL_SIGN_IN: "true",
         HUB_PRIVATE_PREVIEW_ENABLED: "true",
         HUB_PRIVATE_PREVIEW_ORIGIN: `https://${generated}`,
         HUB_PRIVATE_PREVIEW_INLINE_ENABLED: "false",
@@ -500,7 +531,7 @@ describe("preparePrivatePreview", () => {
     expect(binds()).toEqual([])
     expect(prepared.inputs).toEqual({
       ...customHub,
-      runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_PRIVATE_PREVIEW_ENABLED: "false" },
+      runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_LOCAL_SIGN_IN: "true", HUB_PRIVATE_PREVIEW_ENABLED: "false" },
       runtime_secret_references: { HUB_PRIVATE_PREVIEW_READER_SECRET: readerSecret },
     })
 
@@ -525,6 +556,7 @@ describe("preparePrivatePreview", () => {
     })])
     expect(prepared.inputs.runtime_environment_variables).toEqual({
       HUB_TRUSTED_PROXY_HOPS: "1",
+    HUB_LOCAL_SIGN_IN: "true",
       HUB_PRIVATE_PREVIEW_ENABLED: "false",
     })
 
@@ -568,9 +600,97 @@ describe("preparePrivatePreview", () => {
       expect(prepared.inputs).toEqual(customHub)
       expect(notes).toContain(`certificate for ${hostname} is not bound yet`)
       expect(notes).not.toMatch(/moves to/)
-      expect(notice).toHaveBeenCalledWith("warning", expect.stringMatching(new RegExp(`${hostname}.*certificate|certificate.*${hostname}`)))
+      expect(notice).toHaveBeenCalledWith("warning", expect.stringContaining(hostname))
+      if (bindFailure === "rejected")
+        expect(notice).toHaveBeenCalledWith("warning", expect.stringContaining("Certificate validation failed"))
     },
   )
+
+  it("shows a bind failure as status when the terminal has no notices", async () => {
+    const hostname = "preview.replica.coreai.design"
+    const { prepare, status } = await fixture({
+      choice: on({ hostname }), current: { reader: "enabled" }, bindFailure: "rejected", withoutNotice: true,
+    })
+
+    const prepared = await prepare(customHub, dnsReady)
+
+    expect(status).toHaveBeenCalledWith(expect.stringContaining("Certificate validation failed"))
+    expect(prepared.inputs).toEqual(customHub)
+  })
+
+  it("keeps playback off when saved state records a hostname whose certificate is no longer bound", async () => {
+    const hostname = "preview.replica.coreai.design"
+    const { prepare } = await fixture({
+      choice: on({ hostname }),
+      current: { reader: "enabled", boundHostname: hostname, hubOrigin: customHub.hub_application_origin },
+      bindingType: "Disabled",
+      bindFailure: "rejected",
+    })
+
+    const prepared = await prepare(customHub)
+
+    expect(prepared.inputs).toEqual(customHub)
+  })
+
+  it.each([
+    { saved: "true", serving: undefined, pinned: false },
+    { saved: undefined, serving: "true", pinned: true },
+  ])("uses the serving Hub, not saved inputs ($saved), to decide whether the reader origin is in use", async ({ saved, serving, pinned }) => {
+    const hostname = "preview.replica.coreai.design"
+    const { prepare, applied } = await fixture({
+      choice: on({ hostname }),
+      current: { reader: "enabled", hubOrigin: customHub.hub_application_origin },
+      serving: serving ? { HUB_PRIVATE_PREVIEW_ENABLED: serving } : {},
+    })
+    const inputs = {
+      ...customHub,
+      runtime_environment_variables: {
+        ...customHub.runtime_environment_variables,
+        ...(saved && { HUB_PRIVATE_PREVIEW_ENABLED: saved }),
+      },
+      runtime_secret_references: { HUB_PRIVATE_PREVIEW_READER_SECRET: readerSecret },
+    }
+
+    await prepare(inputs, dnsReady)
+
+    expect(applied[0]).toMatchObject(pinned
+      ? { custom_hostname: null, bind_custom_hostname: false }
+      : { custom_hostname: hostname, bind_custom_hostname: true })
+  })
+
+  it("checks only Hub's grants on a first opt-in before the reader identity exists", async () => {
+    const { prepare, applied, grantQueries } = await fixture({ choice: on() })
+
+    await prepare(generatedHub)
+
+    const before = new Set(grantQueries.filter(({ beforeApply }) => beforeApply).map(({ assignee }) => assignee))
+    expect([...before]).toEqual([hubPrincipal])
+    expect(applied).toHaveLength(1)
+  })
+
+  it("checks the surviving reader identity before acting after Remove", async () => {
+    const { prepare, applied } = await fixture({
+      choice: removed,
+      current: { reader: "absent" },
+      unexpectedReaderGrant: true,
+    })
+
+    await expect(prepare(generatedHub)).rejects.toThrow(/unexpected grant/)
+    expect(applied).toEqual([])
+  })
+
+  it("blocks the cleanup without applying when the serving Hub changed after the release", async () => {
+    const { prepare, applied, leases } = await fixture({
+      current: { reader: "enabled", inline: true },
+      servingAfterRelease: { HUB_PRIVATE_PREVIEW_ENABLED: "true" },
+    })
+
+    const prepared = await prepare(playingHub)
+    await expect(prepared.finish()).rejects.toThrow(/settings changed after this release/)
+
+    expect(applied).toHaveLength(1)
+    expect(leases[1]!.release).toHaveBeenCalledOnce()
+  })
 
   it("releases the release lock when the plan is blocked before anything is applied", async () => {
     const { prepare, applied, leases } = await fixture({ current: { reader: "disabled" }, planBlocked: true })

@@ -45,7 +45,7 @@ describe("askPrivatePreview", () => {
   it("asks again for an invalid hostname or repository list", async () => {
     const ui = fakeUI({
       selects: ["on", "off"],
-      texts: ["https://Preview.example.com", "preview.replica.coreai.design", "org/repo", "123, 456"],
+      texts: ["https://Preview.example.com", "preview.replica.coreai.design", "9223372036854775808", "123, 456"],
     })
 
     await expect(askPrivatePreview(ui, undefined)).resolves.toEqual({

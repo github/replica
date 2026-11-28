@@ -90,3 +90,19 @@ it("does not format secret-bearing extra fields, owner or deployment consent", (
     "secret-sentinel",
   )
 })
+
+it("lists deployment notes before the sign-in readiness disclaimer", () => {
+  const note = "Private prototype service: https://preview.example.com (new tab)."
+
+  const summary = formatDeploymentSummary({ ...receipt(), notes: [note] }, "installation.json")
+
+  expect(summary).toContain(note)
+  expect(summary.indexOf(note)).toBeLessThan(summary.indexOf("HTTPS readiness does not verify sign-in"))
+})
+
+it("formats an empty note list like a result without notes", () => {
+  const plain = formatDeploymentSummary(receipt(), "installation.json")
+
+  expect(formatDeploymentSummary({ ...receipt(), notes: [] }, "installation.json")).toBe(plain)
+  expect(plain).not.toMatch(/\n\n\nHTTPS readiness/)
+})

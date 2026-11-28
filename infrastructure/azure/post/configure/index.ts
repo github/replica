@@ -410,7 +410,10 @@ export async function configurePostSetup(
     const originChanged =
       origin !== (deployment.environment.HUB_APPLICATION_ORIGIN ?? referencedOrigin)
     // The reader repeats Hub's origin and hop count, so only Update may change them while it serves.
-    const previewServing = inputs.runtime_environment_variables?.HUB_PRIVATE_PREVIEW_ENABLED === "true"
+    // A workflow or manual release can turn playback on without updating the saved inputs.
+    const previewServing =
+      inputs.runtime_environment_variables?.HUB_PRIVATE_PREVIEW_ENABLED === "true" ||
+      deployment.environment.HUB_PRIVATE_PREVIEW_ENABLED === "true"
     const previewBlocked = () =>
       new PostSetupExit(
         "The private prototype service uses Hub's origin and proxy hop count. Turn it off with setup Update, change these settings, then turn it on again. Existing settings were preserved.",
@@ -478,8 +481,8 @@ export async function configurePostSetup(
     )
     if (
       previewServing &&
-      next.runtime_environment_variables.HUB_TRUSTED_PROXY_HOPS !==
-        inputs.runtime_environment_variables?.HUB_TRUSTED_PROXY_HOPS
+      [inputs.runtime_environment_variables?.HUB_TRUSTED_PROXY_HOPS, deployment.environment.HUB_TRUSTED_PROXY_HOPS]
+        .some((hops) => hops !== undefined && hops !== next.runtime_environment_variables?.HUB_TRUSTED_PROXY_HOPS)
     )
       throw previewBlocked()
     const known: unknown = JSON.parse(

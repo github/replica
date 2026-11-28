@@ -129,7 +129,7 @@ export async function runWizard({
     while (true) {
       privatePreview = await askPrivatePreview(ui, privatePreview, { firstInstall: !existing })
       try {
-        checkPrivatePreviewChoice(privatePreview, inputs)
+        checkPrivatePreviewChoice(privatePreview, inputs, existing?.privatePreview)
         break
       } catch (error) {
         if (!(error instanceof PrivatePreviewChoiceError)) throw error

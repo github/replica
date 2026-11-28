@@ -13,6 +13,7 @@ import { installationSecrets } from "./secrets/index.ts"
 import { installationNames } from "./settings.ts"
 import { verifyInstallationGroup } from "./group/index.ts"
 import { recoverLease } from "./lease/recover/index.ts"
+import { leaseOwnership } from "./lease/ownership/index.ts"
 import { deploymentResult } from "./result/index.ts"
 import type { AzureInstallation, DeploymentResult, Foundation, Installation } from "./types.ts"
 import { openInstallationWorkspace } from "./workspace/index.ts"
@@ -284,6 +285,18 @@ async function install(
       image,
       await state.backend("provision"),
     )
+    // A failed earlier release can retain the release lock. Offer the usual recovery first,
+    // unless the preview step itself retained it and can resume by proof of ownership.
+    const previewLease = (
+      await leaseOwnership(context, installation.storage_account, "releases", "deployment.lock", "private-preview")
+    ).lease
+    const previewOwnsLock = previewLease !== undefined && await azure(
+      "storage", "blob", "lease", "renew", "--account-name", installation.storage_account,
+      "--container-name", "releases", "--blob-name", "deployment.lock", "--auth-mode", "login",
+      "--lease-id", previewLease,
+    ).then(() => true, () => false)
+    if (!previewOwnsLock)
+      await recoverLease(context, installation.storage_account, "releases", "deployment.lock")
     const preview = await preparePrivatePreview(context, {
       image,
       foundation: resources,

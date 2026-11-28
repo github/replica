@@ -70,7 +70,7 @@ async function fixture({
         location: target.azure.location,
         resource_group_name: target.azure.resourceGroup,
         hub_application_origin: "https://replica.coreai.design",
-        runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1" },
+        runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_LOCAL_SIGN_IN: "true" },
         setup_database_secret: vaultReference("setup-database"),
         runtime_secret_references: {
           HUB_AUTHENTICATION_ENCRYPTION_KEY: vaultReference("hub-authentication-encryption-key"),
@@ -216,4 +216,21 @@ it("asks again when On needs Hub sign-in settings, then deploys only the valid c
   expect(await saved()).not.toHaveProperty("privatePreview")
   expect(install).toHaveBeenCalledOnce()
   expect(install.mock.calls[0]![0]).not.toHaveProperty("privatePreview")
+})
+
+it("asks again when Update would change the hostname of a reader that is on", async () => {
+  const privatePreview: PrivatePreviewChoice = {
+    reader: "on", inline: false, hostname: "preview.replica.coreai.design", writerRepositoryIds: [],
+  }
+  const { options, install, ui, saved } = await fixture({
+    privatePreview,
+    texts: ["other.replica.coreai.design", "", "preview.replica.coreai.design", ""],
+  })
+
+  await runWizard({ ...options, entryAction: "update" })
+
+  expect(ui.notice).toHaveBeenCalledWith("error", expect.stringContaining("Changing or removing its hostname"))
+  expect(readerPrompts(ui)).toHaveLength(2)
+  expect((await saved()).privatePreview).toEqual(privatePreview)
+  expect(install).toHaveBeenCalledOnce()
 })
