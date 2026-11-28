@@ -293,13 +293,14 @@ try {
                   access: createPrivatePreviewAccessStore(prisma, sessionLifetime),
                   restoreSession,
                   isRepositoryVisible: product.isRepositoryVisible.bind(product),
-                  hasCurrentRepositoryAccess: async (viewer, repositoryId) => {
+                  hasCurrentRepositoryAccess: async (viewer, repositoryId, githubRepositoryId) => {
                     if (!canViewPrivatePreview(viewer, authenticationConfiguration.localConfigured))
                       return false
                     if (viewer.sessionProvider === "local") return true
                     const permission = await product?.getVerifiedRepositoryPermission?.(
                       viewer,
                       repositoryId,
+                      githubRepositoryId,
                     )
                     return Boolean(permission && permission !== "none")
                   },

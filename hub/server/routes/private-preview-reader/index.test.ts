@@ -152,7 +152,7 @@ async function startReader(startPage = "/") {
 }
 
 describe("createPrivatePreviewReader()", () => {
-  it("binds the handoff and checks documents and assets before and after each read", async () => {
+  it("binds the handoff and checks each document and asset once before its bounded read", async () => {
     const { request, signIn, access, exchange, authorizeFile, readArtifact } = await startReader()
     const { challenge, continuation, id, grant, exchanged, cookie, marker } = await signIn()
     const challengeDigest = digest(cookieValue(challenge))
@@ -224,7 +224,7 @@ describe("createPrivatePreviewReader()", () => {
           "base-uri 'none'",
         ])
       }
-      expect(calls).toEqual(["authorize", "read", "authorize"])
+      expect(calls).toEqual(["authorize", "read"])
       expect(authorizeFile).toHaveBeenLastCalledWith(
         access,
         address,
@@ -273,10 +273,7 @@ describe("createPrivatePreviewReader()", () => {
 
       expect(response.status).toBe(200)
       expect(response.body).toBe(bytes.toString())
-      expect(authorizeFile.mock.calls).toEqual([
-        [access, address, candidate, true],
-        [access, address, candidate, true],
-      ])
+      expect(authorizeFile.mock.calls).toEqual([[access, address, candidate, true]])
     },
   )
 
@@ -439,33 +436,6 @@ describe("createPrivatePreviewReader()", () => {
     expect(renewed.headers["set-cookie"]).toBeUndefined()
   })
 
-  it("renews when the session ends while the document bytes are being read", async () => {
-    const { request, signIn, authorizeFile, readArtifact } = await startReader()
-    const { cookie, marker } = await signIn()
-    const html = Buffer.from("<!doctype html><title>Synthetic</title>")
-    authorizeFile
-      .mockResolvedValueOnce({
-        storageKey: "synthetic-html",
-        byteLength: html.length,
-        path: "dist/index.html",
-      })
-      .mockResolvedValueOnce("session-ended")
-    readArtifact.mockResolvedValueOnce({ status: "ok", bytes: html })
-
-    const navigation = await request(`${address.mount}?tab=2`, {
-      headers: navigationHeaders(cookie, marker),
-    })
-
-    expect(navigation.status).toBe(200)
-    expect(navigation.body).not.toContain("Synthetic")
-    const token = formValue(
-      navigation.body,
-      `${settings.hubOrigin}${address.launchReturn}`,
-      "resume",
-    )!
-    expect(proof.readResume(token, address)?.page).toBe("/?tab=2")
-  })
-
   it("limits pending renewals in one browser", async () => {
     const { request, signIn } = await startReader()
     const { marker } = await signIn()
@@ -589,19 +559,11 @@ describe("createPrivatePreviewReader()", () => {
   )
 
   it.each([
-    { condition: "revoked before lookup", first: false, unavailable: false, status: 404 },
-    { condition: "revoked after the byte read", first: true, unavailable: false, status: 404 },
-    { condition: "authority fails before lookup", first: false, unavailable: true, status: 503 },
-    {
-      condition: "authority fails after reading bytes",
-      first: true,
-      unavailable: true,
-      status: 503,
-    },
-  ])("returns no preview bytes or 304 when $condition", async ({ first, unavailable, status }) => {
+    { condition: "access is revoked", unavailable: false, status: 404 },
+    { condition: "the authority fails", unavailable: true, status: 503 },
+  ])("returns no preview bytes or 304 when $condition", async ({ unavailable, status }) => {
     const { request, signIn, authorizeFile, readArtifact } = await startReader()
     const { cookie } = await signIn()
-    if (first) authorizeFile.mockResolvedValueOnce(asset)
     if (unavailable) authorizeFile.mockRejectedValueOnce(new Error("synthetic authority outage"))
     else authorizeFile.mockResolvedValueOnce(null)
 
@@ -612,8 +574,8 @@ describe("createPrivatePreviewReader()", () => {
     expect(response.status).toBe(status)
     expect(response.headers["cache-control"]).toContain("no-store")
     expect(response.body).not.toContain(fixtureBytes.toString())
-    expect(readArtifact).toHaveBeenCalledTimes(first ? 1 : 0)
-    expect(authorizeFile).toHaveBeenCalledTimes(first ? 2 : 1)
+    expect(readArtifact).not.toHaveBeenCalled()
+    expect(authorizeFile).toHaveBeenCalledOnce()
   })
 
   it("only begins handoff on the configured HTTPS Reader host", async () => {

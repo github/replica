@@ -807,7 +807,11 @@ describe("createPrivatePreviewAuthority()", () => {
       if (outcome === "denies access") await expect(result).resolves.toBeNull()
       else await expect(result).rejects.toBe(unavailable)
       expect(isRepositoryVisible).toHaveBeenCalledWith(viewer, target.repositoryId)
-      expect(hasCurrentRepositoryAccess).toHaveBeenCalledWith(viewer, target.repositoryId)
+      expect(hasCurrentRepositoryAccess).toHaveBeenCalledWith(
+        viewer,
+        target.repositoryId,
+        BigInt(address.repositoryId),
+      )
     },
   )
 })

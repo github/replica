@@ -34,6 +34,7 @@ interface Dependencies<CurrentViewer extends Viewer> {
     this: void,
     viewer: CurrentViewer,
     repositoryId: string,
+    githubRepositoryId: bigint,
   ): Promise<boolean>
   findTarget(this: void, address: PrivatePreviewAddress): Promise<PrivatePreviewTarget | null>
   findDistFile(
@@ -44,6 +45,8 @@ interface Dependencies<CurrentViewer extends Viewer> {
 }
 
 const signedOut = Symbol("signed out")
+export const filePermissionLifetime = 5 * 60_000
+const maximumFilePermissions = 1024
 
 function granted<Result>(value: Result | null | typeof signedOut) {
   return value === signedOut ? null : value
@@ -59,6 +62,126 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
   findTarget,
   findDistFile,
 }: Dependencies<CurrentViewer>): PrivatePreviewAuthority {
+  const filePermissions = new Map<
+    string,
+    {
+      sessionDigest: string
+      githubRepositoryId: string
+      allowed: Promise<boolean>
+      expiresAt: number
+      pending: boolean
+    }
+  >()
+  // File requests still running, so a denial or lost scope seen elsewhere also cancels them.
+  const activeFileRequests = new Set<{
+    sessionDigest: string
+    githubRepositoryId: string
+    revoked: boolean
+  }>()
+
+  // A failed check forgets only that repository, so it cannot deny another repository's load.
+  function forgetFilePermissions(sessionDigest: string, address?: PrivatePreviewAddress) {
+    function matches(entry: { sessionDigest: string; githubRepositoryId: string }) {
+      return (
+        entry.sessionDigest === sessionDigest &&
+        (!address || entry.githubRepositoryId === address.repositoryId)
+      )
+    }
+    for (const [key, entry] of filePermissions) {
+      if (matches(entry)) filePermissions.delete(key)
+    }
+    for (const request of activeFileRequests) {
+      if (matches(request)) request.revoked = true
+    }
+  }
+
+  function checkRepositoryAccess(
+    viewer: CurrentViewer,
+    target: PrivatePreviewTarget,
+    address: PrivatePreviewAddress,
+  ) {
+    // findTarget matched this immutable GitHub identity, so the check needs no repository lookup.
+    return hasCurrentRepositoryAccess(viewer, target.repositoryId, BigInt(address.repositoryId))
+  }
+
+  // Shares one in-flight check and remembers only an allowed result for this viewer and exact Build.
+  function filePermission(
+    sessionDigest: string,
+    viewer: CurrentViewer,
+    address: PrivatePreviewAddress,
+    target: PrivatePreviewTarget,
+  ) {
+    const key = JSON.stringify([
+      sessionDigest,
+      viewer.userId,
+      viewer.membershipId,
+      viewer.externalIdentityId,
+      viewer.sessionProvider,
+      viewer.role,
+      address.repositoryId,
+      target.repositoryId,
+      target.buildId,
+    ])
+    const now = performance.now()
+    const previous = filePermissions.get(key)
+    if (previous && (previous.pending || previous.expiresAt > now)) return previous.allowed
+    if (previous) filePermissions.delete(key)
+    if (filePermissions.size >= maximumFilePermissions) {
+      const settled = [...filePermissions].find(([, entry]) => !entry.pending)
+      if (!settled) throw new Error("Too many pending private preview permission checks.")
+      filePermissions.delete(settled[0])
+    }
+    const entry = {
+      sessionDigest,
+      githubRepositoryId: address.repositoryId,
+      allowed: Promise.resolve(false),
+      expiresAt: now + filePermissionLifetime,
+      pending: true,
+    }
+    entry.allowed = checkRepositoryAccess(viewer, target, address).then(
+      (allowed) => {
+        entry.pending = false
+        if (!allowed) forgetFilePermissions(sessionDigest, address)
+        return allowed
+      },
+      (error: unknown) => {
+        if (filePermissions.get(key) === entry) filePermissions.delete(key)
+        throw error
+      },
+    )
+    filePermissions.set(key, entry)
+    return entry.allowed
+  }
+
+  async function stillLocallyAuthorized(
+    sessionDigest: string,
+    viewer: CurrentViewer,
+    address: PrivatePreviewAddress,
+    target: PrivatePreviewTarget,
+  ) {
+    const [current, currentTarget] = await Promise.all([
+      restoreSession(sessionDigest),
+      findTarget(address),
+    ])
+    if (!current) {
+      forgetFilePermissions(sessionDigest)
+      return signedOut
+    }
+    if (
+      currentTarget?.buildId === target.buildId &&
+      currentTarget.repositoryId === target.repositoryId &&
+      current.userId === viewer.userId &&
+      current.membershipId === viewer.membershipId &&
+      current.externalIdentityId === viewer.externalIdentityId &&
+      current.sessionProvider === viewer.sessionProvider &&
+      current.role === viewer.role &&
+      (await isRepositoryVisible(current, target.repositoryId))
+    )
+      return true
+    forgetFilePermissions(sessionDigest, address)
+    return false
+  }
+
   async function withAccess<Result>(
     sessionDigest: string,
     address: PrivatePreviewAddress,
@@ -66,30 +189,26 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
     expectedBuildId?: string,
   ): Promise<Result | null | typeof signedOut> {
     const viewer = await restoreSession(sessionDigest)
-    if (!viewer) return signedOut
+    if (!viewer) {
+      forgetFilePermissions(sessionDigest)
+      return signedOut
+    }
     const target = await findTarget(address)
     if (
       !target ||
       (expectedBuildId && target.buildId !== expectedBuildId) ||
       !(await isRepositoryVisible(viewer, target.repositoryId))
-    )
+    ) {
+      forgetFilePermissions(sessionDigest, address)
       return null
+    }
     const result = await read(target)
-    if (!(await hasCurrentRepositoryAccess(viewer, target.repositoryId))) return null
-    const currentTarget = await findTarget(address)
-    if (currentTarget?.buildId !== target.buildId) return null
-    const current = await restoreSession(sessionDigest)
-    if (!current) return signedOut
-    if (
-      current.userId !== viewer.userId ||
-      current.membershipId !== viewer.membershipId ||
-      current.externalIdentityId !== viewer.externalIdentityId ||
-      current.sessionProvider !== viewer.sessionProvider ||
-      current.role !== viewer.role ||
-      !(await isRepositoryVisible(current, target.repositoryId))
-    )
+    if (!(await checkRepositoryAccess(viewer, target, address))) {
+      forgetFilePermissions(sessionDigest, address)
       return null
-    return result
+    }
+    const current = await stillLocallyAuthorized(sessionDigest, viewer, address, target)
+    return current === true ? result : current === signedOut ? signedOut : null
   }
 
   async function isCompatible(target: PrivatePreviewTarget, address: PrivatePreviewAddress) {
@@ -178,31 +297,50 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
       // An ended reader or Hub session lets the reader renew a prototype navigation through Hub.
       const session = await access.read(hashAuthenticationValue(token), readerOrigin, null)
       if (!session) return "session-ended"
-      const file = await withAccess(
-        session.sessionDigest,
-        address,
-        async ({ buildId }) => {
-          let selectedPath = path
-          let artifact = await findDistFile(buildId, selectedPath)
-          if (!artifact && allowEntryPointFallback && path !== "dist/index.html") {
-            selectedPath = "dist/index.html"
-            artifact = await findDistFile(buildId, selectedPath)
-          }
-          if (
-            !artifact ||
-            artifact.byteLength < 0 ||
-            artifact.byteLength > maximumPrivatePreviewFileBytes
-          )
-            return null
-          return { ...artifact, path: selectedPath }
-        },
-        session.buildId,
-      )
-      if (file === signedOut) return "session-ended"
-      if (!file) return null
-      // Advance the lookup's database time locally rather than querying the clock again.
-      const now = session.now.getTime() + (performance.now() - started)
-      return session.expiresAt.getTime() > now ? file : "session-ended"
+      const { sessionDigest } = session
+      const request = { sessionDigest, githubRepositoryId: address.repositoryId, revoked: false }
+      activeFileRequests.add(request)
+      try {
+        const viewer = await restoreSession(sessionDigest)
+        if (!viewer) {
+          forgetFilePermissions(sessionDigest)
+          return "session-ended"
+        }
+        const target = await findTarget(address)
+        if (
+          !target ||
+          target.buildId !== session.buildId ||
+          !(await isRepositoryVisible(viewer, target.repositoryId))
+        ) {
+          forgetFilePermissions(sessionDigest, address)
+          return null
+        }
+        if (!(await filePermission(sessionDigest, viewer, address, target))) return null
+
+        let selectedPath = path
+        let artifact = await findDistFile(target.buildId, selectedPath)
+        if (!artifact && allowEntryPointFallback && path !== "dist/index.html") {
+          selectedPath = "dist/index.html"
+          artifact = await findDistFile(target.buildId, selectedPath)
+        }
+        if (
+          !artifact ||
+          artifact.byteLength < 0 ||
+          artifact.byteLength > maximumPrivatePreviewFileBytes
+        )
+          return null
+        const current = await stillLocallyAuthorized(sessionDigest, viewer, address, target)
+        if (current === signedOut) return "session-ended"
+        if (!current) return null
+        // Advance the lookup's database time locally rather than querying the clock again.
+        const now = session.now.getTime() + (performance.now() - started)
+        if (session.expiresAt.getTime() <= now) return "session-ended"
+        // A denial or lost scope seen by a concurrent request cancels this one too.
+        if (request.revoked) return null
+        return { ...artifact, path: selectedPath }
+      } finally {
+        activeFileRequests.delete(request)
+      }
     },
   }
 }
