@@ -138,8 +138,8 @@ export function updateAllowed({ support, successes, dismissedBuilds, content, cu
  * Returns insufficient_evidence when no issue has appeared in enough Builds yet, and
  * up_to_date when no score arrived since the last run that saved proposals for this version.
  * A run keeps all its proposals or none, so a failed run is drafted again in full. A host
- * runs it only after new scores arrive. A successful no-change answer is recorded against
- * the exact score set, while a failed draft remains eligible for retry.
+ * runs it only after new scores arrive. A successful no-change answer is recorded
+ * against the exact score set, while a failed draft remains eligible for retry.
  *
  * @param {object} store A learning store.
  * @param {object} context The store context, with the drafting agent as principal.

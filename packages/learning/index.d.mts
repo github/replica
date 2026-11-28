@@ -1356,14 +1356,17 @@ export interface LearningStore {
   /** One learning's update proposals, oldest first, each with its state. */
   updatesFor(
     context: LearningContext,
-    request: { memoryId?: string; memoryIds?: string[] },
+    request: { memoryId: string; memoryIds?: never } | { memoryId?: never; memoryIds: string[] },
   ): Promise<LearningUpdate[]>
   /** Whether Copilot already found no wording change for this exact score set. */
   hasNoChangeUpdateAttempt(
     context: LearningContext,
     request: { memoryId: string; versionDigest: Digest; evidenceDigest: Digest },
   ): Promise<boolean>
-  /** Record a successful no-change draft so the same scores do not trigger another request. */
+  /**
+   * Record a successful no-change draft so the same scores do not trigger another
+   * request.
+   */
   recordNoChangeUpdateAttempt(
     context: LearningContext,
     request: { memoryId: string; versionDigest: Digest; evidenceDigest: Digest },

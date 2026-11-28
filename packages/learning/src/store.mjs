@@ -4237,7 +4237,10 @@ class LearningStore {
     return true
   }
 
-  /** Record a successful no-change draft so the same scores do not trigger another request. */
+  /**
+   * Record a successful no-change draft so the same scores do not trigger another
+   * request.
+   */
   async recordNoChangeUpdateAttempt(context, { memoryId, versionDigest, evidenceDigest } = {}) {
     assertContext(context)
     if (
