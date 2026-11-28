@@ -147,7 +147,8 @@ export async function publishGitHubBuildPreview(
           )),
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       )
-      if (!prepared) throw new PublicationError("database-error")
+      // The target changed after the first check; skip it like any other target mismatch.
+      if (!prepared) return
     }
 
     const destination = privatePreviewWriter.storage

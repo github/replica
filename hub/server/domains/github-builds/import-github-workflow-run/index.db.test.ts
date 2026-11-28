@@ -1033,6 +1033,50 @@ describe("importGitHubWorkflowRun", () => {
       })
     })
 
+    it("does not prepare a retained Build when its owning run gains another Build during verification", async () => {
+      const fixture = await createPrototypeFixture()
+      const { repositoryId, id: runId } = fixture.run
+      const address = privatePreviewAddress(String(repositoryId), String(runId))!
+      const archive = privatePreviewPackage(address.mount)
+      const { distDigest } = extractDistPackage(archive)
+      fixture.packages.set(distArtifactName, archive)
+      await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
+      const before = await fixture.findBuild()
+      const destination = createImmutableStorage()
+      const replay = await preparePrivatePreviewReplay(fixture.storage, destination)
+      const readSource = fixture.storage.read.bind(fixture.storage)
+      vi.spyOn(fixture.storage, "read").mockImplementationOnce(async (key) => {
+        await prisma.prototype.create({
+          data: {
+            repositoryId: fixture.repository.id,
+            branchName: "proto/competing",
+            builds: {
+              create: {
+                number: 1,
+                state: "successful",
+                githubWorkflowRunId: BigInt(runId),
+                githubWorkflowRunAttempt: 1,
+              },
+            },
+          },
+        })
+        return readSource(key)
+      })
+
+      const skipped = await replay(
+        { repositoryId, runId, buildId: before.id },
+        repositoryId,
+        distDigest,
+      )
+
+      expect(skipped).toMatchObject({ exitCode: 1, stdout: "" })
+      expect(skipped.stderr).not.toContain("database-error")
+      await expect(fixture.findBuild(before.id)).resolves.toEqual(before)
+      for (const { storageKey } of before.artifacts) {
+        await expect(destination.read(storageKey)).resolves.toEqual({ status: "not-found" })
+      }
+    })
+
     it("keeps a prepared Build pending without overwriting a conflicting preview object", async () => {
       const fixture = await createPrototypeFixture()
       const { repositoryId, id: runId } = fixture.run

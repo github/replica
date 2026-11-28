@@ -1,4 +1,5 @@
 import { Readable } from "node:stream"
+import { randomUUID } from "node:crypto"
 import { setImmediate } from "node:timers/promises"
 import type { BlockBlobUploadOptions } from "@azure/storage-blob"
 import { describe, expect, it, vi } from "vitest"
@@ -56,7 +57,10 @@ function createAzureDestination() {
   })
 }
 
-function fixture(destinationStorage?: Pick<ArtifactStorage, "read" | "write">) {
+function fixture(
+  destinationStorage?: Pick<ArtifactStorage, "read" | "write">,
+  markerBasePath = address.mount,
+) {
   const files: BuildPackageFile[] = [
     { path: "dist/index.html", kind: "dist", bytes: Buffer.from("<h1>Home</h1>") },
     ...Array.from({ length: 5 }, (_, index): BuildPackageFile => ({
@@ -67,7 +71,7 @@ function fixture(destinationStorage?: Pick<ArtifactStorage, "read" | "write">) {
     {
       path: privatePreviewManifestPath,
       kind: "dist",
-      bytes: Buffer.from(JSON.stringify({ basePath: address.mount })),
+      bytes: Buffer.from(JSON.stringify({ basePath: markerBasePath })),
     },
     { path: "templates.json", kind: "manifest", bytes: Buffer.from("[]") },
   ]
@@ -146,6 +150,7 @@ function fixture(destinationStorage?: Pick<ArtifactStorage, "read" | "write">) {
     findMany,
     findUnique,
     target,
+    logger,
     trackPublicationState,
     updateMany,
     storage,
@@ -170,18 +175,30 @@ function fixture(destinationStorage?: Pick<ArtifactStorage, "read" | "write">) {
 }
 
 describe("publishGitHubBuildPreview()", () => {
-  it("does not prepare or copy a historical Build with an invalid retained mount", async () => {
-    const preview = fixture()
+  it("does not prepare or copy a historical Build whose consistent package declares another mount", async () => {
+    // Recorded lengths and digest match this package, so only the mount check can reject it.
+    const preview = fixture(undefined, `/previews/github/${address.repositoryId}/1202/`)
     preview.target.privatePreviewState = null
-    preview.storage.read.mockImplementation(async (key) =>
-      key === preview.mountMarkerKey
-        ? { status: "ok", bytes: Buffer.from("{}") }
-        : preview.sourceRead(key),
-    )
 
     await expect(preview.prepare()).rejects.toThrow("source-mismatch")
 
     preview.expectFailure("verify-source", "source-mismatch")
+    expect(preview.target.privatePreviewState).toBeNull()
+    expect(preview.destination.write).not.toHaveBeenCalled()
+  })
+
+  it("skips preparation without a database error when the target changes before the transaction", async () => {
+    const preview = fixture()
+    preview.target.privatePreviewState = null
+    preview.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([preview.target])
+      .mockResolvedValueOnce([preview.target, { ...preview.target, id: randomUUID() }])
+
+    await expect(preview.prepare()).resolves.toBeUndefined()
+
+    expect(preview.logger.warn).not.toHaveBeenCalled()
+    expect(preview.updateMany).not.toHaveBeenCalled()
     expect(preview.destination.write).not.toHaveBeenCalled()
   })
 
