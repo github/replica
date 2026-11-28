@@ -78,7 +78,9 @@ export async function runApi({
   let bindingStarted = false
   const reviewAccess =
     databaseUrl && authentication && product?.isPrototypeReviewable
-      ? createReviewRealtimeAccess(authentication, product)
+      ? createReviewRealtimeAccess(authentication, product, {
+          protectedSessionOnly: Boolean(privatePreview),
+        })
       : undefined
   const realtime = attachRealtimeServer({
     server,

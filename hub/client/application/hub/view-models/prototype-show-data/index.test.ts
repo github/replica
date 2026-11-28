@@ -87,3 +87,59 @@ it("uses the per-prototype sharing decision rather than repository or edit acces
     prototypeShowData(workspace, data("2", false), new URLSearchParams()).shareLinksPath,
   ).toBeUndefined()
 })
+
+it("plays a private Build inline only when it has no legacy review viewer", () => {
+  const repository = { id: "2001", nameWithOwner: "example/repository", defaultBranch: "main" }
+  const workspace: WorkspaceResponse = {
+    viewer: { id: "123", login: "octocat", name: null, provider: "github", avatarUrl: null },
+    repositories: [repository],
+  }
+  const inlinePreviewUrl =
+    "/api/private-preview/inline/2001/4001/00000000-0000-4000-8000-000000000002"
+  function show(previewUrl: string | null) {
+    const build = {
+      number: 2,
+      repositoryId: repository.id,
+      prototypeId: "1",
+      state: "successful",
+      commitSha: null,
+      commitAuthorLogin: null,
+      createdAt: "2026-12-20T12:00:00Z",
+      startedAt: null,
+      finishedAt: null,
+      previewUrl,
+      privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      inlinePreviewUrl,
+      privatePreviewBuildId: "00000000-0000-4000-8000-000000000002",
+      desktopScreenshotUrl: null,
+      narrowScreenshotUrl: null,
+      failureSummary: null,
+    }
+    const response = prototypeResponseSchema.parse({
+      repository,
+      prototype: {
+        id: "1",
+        repositoryId: repository.id,
+        name: "Prototype",
+        branchName: "prototype/welcome",
+        authorLogin: null,
+        canEdit: false,
+        description: null,
+        builds: [build],
+      },
+      selectedBuild: build,
+    })
+    return prototypeShowData(workspace, response, new URLSearchParams("view=minimized"))
+  }
+
+  expect(show(null)).toMatchObject({
+    inlinePreviewUrl,
+    minimizedPreview: false,
+    copyPrivatePreviewLinkLabel: "Copy private Hub link to this Build",
+  })
+  expect(show("https://build.preview.example.net/")).toMatchObject({
+    inlinePreviewUrl: undefined,
+    minimizedPreview: true,
+    copyPrivatePreviewLinkLabel: "Copy private Hub link",
+  })
+})

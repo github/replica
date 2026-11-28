@@ -14,12 +14,14 @@ import { authenticationSecurity } from "../../integrations/express/authenticatio
 import { secureHubSessionCookieName } from "../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../integrations/express/read-cookie/index.ts"
 import { sendPrivatePreviewForm } from "../../integrations/express/send-private-preview-form/index.ts"
+import { normalizeStartPage } from "../../utils/normalize-start-page/index.ts"
 import {
   privatePreviewAddress,
   type PrivatePreviewAddress,
 } from "../../utils/private-preview-address/index.ts"
-import { renderInlineLaunch } from "./render-inline-launch/index.ts"
 import { privatePreviewSessionEndedHeader } from "../../utils/private-preview-session-ended-header/index.ts"
+import { renderInlineFailure } from "./render-inline-failure/index.ts"
+import { renderInlineLaunch } from "./render-inline-launch/index.ts"
 import type { PrivatePreviewRouteDependencies } from "./types.ts"
 
 const addressShape = { repositoryId: z.string(), runId: z.string() }
@@ -87,6 +89,19 @@ export function mountPrivatePreview(
     return typeof buildId === "string" && z.uuid().safeParse(buildId).success
       ? buildId.toLowerCase()
       : null
+  }
+
+  // A Build page deep link opens at its route; legacy absolute routes must be inside the mount.
+  function inlinePage(request: Request, address: PrivatePreviewAddress) {
+    const { route, route_kind: kind } = request.query
+    if (typeof route !== "string") return undefined
+    const page =
+      kind === "logical"
+        ? route
+        : route.startsWith(address.mount)
+          ? `/${route.slice(address.mount.length)}`
+          : undefined
+    return page && normalizeStartPage(page) === page ? page : undefined
   }
 
   function requireFormFrom(origin: string, site: "same-origin" | "same-site") {
@@ -218,20 +233,22 @@ export function mountPrivatePreview(
         request.get("sec-fetch-dest") !== "iframe"
       )
         return response.sendStatus(404)
-      if (!session) return response.sendStatus(401)
+      if (!session) return renderInlineFailure(response, settings.hubOrigin, 401)
       try {
         const sessionDigest = hashAuthenticationValue(session)
         const status = await authority.launch(sessionDigest, address, buildId)
-        if (status !== "allowed") return response.sendStatus(status === "denied" ? 404 : 409)
+        if (status !== "allowed")
+          return renderInlineFailure(response, settings.hubOrigin, status === "denied" ? 404 : 409)
         return renderInlineLaunch(
           response,
           settings,
           address,
           `${address.inline}/${buildId}/grant`,
           proof.start(address, buildId, sessionDigest, await authority.launchDeadline()),
+          inlinePage(request, address),
         )
       } catch {
-        return response.sendStatus(503)
+        return renderInlineFailure(response, settings.hubOrigin, 503)
       }
     })
 

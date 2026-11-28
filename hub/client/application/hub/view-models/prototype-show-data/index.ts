@@ -14,6 +14,8 @@ export function prototypeShowData(
   const selectedBuild = data.selectedBuild
   const previewBuild =
     selectedBuild?.state === "successful" && selectedBuild.previewUrl ? selectedBuild : null
+  // The legacy viewer keeps review pins, Controls and route tracking, so inline is a fallback.
+  const inlinePreviewUrl = selectedBuild?.previewUrl ? undefined : selectedBuild?.inlinePreviewUrl
   const workspaceData = prototypeWorkspace({
     workspace,
     repository: data.repository,
@@ -82,16 +84,20 @@ export function prototypeShowData(
     maximizeHubLabel: "Maximize Hub UI",
     dragControlsLabel: "Move preview controls. Drag or use arrow keys.",
     // The restore control lives on the preview, so stay expanded without one.
-    minimizedPreview:
-      !selectedBuild?.inlinePreviewUrl &&
-      Boolean(previewBuild?.previewUrl) &&
-      search.get("view") === "minimized",
+    minimizedPreview: Boolean(previewBuild?.previewUrl) && search.get("view") === "minimized",
     privatePreviewUrl: selectedBuild?.privatePreviewUrl,
-    inlinePreviewUrl: selectedBuild?.inlinePreviewUrl,
+    inlinePreviewUrl,
     privatePreviewBuildId: selectedBuild?.privatePreviewBuildId,
-    privatePreviewLinkLabel: "Private Hub link",
-    copyPrivatePreviewLinkLabel: "Copy private Hub link",
-    copiedPrivatePreviewLinkLabel: "Private Hub link copied",
+    // Hub cannot see routes inside inline playback, so its link opens the Build itself.
+    privatePreviewLinkLabel: inlinePreviewUrl
+      ? "Private Hub link to this Build"
+      : "Private Hub link",
+    copyPrivatePreviewLinkLabel: inlinePreviewUrl
+      ? "Copy private Hub link to this Build"
+      : "Copy private Hub link",
+    copiedPrivatePreviewLinkLabel: inlinePreviewUrl
+      ? "Private Hub link to this Build copied"
+      : "Private Hub link copied",
     openPrivatePreviewInNewTabLabel: "Open private preview in new tab",
     desktopScreenshotUrl: selectedBuild?.desktopScreenshotUrl ?? undefined,
     narrowScreenshotUrl: selectedBuild?.narrowScreenshotUrl ?? undefined,

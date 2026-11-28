@@ -28,7 +28,9 @@ const resume = intent.omit({ session: true }).extend({
   challenge: z.string().regex(previewDigestPattern),
   page: z.string(),
 })
-const buildMarker = intent.pick({ buildId: true, repositoryId: true, runId: true, deadline: true })
+const buildMarker = intent
+  .pick({ buildId: true, repositoryId: true, runId: true, deadline: true })
+  .extend({ browser: z.string().regex(previewTokenPattern) })
 
 /** Signs the browser handoff states that Hub and the reader pass through each other. */
 export function createLaunchProof({
@@ -75,8 +77,16 @@ export function createLaunchProof({
     return mac("session", `${id}:${digest}`)
   }
 
-  function bindAccess(address: PrivatePreviewAddress, access: string) {
-    return mac("access", `${address.repositoryId}/${address.runId}:${access}`)
+  // Binds playback state to the reader's own browser cookie, which no other host can set.
+  function bindBrowser(browser: string) {
+    return mac("browser", browser)
+  }
+
+  function bindAccess(address: PrivatePreviewAddress, browser: string, access: string) {
+    return mac(
+      "access",
+      `${address.repositoryId}/${address.runId}:${bindBrowser(browser)}:${access}`,
+    )
   }
 
   return {
@@ -139,11 +149,11 @@ export function createLaunchProof({
         page: data.page,
       }
     },
-    /** Signs a reader session for one mount so another cookie for that path cannot shadow it. */
-    sealAccess(address: PrivatePreviewAddress, access: string) {
-      return `${access}.${bindAccess(address, access)}`
+    /** Signs a reader session for one mount and browser so another cookie cannot shadow it. */
+    sealAccess(address: PrivatePreviewAddress, browser: string, access: string) {
+      return `${access}.${bindAccess(address, browser, access)}`
     },
-    openAccess(value: string, address: PrivatePreviewAddress) {
+    openAccess(value: string, address: PrivatePreviewAddress, browser: string) {
       const [access, signature, extra] = value.split(".")
       if (
         !access ||
@@ -151,23 +161,32 @@ export function createLaunchProof({
         extra !== undefined ||
         !previewTokenPattern.test(access) ||
         !previewTokenPattern.test(signature) ||
-        !timingSafeEqual(Buffer.from(bindAccess(address, access)), Buffer.from(signature))
+        !timingSafeEqual(Buffer.from(bindAccess(address, browser, access)), Buffer.from(signature))
       )
         return null
       return access
     },
-    identifyBuild(address: PrivatePreviewAddress, buildId: string, deadline: number) {
+    identifyBuild(
+      address: PrivatePreviewAddress,
+      buildId: string,
+      deadline: number,
+      browser: string,
+    ) {
       return seal("build-marker", {
         repositoryId: address.repositoryId,
         runId: address.runId,
         buildId,
         deadline,
+        browser: bindBrowser(browser),
       })
     },
-    readBuild(value: string, address: PrivatePreviewAddress) {
+    readBuild(value: string, address: PrivatePreviewAddress, browser: string) {
       if (value.length > 512 || !resumeTokenPattern.test(value)) return null
       const marker = open("build-marker", value, buildMarker)
-      return marker && matches(marker, address) && marker.deadline > Date.now()
+      return marker &&
+        matches(marker, address) &&
+        marker.browser === bindBrowser(browser) &&
+        marker.deadline > Date.now()
         ? { buildId: marker.buildId, deadline: marker.deadline }
         : null
     },

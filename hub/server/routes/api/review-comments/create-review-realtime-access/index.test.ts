@@ -49,4 +49,22 @@ describe("createReviewRealtimeAccess()", () => {
       expect(restore).toHaveBeenCalledExactlyOnceWith(digest)
     },
   )
+
+  it("ignores a legacy-only session cookie while the private reader shares Hub's site", async () => {
+    const applicationOrigin = "https://hub.example.test"
+    const restore = vi.fn()
+    const access = createReviewRealtimeAccess(
+      {
+        currentSession: { restore },
+        signOut: { applicationOrigin, secureCookie: true, end: vi.fn() },
+      },
+      {} as ProductRouteDependencies,
+      { protectedSessionOnly: true },
+    )
+    const request = new IncomingMessage(new Socket())
+    request.headers = { origin: applicationOrigin, cookie: "hub_session=legacy-session" }
+
+    expect(await access.authenticate?.(request, new AbortController().signal)).toBeNull()
+    expect(restore).not.toHaveBeenCalled()
+  })
 })

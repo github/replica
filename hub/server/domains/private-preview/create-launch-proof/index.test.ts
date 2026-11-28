@@ -13,6 +13,7 @@ const settings = {
   readerSecret: randomBytes(32).toString("base64url"),
 }
 const challenge = "a".repeat(64)
+const browser = randomBytes(32).toString("base64url")
 
 describe("createLaunchProof()", () => {
   it("rejects a token signed for another purpose, address, or reader secret", () => {
@@ -21,19 +22,19 @@ describe("createLaunchProof()", () => {
     const intent = proof.start(address, buildId, "b".repeat(64), new Date(Date.now() + 30_000))
     const continuation = proof.attest(intent, address, () => challenge)!
     const resume = proof.startResume(address, buildId, challenge, "/")!.token
-    const marker = proof.identifyBuild(address, buildId, Date.now() + 60_000)
+    const marker = proof.identifyBuild(address, buildId, Date.now() + 60_000, browser)
 
     expect(proof.read(continuation, address)).toMatchObject({ buildId, challenge })
     expect(proof.read(intent, address)).toBeNull()
     expect(proof.read(resume, address)).toBeNull()
     expect(proof.readResume(continuation, address)).toBeNull()
     expect(proof.readResume(marker, address)).toBeNull()
-    expect(proof.readBuild(resume, address)).toBeNull()
+    expect(proof.readBuild(resume, address, browser)).toBeNull()
     expect(proof.attest(continuation, address, () => challenge)).toBeNull()
 
     expect(proof.read(continuation, otherAddress)).toBeNull()
     expect(proof.readResume(resume, otherAddress)).toBeNull()
-    expect(proof.readBuild(marker, otherAddress)).toBeNull()
+    expect(proof.readBuild(marker, otherAddress, browser)).toBeNull()
 
     const otherSecret = createLaunchProof({
       ...settings,
@@ -41,18 +42,19 @@ describe("createLaunchProof()", () => {
     })
     expect(otherSecret.read(continuation, address)).toBeNull()
     expect(otherSecret.readResume(resume, address)).toBeNull()
-    expect(otherSecret.readBuild(marker, address)).toBeNull()
+    expect(otherSecret.readBuild(marker, address, browser)).toBeNull()
   })
 
   it("reads a Build marker only before its deadline", () => {
     const proof = createLaunchProof(settings)
     const buildId = randomUUID()
     const deadline = Date.now() + 60_000
-    const marker = proof.identifyBuild(address, buildId, deadline)
+    const marker = proof.identifyBuild(address, buildId, deadline, browser)
 
-    expect(proof.readBuild(marker, address)).toEqual({ buildId, deadline })
+    expect(proof.readBuild(marker, address, browser)).toEqual({ buildId, deadline })
+    expect(proof.readBuild(marker, address, randomBytes(32).toString("base64url"))).toBeNull()
     vi.spyOn(Date, "now").mockReturnValue(deadline)
-    expect(proof.readBuild(marker, address)).toBeNull()
+    expect(proof.readBuild(marker, address, browser)).toBeNull()
   })
 
   it.each([

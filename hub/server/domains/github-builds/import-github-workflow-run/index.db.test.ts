@@ -555,18 +555,23 @@ describe("importGitHubWorkflowRun", () => {
       const readerCookie = readerCookies.find((value) =>
         value.startsWith(`__Secure-replica-preview-${repositoryId}-`),
       )!
+      const browserCookie = readerCookies.find((value) =>
+        value.startsWith("__Host-replica-preview-browser="),
+      )!
       const markerCookie = readerCookies.find((value) =>
         value.startsWith("__Secure-replica-preview-build-"),
       )!
 
-      const file = await fetch(`${reader}${assetPath}`, { headers: { cookie: readerCookie } })
+      const file = await fetch(`${reader}${assetPath}`, {
+        headers: { cookie: `${readerCookie}; ${browserCookie}` },
+      })
       expect(file.status).toBe(200)
       expect(Buffer.from(await file.arrayBuffer())).toEqual(asset)
       expect((await fetch(`${reader}${assetPath}`)).status).toBe(404)
 
       for (const path of [address.mount, `${address.mount}settings/display`]) {
         const page = await fetch(`${reader}${path}`, {
-          headers: { cookie: readerCookie, "sec-fetch-dest": "document" },
+          headers: { cookie: `${readerCookie}; ${browserCookie}`, "sec-fetch-dest": "document" },
         })
         expect(page.status).toBe(200)
         expect(await page.text()).toBe("<h1>Home</h1>")
@@ -579,7 +584,7 @@ describe("importGitHubWorkflowRun", () => {
       })
       const destination = `${address.mount}settings/display?tab=2`
       const navigation = await navigate(`${reader}${destination}`, {
-        cookie: `${readerCookie}; ${markerCookie}`,
+        cookie: `${readerCookie}; ${markerCookie}; ${browserCookie}`,
         "sec-fetch-site": "same-origin",
       })
       const resumeCookie = navigation.headers.getSetCookie()[0]!.split(";")[0]!
@@ -601,7 +606,7 @@ describe("importGitHubWorkflowRun", () => {
         address.exchange,
         { grant: renewal },
         settings.hubOrigin,
-        resumeCookie,
+        `${resumeCookie}; ${browserCookie}`,
       )
       expect(renewed.status).toBe(303)
       expect(renewed.headers.get("location")).toBe(destination)
@@ -610,7 +615,7 @@ describe("importGitHubWorkflowRun", () => {
         .map((value) => value.split(";")[0]!)
         .find((value) => value.startsWith(`__Secure-replica-preview-${repositoryId}-`))!
       const page = await fetch(`${reader}${destination}`, {
-        headers: { cookie: renewedCookie, "sec-fetch-dest": "document" },
+        headers: { cookie: `${renewedCookie}; ${browserCookie}`, "sec-fetch-dest": "document" },
       })
       expect(page.status).toBe(200)
       expect(await page.text()).toBe("<h1>Home</h1>")

@@ -620,6 +620,8 @@ describe("inline private preview Hub routes", () => {
     expect(shell.body).toContain(
       'sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"',
     )
+    // The failure message must replace the full-height frame.
+    expect(shell.body).toContain("iframe[hidden]{display:none}")
     expect(shell.body).not.toContain(session)
     expect(authority.launch).toHaveBeenCalledExactlyOnceWith(digest(session), address, buildId)
     const intent = shell.body.match(/name="intent" value="([^"]+)"/)![1]!
@@ -661,21 +663,57 @@ describe("inline private preview Hub routes", () => {
   })
 
   it.each([
-    { status: "denied", expected: 404 },
-    { status: "incompatible", expected: 409 },
+    { reason: "no Hub session", outcome: "signed-out", expected: 401 },
+    { reason: "a denied Build", outcome: "denied", expected: 404 },
+    { reason: "an incompatible Build", outcome: "incompatible", expected: 409 },
+    { reason: "an unavailable authority", outcome: "unavailable", expected: 503 },
   ] as const)(
-    "falls back without a shell when Hub reports the Build $status",
-    async ({ status, expected }) => {
+    "explains $reason inside the Build page frame without a shell",
+    async ({ outcome, expected }) => {
       const { request, authority, buildId } = await startHub(undefined, true)
-      authority.launch.mockResolvedValue(status)
+      if (outcome === "unavailable") authority.launch.mockRejectedValue(new Error("outage"))
+      else if (outcome !== "signed-out") authority.launch.mockResolvedValue(outcome)
 
       const shell = await request(inlinePath(buildId), {
+        ...frameHeaders,
+        ...(outcome === "signed-out"
+          ? {}
+          : { cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}` }),
+      })
+
+      expect(shell.status).toBe(expected)
+      expect(shell.body).toMatch(/<p role="status">[^<]+<\/p>/)
+      expect(shell.body).not.toContain("<iframe")
+      expect(shell.body).not.toContain("<script")
+      expect(shell.headers["x-frame-options"]).toBeUndefined()
+      const directives = String(shell.headers["content-security-policy"])
+        .split(";")
+        .map((directive) => directive.trim())
+      expect(directives).toContain("default-src 'none'")
+      expect(directives.filter((directive) => directive.startsWith("frame-ancestors"))).toEqual([
+        `frame-ancestors ${hubOrigin}`,
+      ])
+    },
+  )
+
+  it.each([
+    { query: "?route=%2Fcheckout%3Fstep%3D2&route_kind=logical", page: "/checkout?step=2" },
+    { query: `?route=${encodeURIComponent(`${address.mount}checkout`)}`, page: "/checkout" },
+    { query: "?route=%2Fcheckout", page: "" },
+    { query: "?route=%2F..%2Fadmin&route_kind=logical", page: "" },
+    { query: "", page: "" },
+  ])(
+    "opens the shell at a deep-linked route inside the mount ($query)",
+    async ({ query, page }) => {
+      const { request, buildId } = await startHub(undefined, true)
+
+      const shell = await request(`${inlinePath(buildId)}${query}`, {
         ...frameHeaders,
         cookie: `__Host-hub_session=${randomBytes(32).toString("base64url")}`,
       })
 
-      expect(shell.status).toBe(expected)
-      expect(shell.body).not.toContain("<iframe")
+      expect(shell.status).toBe(200)
+      expect(shell.body).toContain(`let page = ${JSON.stringify(page)};`)
     },
   )
 

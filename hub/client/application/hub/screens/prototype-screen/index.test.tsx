@@ -63,3 +63,60 @@ it("sends the typed mention login to the review candidates API", async () => {
   fireEvent.change(reply, { target: { value: "Please review @mon" } })
   expect(await screen.findByRole("option", { name: "@mona" })).toBeVisible()
 })
+
+it("opens a deep link inline and copies only a link to this Build", async () => {
+  const data = previewRecords({ canReview: true })
+  const { path, repository } = data
+  const buildId = "00000000-0000-4000-8000-000000000003"
+  const inlinePreviewUrl = `/api/private-preview/inline/2001/4001/${buildId}`
+  const selectedBuild = {
+    ...data.selectedBuild!,
+    previewUrl: null,
+    privatePreviewUrl: `${window.location.origin}/api/private-preview/launch/2001/4001`,
+    privatePreviewBuildId: buildId,
+    inlinePreviewUrl,
+  }
+  const workspace: WorkspaceResponse = {
+    viewer: { id: "octocat", login: "octocat", name: null, avatarUrl: null, provider: "github" },
+    repositories: [repository],
+  }
+  const realtime = new URL("/api/realtime", window.location.href)
+  realtime.protocol = realtime.protocol === "https:" ? "wss:" : "ws:"
+  stubHubSocket(realtime)
+  stubHubFetch(
+    http.get(`/api${path}/review-comments`, () =>
+      Response.json({ comments: [], nextCursor: null, hasMore: false }),
+    ),
+  )
+  const router = createMemoryRouter(
+    [
+      {
+        path,
+        element: (
+          <PrototypeScreen
+            workspace={workspace}
+            data={{ ...data, selectedBuild }}
+            onSaveDetails={vi.fn()}
+            savingDetails={false}
+            detailsError={null}
+            detailsSaved={false}
+          />
+        ),
+      },
+    ],
+    { initialEntries: [`${path}?return_path=%2Fcheckout%3Fstep%3D2&return_path_kind=logical`] },
+  )
+  onTestFinished(() => router.dispose())
+  render(<RouterProvider router={router} />, { wrapper: HubThemeProvider })
+
+  const frame = await screen.findByTitle(`${data.prototype.name} private preview`)
+  const shell = new URL(frame.getAttribute("src")!, window.location.origin)
+  expect(shell.pathname).toBe(inlinePreviewUrl)
+  expect(Object.fromEntries(shell.searchParams)).toEqual({
+    route: "/checkout?step=2",
+    route_kind: "logical",
+  })
+  expect(screen.getByRole("textbox", { name: "Private Hub link to this Build" })).toHaveValue(
+    `${window.location.origin}${path}?build=${selectedBuild.number}`,
+  )
+})
