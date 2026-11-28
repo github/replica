@@ -210,7 +210,10 @@ export async function findPrototypeDetail(
           repositoryId: prototype.repositoryId,
           prototypeId: prototype.id,
           ...(privateAddress
-            ? { privatePreviewUrl: `${privatePreviewHubOrigin}${privateAddress.launch}` }
+            ? {
+                privatePreviewUrl: `${privatePreviewHubOrigin}${privateAddress.launch}`,
+                privatePreviewBuildId: build.id,
+              }
             : {}),
           previewUrl:
             build.artifacts.some(({ path }) => path === "dist/index.html") && buildArtifactUrl

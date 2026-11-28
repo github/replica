@@ -67,6 +67,10 @@ describe("findPrototypeDetail()", () => {
     expect(detail?.selectedBuild?.privatePreviewUrl).toBe(
       `${hub}/api/private-preview/launch/2001/4001`,
     )
+    const { id: buildId } = await prisma.build.findFirstOrThrow({
+      where: { prototypeId: prototype.id, number: 1 },
+    })
+    expect(detail?.selectedBuild?.privatePreviewBuildId).toBe(buildId)
     expect(
       detail?.prototype.builds
         .filter(({ privatePreviewUrl }) => privatePreviewUrl)

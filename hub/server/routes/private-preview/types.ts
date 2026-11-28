@@ -4,4 +4,5 @@ import type { PrivatePreviewAuthority } from "../../domains/private-preview/type
 export interface PrivatePreviewRouteDependencies {
   settings: PrivatePreviewSettings
   authority: PrivatePreviewAuthority
+  hasCurrentHubSession(this: void, sessionDigest: string): Promise<boolean>
 }

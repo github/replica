@@ -23,6 +23,7 @@ it("offers the pinned private Hub link when the Build has no embed", () => {
     finishedAt: null,
     previewUrl: null,
     privatePreviewUrl,
+    privatePreviewBuildId: "00000000-0000-4000-8000-000000000002",
     desktopScreenshotUrl: null,
     narrowScreenshotUrl: null,
     failureSummary: null,
@@ -48,6 +49,7 @@ it("offers the pinned private Hub link when the Build has no embed", () => {
     emptyHeading: "Private preview",
     emptyLabel: "This Build opens in a separate tab.",
     privatePreviewUrl,
+    privatePreviewBuildId: "00000000-0000-4000-8000-000000000002",
     minimizedPreview: false,
     buildPinned: true,
   })

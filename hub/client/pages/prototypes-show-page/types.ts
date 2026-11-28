@@ -10,6 +10,7 @@ import type { ReviewCommentsCopy } from "@utils/review-comment/types"
 export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   buildPinned: boolean
   privatePreviewUrl?: string
+  privatePreviewBuildId?: string
   privatePreviewLinkLabel: string
   copyPrivatePreviewLinkLabel: string
   copiedPrivatePreviewLinkLabel: string

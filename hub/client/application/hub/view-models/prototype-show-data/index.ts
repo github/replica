@@ -84,6 +84,7 @@ export function prototypeShowData(
     // The restore control lives on the preview, so stay expanded without one.
     minimizedPreview: Boolean(previewBuild?.previewUrl) && search.get("view") === "minimized",
     privatePreviewUrl: selectedBuild?.privatePreviewUrl,
+    privatePreviewBuildId: selectedBuild?.privatePreviewBuildId,
     privatePreviewLinkLabel: "Private Hub link",
     copyPrivatePreviewLinkLabel: "Copy private Hub link",
     copiedPrivatePreviewLinkLabel: "Private Hub link copied",

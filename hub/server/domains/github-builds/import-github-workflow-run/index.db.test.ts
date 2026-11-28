@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto"
 import { once } from "node:events"
-import { createServer, type RequestListener } from "node:http"
+import { createServer, request as httpRequest, type RequestListener } from "node:http"
 
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
@@ -28,7 +28,11 @@ import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/ty
 import { extractDistPackage } from "../../build-artifacts/extract-dist-package"
 import { readBuildPreviewFile } from "../../build-preview/read-build-preview-file"
 import { createPrivatePreviewAuthority } from "../../private-preview/create-authority"
-import { readerAuthorizePath, readerExchangePath } from "../../private-preview/types"
+import {
+  readerAuthorizePath,
+  readerExchangePath,
+  sessionLifetime,
+} from "../../private-preview/types"
 import { distArtifactName, screenshotArtifactName } from "../constants"
 import { discoverGitHubWorkflowRuns } from "../discover-github-workflow-runs"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition"
@@ -359,7 +363,7 @@ describe("importGitHubWorkflowRun", () => {
       const authority = createPrivatePreviewAuthority({
         readerOrigin: settings.readerOrigin,
         storage: fixture.storage,
-        access: createPrivatePreviewAccessStore(prisma),
+        access: createPrivatePreviewAccessStore(prisma, sessionLifetime),
         restoreSession: (digest) => Promise.resolve(digest === sessionDigest ? viewer : null),
         isRepositoryVisible: hasAccess,
         hasCurrentRepositoryAccess: hasAccess,
@@ -371,10 +375,34 @@ describe("importGitHubWorkflowRun", () => {
         createApp({
           logger: createLogger({ level: "silent" }),
           trustedProxyHops: 1,
-          privatePreview: { settings, authority },
+          privatePreview: {
+            settings,
+            authority,
+            hasCurrentHubSession: (digest) => Promise.resolve(digest === sessionDigest),
+          },
         }),
       )
       const client = createAuthorityClient(hub, settings.readerSecret)
+      function post(
+        base: string,
+        path: string,
+        fields: Record<string, string>,
+        origin: string,
+        cookie?: string,
+      ) {
+        return fetch(`${base}${path}`, {
+          method: "POST",
+          redirect: "manual",
+          headers: { origin, ...(cookie ? { cookie } : {}) },
+          body: new URLSearchParams(fields),
+        })
+      }
+      async function formValue(response: Response, action: string, field: string) {
+        expect(response.status).toBe(200)
+        const html = await response.text()
+        expect(html).toContain(`<form method="post" action="${action}">`)
+        return html.match(new RegExp(`name="${field}" value="([^"]+)"`))![1]!
+      }
       const reader = await listenBehindProxy(
         settings.readerOrigin,
         createPrivatePreviewReader({
@@ -398,10 +426,13 @@ describe("importGitHubWorkflowRun", () => {
         const pending = await fixture.findBuild()
         expect(pending).toMatchObject({ state: "successful", privatePreviewState: "pending" })
         await expectPrivatePreviewHidden(pending, address)
-        const response = await fetch(`${hub}${address.launch}`, {
-          redirect: "manual",
-          headers: { cookie: hubCookie },
-        })
+        const response = await post(
+          hub,
+          address.launch,
+          { start: "one-click", buildId: pending.id },
+          settings.hubOrigin,
+          hubCookie,
+        )
         expect(response.status).toBe(404)
         await expect(storage.read(key)).resolves.toEqual({ status: "not-found" })
         return storage.write(key, bytes)
@@ -433,46 +464,63 @@ describe("importGitHubWorkflowRun", () => {
       ])
 
       const assetPath = `${address.mount}assets/app.bin`
-      expect((await fetch(`${hub}${address.launch}`, { redirect: "manual" })).status).toBe(401)
+      const oneClick = { start: "one-click", buildId: build.id }
+      expect((await post(hub, address.launch, oneClick, settings.hubOrigin)).status).toBe(401)
 
-      const started = await fetch(`${hub}${address.launch}`, {
-        redirect: "manual",
-        headers: { cookie: hubCookie },
-      })
-      expect(started.status).toBe(302)
-      expect(started.headers.get("location")).toBe(`${settings.readerOrigin}${address.begin}`)
-      const begin = await fetch(`${reader}${address.begin}`, { redirect: "manual" })
-      expect(begin.status).toBe(302)
-      const challengeCookie = begin.headers.getSetCookie()[0]!.split(";")[0]!
-      const confirmationUrl = new URL(begin.headers.get("location")!)
-      expect(`${confirmationUrl.origin}${confirmationUrl.pathname}`).toBe(launch)
-      const confirmation = await fetch(
-        `${hub}${confirmationUrl.pathname}${confirmationUrl.search}`,
-        {
-          headers: { cookie: hubCookie },
-        },
+      // One click on the Build page reaches the exact Build without a confirmation page.
+      const intent = await formValue(
+        await post(hub, address.launch, oneClick, settings.hubOrigin, hubCookie),
+        `${settings.readerOrigin}${address.begin}`,
+        "intent",
       )
-      expect(confirmation.status).toBe(200)
-      const challenge = (await confirmation.text()).match(/name="challenge" value="([^"]+)"/)![1]!
-
-      const handoff = await fetch(`${hub}${address.launch}`, {
-        method: "POST",
-        headers: { origin: settings.hubOrigin, cookie: hubCookie },
-        body: new URLSearchParams({ challenge }),
-      })
-      expect(handoff.status).toBe(200)
-      const form = await handoff.text()
-      expect(form).toContain(`action="${settings.readerOrigin}${address.exchange}"`)
-      const grant = form.match(/name="grant" value="([^"]+)"/)![1]!
-      const exchanged = await fetch(`${reader}${address.exchange}`, {
-        method: "POST",
-        redirect: "manual",
-        headers: { origin: settings.hubOrigin, cookie: challengeCookie },
-        body: new URLSearchParams({ grant }),
-      })
+      const begun = await post(reader, address.begin, { intent }, settings.hubOrigin)
+      const challengeCookie = begun.headers.getSetCookie()[0]!.split(";")[0]!
+      const continuation = await formValue(
+        begun,
+        `${settings.hubOrigin}${address.launchReturn}`,
+        "continuation",
+      )
+      const relayed = await formValue(
+        await post(hub, address.launchReturn, { continuation }, settings.readerOrigin),
+        launch,
+        "continuation",
+      )
+      const handoff = await post(
+        hub,
+        address.launch,
+        { continuation: relayed },
+        settings.hubOrigin,
+        hubCookie,
+      )
+      const ticket = await formValue(
+        handoff,
+        `${settings.readerOrigin}${address.exchange}`,
+        "grant",
+      )
+      const replay = await post(
+        hub,
+        address.launch,
+        { continuation: relayed },
+        settings.hubOrigin,
+        hubCookie,
+      )
+      expect(replay.status).toBe(404)
+      const exchanged = await post(
+        reader,
+        address.exchange,
+        { grant: ticket },
+        settings.hubOrigin,
+        challengeCookie,
+      )
       expect(exchanged.status).toBe(303)
       expect(exchanged.headers.get("location")).toBe(address.mount)
-      const readerCookie = exchanged.headers.getSetCookie()[0]!.split(";")[0]!
+      const readerCookies = exchanged.headers.getSetCookie().map((value) => value.split(";")[0]!)
+      const readerCookie = readerCookies.find((value) =>
+        value.startsWith(`__Host-replica-preview-${repositoryId}-`),
+      )!
+      const markerCookie = readerCookies.find((value) =>
+        value.startsWith("__Host-replica-preview-build-"),
+      )!
 
       const file = await fetch(`${reader}${assetPath}`, { headers: { cookie: readerCookie } })
       expect(file.status).toBe(200)
@@ -486,6 +534,88 @@ describe("importGitHubWorkflowRun", () => {
         expect(page.status).toBe(200)
         expect(await page.text()).toBe("<h1>Home</h1>")
       }
+
+      // After the reader session ends, an in-prototype navigation renews and keeps its route.
+      await prisma.privatePreviewAccess.updateMany({
+        where: { buildId: build.id },
+        data: { expiresAt: new Date(Date.now() - 1_000) },
+      })
+      const destination = `${address.mount}settings/display?tab=2`
+      // Fetch replaces Sec-Fetch-Mode, so send the browser navigation headers directly.
+      const navigation = await new Promise<Response>((resolve, reject) => {
+        const target = new URL(`${reader}${destination}`)
+        httpRequest(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: `${target.pathname}${target.search}`,
+            headers: {
+              cookie: `${readerCookie}; ${markerCookie}`,
+              "sec-fetch-dest": "document",
+              "sec-fetch-mode": "navigate",
+              "sec-fetch-site": "same-origin",
+            },
+          },
+          (response) => {
+            const chunks: Buffer[] = []
+            response.on("data", (chunk: Buffer) => chunks.push(chunk))
+            response.on("error", reject)
+            response.on("end", () => {
+              const headers = new Headers()
+              for (const [name, value] of Object.entries(response.headers)) {
+                for (const item of [value ?? []].flat()) headers.append(name, item)
+              }
+              resolve(
+                new Response(Buffer.concat(chunks), { status: response.statusCode!, headers }),
+              )
+            })
+          },
+        )
+          .on("error", reject)
+          .end()
+      })
+      const resumeCookie = navigation.headers.getSetCookie()[0]!.split(";")[0]!
+      const resume = await formValue(
+        navigation,
+        `${settings.hubOrigin}${address.launchReturn}`,
+        "resume",
+      )
+      const relayedResume = await formValue(
+        await post(hub, address.launchReturn, { resume }, settings.readerOrigin),
+        launch,
+        "resume",
+      )
+      const signedOut = await post(
+        hub,
+        address.launch,
+        { resume: relayedResume },
+        settings.hubOrigin,
+      )
+      expect(signedOut.status).toBe(303)
+      expect(signedOut.headers.get("location")).toBe("/")
+      const renewal = await formValue(
+        await post(hub, address.launch, { resume: relayedResume }, settings.hubOrigin, hubCookie),
+        `${settings.readerOrigin}${address.exchange}`,
+        "grant",
+      )
+      const renewed = await post(
+        reader,
+        address.exchange,
+        { grant: renewal },
+        settings.hubOrigin,
+        resumeCookie,
+      )
+      expect(renewed.status).toBe(303)
+      expect(renewed.headers.get("location")).toBe(destination)
+      const renewedCookie = renewed.headers
+        .getSetCookie()
+        .map((value) => value.split(";")[0]!)
+        .find((value) => value.startsWith(`__Host-replica-preview-${repositoryId}-`))!
+      const page = await fetch(`${reader}${destination}`, {
+        headers: { cookie: renewedCookie, "sec-fetch-dest": "document" },
+      })
+      expect(page.status).toBe(200)
+      expect(await page.text()).toBe("<h1>Home</h1>")
     })
 
     it.each([
