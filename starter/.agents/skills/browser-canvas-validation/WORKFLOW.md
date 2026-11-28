@@ -18,11 +18,9 @@ retain their configured drivers because they run without the Copilot host.
 ## Resolve the target
 
 Read the consumer repository's declared server/readiness, URL and route rules.
-Use its own worktree's confirmed target, preserving base paths and routing.
-Do not scan ports, assume hash routing, install dependencies, restart servers or
-derive branch instance IDs from another repository's scripts. A missing running
-target is a blocker unless starting the declared server is already authorized.
-Never start a second infrastructure project to supply validation.
+Use its own worktree's confirmed target, preserving base paths and routing. If no preview is running, follow the routine local preview policy in `AGENTS.md`: a request to create or modify a prototype normally includes starting the declared local command for validation. A standalone check does not grant that permission. Use the actual URL the command prints.
+
+Do not scan ports, assume hash routing, install dependencies, restart servers to find the target, or derive branch instance IDs from another repository's scripts. Never start a second infrastructure project to supply validation.
 
 Read the requested outcome and establish expected results before interacting. Read product-design guidance when required by the [context requirements](./SKILL.md#required-reads-and-dependencies). Use the smallest connected flow that proves the request. Invalid-input submission, destination and reload-persistence checks apply when the requested behavior needs them and test mutations are authorized. Otherwise report those assertions untested. Do not submit real data to prove a read-only audit, or treat a disabled button alone as proof of safe persistence.
 

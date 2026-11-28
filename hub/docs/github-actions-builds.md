@@ -41,6 +41,8 @@ Save this as `.github/workflows/replica.yml` in a connected prototype repository
 
 The example runs on every pushed branch, including nested `proto/` branches, and not on tag pushes. Use a branch filter in existing workflows too: GitHub's workflow run data does not reliably distinguish a tag from a same-named branch. If you restrict workflow branches, include `branches: ['proto/**']` to cover names such as `proto/settings/mobile`. Add patterns for any other branches users track manually; a branch without a workflow run cannot produce an imported Build.
 
+Before creating or renaming a prototype branch, check the `push` filters of the workflow selected for that repository. Use a matching `proto/` name for automatic registration in Hub. Confirm workflow access separately: a matching branch does not grant permission to push or guarantee that Actions can run. See the [starter's branch selection instructions](../../starter/AGENTS.md#choose-a-prototype-branch).
+
 The example pins both Replica actions to the same implementation revision. That revision must be available on GitHub before enabling the workflow in another repository. When upgrading, replace both references with the same reviewed commit.
 
 ```yaml

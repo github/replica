@@ -50,7 +50,7 @@ has a safe, available target.
 
 Keep `public/controls.replica.json` and ordinary app behavior in the prototype; Replica owns the injected adapter and panel UI.
 Preserve usable defaults and ordinary app interactions while disconnected.
-This skill does not authorize dependency installation, server startup or publishing.
+Follow the routine local preview policy in `AGENTS.md`. A request to change prototype controls includes the declared local preview where that policy allows it, not dependency installation or publishing.
 
 ## Validate and reload
 
@@ -91,9 +91,7 @@ controls or testing them. Do not show or hand off controls that fail validation.
 
 Bound validation, reconnection and runtime repair to five failed attempts total;
 report remaining errors or readiness timeouts instead of looping indefinitely.
-This loop does not authorize starting or stopping servers. If no Replica
-prototype canvas is open, check the file against the reference rules, ask
-the user to open the canvas, and report validation as unverified.
+This loop reuses a running preview; do not start or stop servers inside the loop. If no Replica prototype canvas is open, check the file against the reference rules, ask the user to open the canvas, and report validation as unverified.
 
 ## Prove the effect
 
@@ -101,7 +99,4 @@ Follow the reference's validation procedure. For every requested control, requir
 a rendered assertion of its observable app effect, defaults and reset; include
 conditions, failures and route lifetimes where used.
 
-With authorized preview startup, follow the repository's canvas/browser validation
-workflow to exercise the requested scenarios. Finish when the checks pass or each
-blocked check and unverified behavior is named. Report panel availability, rendered
-integration evidence and real-browser evidence separately.
+Follow the repository's canvas and browser validation workflow to exercise the requested scenarios. Finish when the checks pass or each blocked check and unverified behavior is named. Report panel availability, rendered integration evidence and real-browser evidence separately.

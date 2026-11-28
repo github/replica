@@ -193,7 +193,7 @@ npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite.
+Open the URL printed by Vite. When you ask Copilot to create or modify a prototype, it can start the local preview without asking again. See the [local preview policy](AGENTS.md#implicit-user-authorization-for-routine-local-prototype-execution) for exceptions and separate approvals.
 
 Show the requested route before ordinary UI edits and keep the preview on that route. Source-only work and eligible [narrow edits](AGENTS.md#narrow-edits) do not require preview-before-edit.
 
@@ -277,14 +277,9 @@ Keep `.github/github-app.yml` for Copilot app behavior; it needs no Hub keys or 
 
 ### Publish the prototype
 
-Follow the [publishing workflow](AGENTS.md#publishing). Include task-related
-local changes in focused commits and leave unrelated work untouched.
+Before starting on a new branch, [check the repository's publishing workflow](AGENTS.md#choose-a-prototype-branch) for its `push` filters. For example, `proto/about-sans-serif` matches `proto/**` and uses Hub's automatic registration prefix. Copying the starter does not configure a publishing workflow.
 
-Copilot verifies the checkout, current non-default task branch, and `origin`,
-then uses the existing `.github/workflows/replica.yml` push workflow. It preserves
-metadata, registers the discovered branch through the canvas, waits for Hub to
-import the Build matching the pushed commit, and returns that Build's exact URL.
-Entry-page checks still apply. Copilot reports incomplete landing-page verification.
+Once you approve the commit and push, Copilot follows the [publishing instructions](AGENTS.md#publishing) to recheck the branch and preserve metadata. After Hub imports the pushed commit, Copilot returns that Build's exact URL and reports any incomplete landing-page checks.
 
 ## Validate it
 

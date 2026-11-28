@@ -73,6 +73,8 @@ Follow the copied README's **Connect the Replica canvas** and **Canvas preflight
 
 This milestone checks the existing starter page without building product UI. Report a missing runtime, unavailable canvas, or failed preview with its specific recovery step. Hub connection is not required for local preview.
 
+For later prototype work, follow the copied [local preview policy](../starter/AGENTS.md#implicit-user-authorization-for-routine-local-prototype-execution) and [branch selection instructions](../starter/AGENTS.md#choose-a-prototype-branch). A build request covers running the local preview, not committing or publishing.
+
 ## 4. Continue only to the requested milestone
 
 | Requested outcome | Continue with |
