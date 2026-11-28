@@ -51,6 +51,7 @@ export interface DeploymentResult {
   tenantId: string
   location: string
   image: string
+  notes?: string[]
   resources: {
     resourceGroup: string
     app: string

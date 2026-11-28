@@ -10,6 +10,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -17,6 +18,9 @@ import { CommandExecutionError } from "../../installer/command/index.ts"
 import { installationWorkspace } from "../../installer/workspace/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../installer/types.ts"
 import { installAzure } from "./index.ts"
+import * as recovery from "./lease/recover/index.ts"
+import { leaseOwnership } from "./lease/ownership/index.ts"
+import * as privatePreview from "./private-preview/index.ts"
 import { installationNames } from "./settings.ts"
 import {
   guidedPostgresProfile,
@@ -220,7 +224,11 @@ async function scenario({
           managed_by: "replica-installer",
         },
       })
-    if (operation === "storage blob exists") return JSON.stringify({ exists: true })
+    if (operation === "storage blob exists")
+      return JSON.stringify({
+        exists: !args[args.indexOf("--name") + 1]!.endsWith("/private-preview.tfstate"),
+      })
+    if (operation === "storage container-rm exists") return JSON.stringify({ exists: false })
     if (operation === "storage blob show")
       return JSON.stringify(
         args[args.indexOf("--name") + 1] === "deployment.lock" && releaseLocked
@@ -367,6 +375,20 @@ it("rejects an already cancelled installation before commands, approval, or work
   expect(run).not.toHaveBeenCalled()
   expect(s.ui.confirm).not.toHaveBeenCalled()
   expect(await readdir(s.directory)).toEqual([])
+})
+
+it("blocks a saved private preview reader without Hub sign-in settings before approval or cloud changes", async () => {
+  const s = await scenario()
+  s.config.privatePreview = { reader: "on", inline: false, writerRepositoryIds: [] }
+  s.ui.confirm = vi.fn(async () => true)
+  const availability = vi.fn<PostgresAvailability>(async () => true)
+
+  await expect(installAzure(s.config, { ...s, availability })).rejects.toThrow(/^Private preview blocked: .*sign-in settings/)
+
+  // Only the read-only target check runs before installation inputs are read.
+  expect(s.events.map(({ command }) => command.slice(0, 3))).toEqual([["az", "account", "show"]])
+  expect(availability).not.toHaveBeenCalled()
+  expect(s.ui.confirm).not.toHaveBeenCalled()
 })
 
 it("stops after cancellation during compatibility lookup before approval or cloud mutation", async () => {
@@ -1616,4 +1638,107 @@ it("propagates a failed provisioning mutation instead of waiting and starting it
   expect(s.ui.wait).not.toHaveBeenCalled()
   expect(s.released()).toBe(false)
   expect(s.messages).toContainEqual(expect.stringContaining("deployment.lock"))
+})
+
+async function withSignIn(s: Awaited<ReturnType<typeof scenario>>) {
+  await installAzure(s.config, s)
+  const filename = join(installationWorkspace(s.config, s.directory), "installation.tfvars.json")
+  const vault = `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`
+  await writeFile(filename, JSON.stringify({
+    ...JSON.parse(await readFile(filename, "utf8")),
+    hub_application_origin: "https://test-hub.example.eastus2.azurecontainerapps.io",
+    runtime_environment_variables: { HUB_TRUSTED_PROXY_HOPS: "1", HUB_LOCAL_SIGN_IN: "true" },
+    runtime_secret_references: {
+      HUB_AUTHENTICATION_ENCRYPTION_KEY: { key_vault_id: vault, secret_id: "https://service.vault.azure.net/secrets/authentication-encryption-key" },
+      HUB_BOOTSTRAP_SECRET: { key_vault_id: vault, secret_id: "https://service.vault.azure.net/secrets/bootstrap-secret" },
+    },
+  }), { mode: 0o600 })
+  s.config.privatePreview = { reader: "on", inline: true, writerRepositoryIds: [] }
+}
+
+function previewStep(order: string[]) {
+  const note = "Private prototype service: https://reader.example.eastus2.azurecontainerapps.io (new tab and inline)."
+  const finish = vi.fn(async () => {
+    order.push("finish")
+    return [note]
+  })
+  vi.spyOn(privatePreview, "preparePrivatePreview").mockImplementation(async (_, { inputs }) => {
+    order.push("prepare")
+    return {
+      inputs: {
+        ...inputs,
+        runtime_environment_variables: { ...inputs.runtime_environment_variables, HUB_PRIVATE_PREVIEW_ENABLED: "true" },
+      },
+      finish,
+    }
+  })
+  return { note, finish }
+}
+
+it("turns on private preview settings before the release and finishes the service only after it succeeds", async () => {
+  const s = await scenario()
+  await withSignIn(s)
+  const order: string[] = []
+  const { note } = previewStep(order)
+  let releasedPlayback: unknown
+  const run = vi.fn<RunCommand>(async (executable, args, options) => {
+    if (executable === process.execPath) {
+      order.push("release")
+      const variables = JSON.parse(await readFile(args[args.indexOf("--variables") + 1]!, "utf8"))
+      releasedPlayback = variables.runtime_environment_variables?.HUB_PRIVATE_PREVIEW_ENABLED
+    }
+    return s.run(executable, args, options)
+  })
+
+  const result = await installAzure(s.config, { ...s, run })
+
+  expect(order).toEqual(["prepare", "release", "finish"])
+  expect(releasedPlayback).toBe("true")
+  expect(result.notes).toEqual([note])
+})
+
+it("does not finish the private prototype service when the release fails", async () => {
+  const s = await scenario()
+  await withSignIn(s)
+  const order: string[] = []
+  const { finish } = previewStep(order)
+  const run = vi.fn<RunCommand>(async (executable, args, options) => {
+    if (executable === process.execPath) throw new CommandExecutionError("Release failed")
+    return s.run(executable, args, options)
+  })
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toThrow("Release failed")
+
+  expect(order).toEqual(["prepare"])
+  expect(finish).not.toHaveBeenCalled()
+})
+
+it.each([
+  { record: "no private preview lease record", saved: false, renews: true, recoversFirst: true },
+  { record: "a record whose lease Azure no longer accepts", saved: true, renews: false, recoversFirst: true },
+  { record: "a record whose lease still holds the lock", saved: true, renews: true, recoversFirst: false },
+])("recovers the release lock before the private preview step only when it has $record", async ({ saved, renews, recoversFirst }) => {
+  const s = await scenario()
+  await installAzure(s.config, s)
+  const lease = randomUUID()
+  if (saved)
+    await (await leaseOwnership(
+      { config: s.config, directory: installationWorkspace(s.config, s.directory) },
+      "artifactstore", "releases", "deployment.lock", "private-preview",
+    )).save(lease)
+  const recover = vi.spyOn(recovery, "recoverLease")
+  const prepare = vi.spyOn(privatePreview, "preparePrivatePreview")
+  const run = vi.fn<RunCommand>(async (executable, args, options) => {
+    if (!renews && args.includes("renew") && args.includes(lease)) throw new CommandExecutionError("LeaseIdMismatch")
+    return s.run(executable, args, options)
+  })
+
+  await installAzure(s.config, { ...s, run })
+
+  const releaseRecoveries = recover.mock.calls
+    .map((call, index) => ({ call, order: recover.mock.invocationCallOrder[index]! }))
+    .filter(({ call }) => call.slice(1).join("/") === "artifactstore/releases/deployment.lock")
+  const beforePreview = releaseRecoveries.filter(({ order }) => order < prepare.mock.invocationCallOrder[0]!)
+  expect(beforePreview).toHaveLength(recoversFirst ? 1 : 0)
+  expect(releaseRecoveries.length).toBe(beforePreview.length + 1)
 })

@@ -498,7 +498,7 @@ function savedSession(answers: DraftAnswers): WizardSession {
       deploymentStarted: false,
       answers,
     },
-    answer: vi.fn(), clear: vi.fn(), phase: vi.fn(), previewTarget: vi.fn(),
+    answer: vi.fn(), clear: vi.fn(), phase: vi.fn(),
     restart: vi.fn(), complete: vi.fn(), close: vi.fn(),
   }
 }

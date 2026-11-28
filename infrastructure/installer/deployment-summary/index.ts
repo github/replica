@@ -30,6 +30,7 @@ export function formatDeploymentSummary(
     "",
     ...links,
     "",
+    ...(result.notes?.length ? [...result.notes, ""] : []),
     "HTTPS readiness does not verify sign-in or authorization. Hub sign-in requires manual configuration.",
   ].join("\n")
 }

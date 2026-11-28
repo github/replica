@@ -182,3 +182,13 @@ it.each([
     expect((error as Error).message).not.toContain("secret-sentinel")
   }
 })
+
+it.each([
+  ["notes", ["Private prototype service: https://preview.example.com (new tab)."], true],
+  ["an empty note list", [], false],
+])("returns %s only when there is something to report", (_, notes, kept) => {
+  const result = deploymentResult({ ...input(), notes })
+
+  if (kept) expect(result.notes).toEqual(notes)
+  else expect(result).not.toHaveProperty("notes")
+})

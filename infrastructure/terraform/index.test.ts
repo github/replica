@@ -88,6 +88,7 @@ async function scenario({
   validatePlan,
   findUntracked,
   requireUntrackedCheck,
+  allowDeletion,
   extraEnv,
   signal,
   rootSuffix = "",
@@ -106,6 +107,7 @@ async function scenario({
   validatePlan?(value: unknown): void
   findUntracked?: Parameters<typeof terraformModule>[0]["findUntracked"]
   requireUntrackedCheck?: boolean
+  allowDeletion?: Parameters<typeof terraformModule>[0]["allowDeletion"]
   extraEnv?: Record<string, string>
   signal?: AbortSignal
   rootSuffix?: string
@@ -182,6 +184,7 @@ async function scenario({
     validatePlan,
     findUntracked,
     requireUntrackedCheck,
+    allowDeletion,
     signal,
   })
   return { module, run, calls, events, ui, directory, dataDirectory, secret }
@@ -811,6 +814,62 @@ describe("Terraform module", () => {
     expect(test.ui.wait).not.toHaveBeenCalled()
     expect(test.events).toEqual(["plan", "show"])
     expect(await readdir(test.dataDirectory)).toEqual([])
+  })
+
+  describe("reviewed deletions", () => {
+    const reviewed = [
+      { address: "azurerm_container_app.reader[0]", change: { actions: ["delete"] } },
+      { address: "azurerm_role_assignment.reader_artifacts[0]", change: { actions: ["delete", "create"] } },
+    ]
+    const allowDeletion = ({ address }: { address: string }) => reviewed.some((change) => change.address === address)
+
+    it("applies deletions and replacements the caller approved", async () => {
+      const test = await scenario({ preapproved: true, resourceChanges: reviewed, allowDeletion })
+
+      await test.module.apply("installation.tfvars")
+
+      expect(test.events).toContain("apply")
+    })
+
+    it("still blocks an unapproved deletion in the same plan", async () => {
+      const test = await scenario({
+        preapproved: true,
+        allowDeletion,
+        resourceChanges: [...reviewed, { address: "azurerm_storage_container.reader", change: { actions: ["delete"] } }],
+      })
+
+      const error = (await test.module.apply("installation.tfvars").then(() => undefined, (error: unknown) => error)) as Error
+
+      expect(error.message).toContain("delete azurerm_storage_container.reader")
+      expect(error.message).not.toContain("azurerm_container_app.reader[0]")
+      expect(test.events).not.toContain("apply")
+    })
+  })
+
+  it("blocks a create that conflicts with a differently conditioned grant even when the lookup is optional", async () => {
+    const conflict = Object.assign(new Error("Azure already has /existing/grant with a different condition."), {
+      name: "ConflictingRoleAssignment",
+    })
+    const findUntracked = vi.fn(async (): Promise<string | undefined> => {
+      throw conflict
+    })
+    const test = await scenario({
+      preapproved: true,
+      requireUntrackedCheck: false,
+      findUntracked,
+      resourceChanges: [{
+        address: "azurerm_role_assignment.reader_artifacts[0]",
+        type: "azurerm_role_assignment",
+        change: { actions: ["create"], after: { scope: "scope", principal_id: "principal" } },
+      }],
+    })
+    test.ui.notice = vi.fn()
+
+    const error = (await test.module.apply("installation.tfvars").then(() => undefined, (error: unknown) => error)) as Error
+
+    expect(error.message).toContain("azurerm_role_assignment.reader_artifacts[0]: Azure already has /existing/grant")
+    expect(error.message).not.toMatch(/terraform .*import/)
+    expect(test.events).not.toContain("apply")
   })
 
   it("does not apply when the operator refuses, and removes the sensitive plan", async () => {

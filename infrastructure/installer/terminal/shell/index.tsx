@@ -77,7 +77,7 @@ export function TerminalShell({
           </Text>
         </Box>
       )}
-      {!question && view.preview !== "skipped" && view.preview !== "staged" && (
+      {!question && (
         <Spinner label={view.complete ? "Complete" : (view.history.at(-1) ?? "Working...")} />
       )}
       {question?.kind === "cloud" && (
@@ -151,7 +151,7 @@ export function TerminalShell({
         {!tiny && (
           <>
             <Text bold color={terminalColors.accent}>
-              {postSetup ? "Replica Hub post-setup" : view.preview ? "Replica private preview" : "Replica Hub installation"}
+              {postSetup ? "Replica Hub post-setup" : "Replica Hub installation"}
             </Text>
             {postSetup ? (
               <Text dimColor>
@@ -162,7 +162,6 @@ export function TerminalShell({
             ) : (
               <Progress
                 phase={view.phase}
-                preview={view.preview}
                 configureOnly={configureOnly}
                 complete={view.complete}
                 compact={compact}

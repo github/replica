@@ -56,6 +56,7 @@ export function terraformModule({
   validatePlan,
   findUntracked,
   requireUntrackedCheck = false,
+  allowDeletion,
 }: {
   directory: string
   dataDirectory: string
@@ -70,6 +71,8 @@ export function terraformModule({
   // Read-only lookup of an existing cloud resource that a create-only change would duplicate.
   findUntracked?(change: PlannedCreate): Promise<string | undefined>
   requireUntrackedCheck?: boolean
+  // Reviewed exceptions to the deletion and replacement guard; validatePlan must also accept them.
+  allowDeletion?(change: { address: string; change: { actions: string[] } }): boolean
 }) {
   const command = (args: string[]) => {
     signal?.throwIfAborted()
@@ -118,6 +121,9 @@ export function terraformModule({
       }
     },
     state: listState,
+    async rawState(): Promise<unknown> {
+      return JSON.parse(await command(["state", "pull"]))
+    },
     async stateSnapshot<T>(): Promise<T> {
       return JSON.parse(await command(["show", "-json"])) as T
     },
@@ -152,15 +158,19 @@ export function terraformModule({
             if (id) found.push({ address, id })
           } catch (error) {
             if (signal?.aborted) throw error
-            if (!requireUntrackedCheck && !uncertainAddresses.has(address)) {
+            const conflicting = error instanceof Error && error.name === "ConflictingRoleAssignment"
+            if (!conflicting && !requireUntrackedCheck && !uncertainAddresses.has(address)) {
               ui.status(
                 `Could not check whether ${address} already exists; Terraform reports a conflict if it does.`,
               )
               continue
             }
-            const reason = uncertainAddresses.has(address)
-              ? `${address} had an uncertain apply result and Azure could not be checked for it.`
-              : `Azure could not be checked for ${address}.`
+            const reason =
+              error instanceof Error && error.name === "ConflictingRoleAssignment"
+                ? `${address}: ${error.message}`
+                : uncertainAddresses.has(address)
+                  ? `${address} had an uncertain apply result and Azure could not be checked for it.`
+                  : `Azure could not be checked for ${address}.`
             const message = `Terraform plan blocked: ${reason} Nothing from this plan was applied; saved progress and leases are kept. Review Azure access and the lookup response before retrying.`
             ui.notice?.("error", message)
             throw new Error(message)
@@ -224,7 +234,9 @@ export function terraformModule({
           const changes = (plan.resource_changes ?? []).filter(({ change }) =>
             change.actions.some((action) => action !== "no-op" && action !== "read"),
           )
-          const destructive = changes.filter(({ change }) => change.actions.includes("delete"))
+          const destructive = changes.filter(
+            (change) => change.change.actions.includes("delete") && !allowDeletion?.(change),
+          )
           if (!destroy && destructive.length) {
             const details = destructive.map(({ address, change }) => {
               const paths = change.replace_paths?.map((path) => path.join("."))

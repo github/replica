@@ -1,9 +1,18 @@
+export interface PrivatePreviewChoice {
+  // off keeps any existing reader disabled without ingress; removed deletes it and its grants.
+  reader: "off" | "on" | "removed"
+  inline: boolean
+  hostname?: string
+  writerRepositoryIds: string[]
+}
+
 export interface DeploymentConfig {
   version: 1
   cloud: "azure"
   name: string
   owner: string
   npmRegistry?: string
+  privatePreview?: PrivatePreviewChoice
   azure: {
     subscriptionId: string
     tenantId: string
@@ -40,7 +49,6 @@ export const wizardPhases = [
   "verify",
 ] as const
 export type WizardPhase = (typeof wizardPhases)[number]
-export type PreviewProgress = "review" | "provision" | "verify" | "staged" | "skipped"
 export type NoticeLevel = "info" | "success" | "warning" | "error"
 
 export interface FieldDefinition {
@@ -67,7 +75,6 @@ export interface InstallerUI {
 export interface WizardUI extends InstallerUI {
   welcome?(show: boolean): void
   complete?(): void
-  preview?(progress: PreviewProgress): void
   cloud(): Promise<"azure">
   field?(definition: FieldDefinition, initialValue?: string): Promise<string>
   text(message: string, initialValue?: string): Promise<string>

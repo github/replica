@@ -13,9 +13,12 @@ import { installationSecrets } from "./secrets/index.ts"
 import { installationNames } from "./settings.ts"
 import { verifyInstallationGroup } from "./group/index.ts"
 import { recoverLease } from "./lease/recover/index.ts"
+import { leaseOwnership } from "./lease/ownership/index.ts"
 import { deploymentResult } from "./result/index.ts"
 import type { AzureInstallation, DeploymentResult, Foundation, Installation } from "./types.ts"
 import { openInstallationWorkspace } from "./workspace/index.ts"
+import { preparePrivatePreview } from "./private-preview/index.ts"
+import { checkPrivatePreviewChoice } from "./private-preview/hub-environment/index.ts"
 import { readInstallationInputs } from "./inputs/index.ts"
 import { approveDeployment } from "./approval/index.ts"
 import { retryableProvisioningFailure } from "./retryable-provisioning-failure/index.ts"
@@ -89,6 +92,7 @@ async function install(
   },
 ): Promise<DeploymentResult> {
   const operatorInputs = await readInstallationInputs(directory, config)
+  checkPrivatePreviewChoice(config.privatePreview, operatorInputs)
   const postgres = {
     postgres_sku: operatorInputs.postgres_sku ?? guidedPostgresProfile.postgres_sku,
     postgres_version: operatorInputs.postgres_version ?? guidedPostgresProfile.postgres_version,
@@ -281,6 +285,27 @@ async function install(
       image,
       await state.backend("provision"),
     )
+    // A failed earlier release can retain the release lock. Offer the usual recovery first,
+    // unless the preview step itself retained it and can resume by proof of ownership.
+    const previewLease = (
+      await leaseOwnership(context, installation.storage_account, "releases", "deployment.lock", "private-preview")
+    ).lease
+    const previewOwnsLock = previewLease !== undefined && await azure(
+      "storage", "blob", "lease", "renew", "--account-name", installation.storage_account,
+      "--container-name", "releases", "--blob-name", "deployment.lock", "--auth-mode", "login",
+      "--lease-id", previewLease,
+    ).then(() => true, () => false)
+    if (!previewOwnsLock)
+      await recoverLease(context, installation.storage_account, "releases", "deployment.lock")
+    const preview = await preparePrivatePreview(context, {
+      image,
+      foundation: resources,
+      installation,
+      inputs: operatorInputs,
+      readerSecret: () => secrets.privatePreviewReader(),
+      lock,
+    })
+    await writePrivateFile(variables, JSON.stringify({ ...inputs, ...preview.inputs }))
     await ui.phase?.("release")
     await recoverLease(context, installation.storage_account, "releases", "deployment.lock")
     ui.status("Running the serialized maintenance-window release")
@@ -315,6 +340,7 @@ async function install(
       )
       throw error
     }
+    const notes = await preview.finish()
     await ui.phase?.("verify")
     const released = await app.output<Installation>("installation")
     const result = deploymentResult({
@@ -323,6 +349,7 @@ async function install(
       foundation: resources,
       stateStorageId: state.id,
       image,
+      notes,
     })
     await lock.release()
     return result
