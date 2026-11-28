@@ -110,6 +110,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
 
   const guard = await guardPreviewState({ azure: context.azure, directory, target: stateTarget, resourcesExist })
   let releaseLock: Awaited<ReturnType<typeof acquireLease>> | undefined
+  let applying = false
   const terraform = terraformModule({
     directory: resolve(import.meta.dirname, "../../private-preview"),
     dataDirectory: join(directory, "terraform", "private-preview"),
@@ -123,6 +124,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     findUntracked: existingRoleAssignment(context.azure, subscriptionId),
     requireUntrackedCheck: true,
     beforeApply: async () => {
+      applying = true
       guard.verify(await terraform.rawState())
       await lock.verify()
       await releaseLock?.verify()
@@ -235,6 +237,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       context, installation.storage_account, "releases", "deployment.lock", false,
       { operation: "private-preview" },
     )
+    applying = false
     try {
       await terraform.apply(variablesFile)
       guard.verify(await terraform.rawState())
@@ -245,6 +248,10 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       if (problems.length) block(`${problems.join("\n")}\nReview access before retrying; the release lock is kept.`)
       await releaseLock.release()
       return { bound }
+    } catch (error) {
+      // A plan that stopped before apply changed nothing, so the lock is not needed for recovery.
+      if (!applying && releaseLock.held && !signal?.aborted) await releaseLock.release()
+      throw error
     } finally {
       releaseLock.reportRetained()
     }

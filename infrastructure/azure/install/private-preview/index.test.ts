@@ -134,6 +134,7 @@ async function fixture({
   revisionReady = true,
   bindFailure,
   conditionDroppedOnApply = false,
+  planBlocked = false,
 }: {
   choice?: PrivatePreviewChoice
   current?: Current
@@ -143,6 +144,7 @@ async function fixture({
   revisionReady?: boolean
   bindFailure?: "rejected" | "never bound"
   conditionDroppedOnApply?: boolean
+  planBlocked?: boolean
 }) {
   const directory = resolve(`.preview-prepare-test-${randomUUID()}`)
   directories.push(directory)
@@ -188,6 +190,7 @@ async function fixture({
       }
     },
     async apply(file: string) {
+      if (planBlocked) throw new Error("Private preview plan blocked: synthetic.")
       await beforeApply?.()
       const variables = JSON.parse(await readFile(file, "utf8")) as Variables
       applied.push(variables)
@@ -549,6 +552,16 @@ describe("preparePrivatePreview", () => {
       expect(notice).toHaveBeenCalledWith("warning", expect.stringMatching(new RegExp(`${hostname}.*certificate|certificate.*${hostname}`)))
     },
   )
+
+  it("releases the release lock when the plan is blocked before anything is applied", async () => {
+    const { prepare, applied, leases } = await fixture({ current: { reader: "disabled" }, planBlocked: true })
+
+    await expect(prepare(generatedHub)).rejects.toThrow(/plan blocked/)
+
+    expect(applied).toEqual([])
+    expect(leases).toHaveLength(1)
+    expect(leases[0]!.release).toHaveBeenCalledOnce()
+  })
 
   it("stops before the Hub release and keeps the release lock when a grant is wrong after apply", async () => {
     const { prepare, applied, leases } = await fixture({ current: { reader: "disabled" }, conditionDroppedOnApply: true })
