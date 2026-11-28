@@ -30,7 +30,12 @@ import {
 } from "../conformance/fixtures.mjs"
 import { main } from "../src/cli.mjs"
 import { sealMemory } from "../src/records.mjs"
-import { recordActivity, reviewWithPerson, startAnalysis } from "../src/local-learning.mjs"
+import {
+  ANALYSIS_DEFERRED_EXIT_CODE,
+  recordActivity,
+  reviewWithPerson,
+  startAnalysis,
+} from "../src/local-learning.mjs"
 import { createFileLock } from "../src/providers/lock.mjs"
 import { setupLocalLearning } from "../src/setup.mjs"
 
@@ -648,10 +653,11 @@ describe("replica-learning CLI: labeling with a labeler", () => {
       )
     )
       await setTimeout(10)
-    const later = await ok(repo, ["analyze", "--json"])
+    const later = await cli(repo, ["analyze", "--json"])
     finish.resolve()
     await running
 
+    assert.equal(later.code, ANALYSIS_DEFERRED_EXIT_CODE)
     assert.deepEqual(later.json(), { waiting: true })
     assert.equal((await waiting).code, 0)
   })
@@ -1830,7 +1836,9 @@ describe("replica-learning CLI: guard rails", () => {
     const { call } = mcp
 
     const tools = (await mcp.request("tools/list", {})).tools
-    const description = (name) => tools.find((tool) => tool.name === name).description
+    function description(name) {
+      return tools.find((tool) => tool.name === name).description
+    }
     assert.match(description("report_usage"), /after each commit/)
     assert.match(description("review_learnings"), /only when the person agrees/)
     assert.match(description("submit_session"), /after you finish each request/)
@@ -2024,6 +2032,66 @@ describe("replica-learning CLI: guard rails", () => {
       [
         ["--commit", "b".repeat(40)],
         ["--commit", "b".repeat(40)],
+      ],
+    )
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("retries when a waiting analysis is deferred but the queued analysis fails", async () => {
+    const repo = checkout("mcp-analysis-waiting-retry")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const analyses = []
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      startAnalysis: ({ args }) => {
+        const listeners = new Map()
+        const launcher = {
+          once(event, listener) {
+            listeners.set(event, listener)
+            return this
+          },
+        }
+        analyses.push({
+          args,
+          close(code, signal) {
+            listeners.get("close")?.(code, signal)
+          },
+        })
+        return launcher
+      },
+    })
+    const guidance = (await mcp.call("get_guidance", { task: "Build the form" })).data
+    const report = {
+      reportId: "waiting-analysis",
+      guidanceIds: [guidance.guidanceId],
+      commitSha: "c".repeat(40),
+      used: guidance.learnings.map(({ deliveryId }) => ({ deliveryId })),
+    }
+
+    assert.equal((await mcp.call("report_usage", report)).data.stored, true)
+    const queuedReport = { ...report, reportId: "waiting-analysis-queued" }
+    assert.equal((await mcp.call("report_usage", queuedReport)).data.stored, true)
+    assert.equal(analyses.length, 2)
+
+    analyses[1].close(ANALYSIS_DEFERRED_EXIT_CODE)
+    await setTimeout(0)
+    analyses[0].close(1)
+    await setTimeout(0)
+    assert.equal((await mcp.call("report_usage", queuedReport)).data.stored, false)
+    assert.equal(analyses.length, 3)
+    assert.deepEqual(
+      analyses.map(({ args }) => args),
+      [
+        ["--commit", "c".repeat(40)],
+        ["--commit", "c".repeat(40)],
+        ["--commit", "c".repeat(40)],
       ],
     )
     assert.equal(await mcp.close(), 0)

@@ -1718,7 +1718,7 @@ async function analyze(session) {
       { waiting: true },
       "Another analysis is waiting to run and will include this one's data.",
     )
-    return 0
+    return localLearning.ANALYSIS_DEFERRED_EXIT_CODE
   }
   const summary = await running
   session.out(
@@ -2143,7 +2143,7 @@ async function serveMcp(session) {
       active.add(generation)
       activeAnalyses.set(commitSha, active)
       let finished = false
-      const finish = (code, detail) => {
+      function finish(code, detail) {
         if (finished) return
         finished = true
         active.delete(generation)
@@ -2151,7 +2151,7 @@ async function serveMcp(session) {
         if (code === 0 && (analysisGenerations.get(commitSha) ?? 0) === generation)
           analyzedCommits.set(commitSha, generation)
         else if (analyzedCommits.get(commitSha) === generation) analyzedCommits.delete(commitSha)
-        if (code !== 0)
+        if (code !== 0 && code !== localLearning.ANALYSIS_DEFERRED_EXIT_CODE)
           session.stderr.write(
             `replica-learning mcp: analysis did not complete successfully (${detail}); a later report can retry it.\n`,
           )

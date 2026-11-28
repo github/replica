@@ -12,6 +12,8 @@ const SCRIPT = fileURLToPath(new URL("../bin/replica-learning.mjs", import.meta.
 const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,98}[A-Za-z0-9])?$/
 // A person may take a while to read a learning, so a form waits longer than a call.
 export const FORM_TIMEOUT_MS = 30 * 60 * 1000
+// EX_TEMPFAIL distinguishes a deferred run from a completed analysis.
+export const ANALYSIS_DEFERRED_EXIT_CODE = 75
 const DONE = { accept: "accepted", reject: "rejected", apply: "applied", dismiss: "dismissed" }
 // The detached launcher preserves the analysis and relays its completion status.
 const LAUNCH = `const [command, ...rest] = process.argv.slice(1)

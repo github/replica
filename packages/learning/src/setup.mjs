@@ -131,12 +131,15 @@ async function appendToGitignore(root) {
  * follows links even when asked not to.
  */
 async function openPlainFile(file, flags, mode) {
-  const notPlain = () => new LearningError("invalid_input", `${file} is not a plain file.`)
-  const entry = () =>
-    lstat(file).catch((error) => {
+  function notPlain() {
+    return new LearningError("invalid_input", `${file} is not a plain file.`)
+  }
+  function entry() {
+    return lstat(file).catch((error) => {
       if (error.code === "ENOENT") return null
       throw error
     })
+  }
   const before = await entry()
   if (before && (!before.isFile() || before.nlink !== 1)) throw notPlain()
   const handle = await open(file, flags | constants.O_CREAT | NO_FOLLOW, mode).catch((error) => {
@@ -145,7 +148,9 @@ async function openPlainFile(file, flags, mode) {
   })
   try {
     const [opened, after] = await Promise.all([handle.stat(), entry()])
-    const same = (other) => other && other.ino === opened.ino && other.dev === opened.dev
+    function same(other) {
+      return other && other.ino === opened.ino && other.dev === opened.dev
+    }
     if (
       !opened.isFile() ||
       opened.nlink !== 1 ||
