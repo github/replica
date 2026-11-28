@@ -131,7 +131,7 @@ async function fixture({
   orphaned = false,
   openedLineage,
   unexpectedReaderGrant = false,
-  revisionReady = true,
+  readyAfterChecks = 1,
   bindFailure,
   conditionDroppedOnApply = false,
   planBlocked = false,
@@ -141,7 +141,8 @@ async function fixture({
   orphaned?: boolean
   openedLineage?: string
   unexpectedReaderGrant?: boolean
-  revisionReady?: boolean
+  // How many readiness checks see the latest revision not ready yet, plus one; Infinity never.
+  readyAfterChecks?: number
   bindFailure?: "rejected" | "never bound"
   conditionDroppedOnApply?: boolean
   planBlocked?: boolean
@@ -217,6 +218,7 @@ async function fixture({
     leases.push(lease)
     return lease
   }
+  let readinessChecks = 0
   const azure = vi.fn(async (...args: string[]) => {
     const operation = args.slice(0, 3).join(" ")
     const value = (flag: string) => args[args.indexOf(flag) + 1]!
@@ -248,8 +250,10 @@ async function fixture({
       if (unexpectedReaderGrant) grants.push(grant(readerPrincipal, "Storage Blob Data Contributor", storageAccountId))
       return JSON.stringify(grants)
     }
-    if (operation === "containerapp show --name")
-      return JSON.stringify({ latest: "reader--2", ready: revisionReady ? "reader--2" : "reader--1" })
+    if (operation === "containerapp show --name") {
+      readinessChecks++
+      return JSON.stringify({ latest: "reader--2", ready: readinessChecks >= readyAfterChecks ? "reader--2" : "reader--1" })
+    }
     if (operation === "containerapp hostname list")
       return JSON.stringify([...live.bindings].map(([name, bindingType]) => ({ name, bindingType })))
     if (operation === "containerapp hostname bind") {
@@ -262,9 +266,10 @@ async function fixture({
   })
   const notice = vi.fn()
   const newSecret = vi.fn(async () => readerSecret)
+  const status = vi.fn()
   const prepare = (inputs: Record<string, unknown>, resolver?: DnsResolver) =>
     preparePrivatePreview(
-      { config, directory, run: vi.fn(), azure, env: {}, ui: { status: vi.fn(), notice, confirm: vi.fn(), wait: vi.fn() } },
+      { config, directory, run: vi.fn(), azure, env: {}, ui: { status, notice, confirm: vi.fn(), wait: vi.fn() } },
       {
         image: `registry.azurecr.io/replica-hub@sha256:${"a".repeat(64)}`,
         foundation: { vault_id: vaultId, vault_url: "https://samplevault.vault.azure.net/", registry_id: registryId, registry_url: "registry.azurecr.io" },
@@ -281,12 +286,15 @@ async function fixture({
         },
         inputs,
         readerSecret: newSecret,
+        // Keep every case off the real ten-second polling delay.
+        readiness: { attempts: 3, delayMs: 0 },
         lock: { verify: vi.fn() },
         resolver: resolver ?? { cname: async () => [], txt: async () => [] },
       },
     )
   const uploads = () => azure.mock.calls.filter((call) => call.slice(0, 3).join(" ") === "storage blob upload")
-  return { prepare, applied, inits, leases, uploads, azure, notice, newSecret }
+  const readiness = () => readinessChecks
+  return { prepare, applied, inits, leases, uploads, azure, notice, newSecret, status, readiness }
 }
 
 describe("preparePrivatePreview", () => {
@@ -527,14 +535,25 @@ describe("preparePrivatePreview", () => {
     expect(notes).toMatch(/Hub playback stays off; run Update again/)
   })
 
-  it("keeps Hub playback off while the reader revision is not ready", async () => {
-    const { prepare } = await fixture({ choice: on(), revisionReady: false })
+  it("keeps Hub playback off when the reader revision is still not ready after every check", async () => {
+    const { prepare, readiness } = await fixture({ choice: on(), readyAfterChecks: Infinity })
 
     const prepared = await prepare(generatedHub)
     const notes = (await prepared.finish()).join("\n")
 
+    expect(readiness()).toBe(3)
     expect(prepared.inputs).toEqual(generatedHub)
     expect(notes).toMatch(/revision is not ready/)
+  })
+
+  it("waits for the reader revision and turns on Hub playback once it is ready", async () => {
+    const { prepare, readiness, status } = await fixture({ choice: on(), readyAfterChecks: 2 })
+
+    const prepared = await prepare(generatedHub)
+
+    expect(readiness()).toBe(2)
+    expect(status).toHaveBeenCalledWith(expect.stringMatching(/^Waiting for the reader revision/))
+    expect(prepared.inputs.runtime_environment_variables).toMatchObject({ HUB_PRIVATE_PREVIEW_ENABLED: "true" })
   })
 
   it.each(["rejected", "never bound"] as const)(

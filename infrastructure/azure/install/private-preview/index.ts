@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 
 import { writePrivateFile } from "../../../installer/private-files/index.ts"
 import { terraformModule } from "../../../terraform/index.ts"
@@ -57,6 +58,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     readerSecret,
     lock,
     resolver = systemResolver,
+    readiness = { attempts: 30, delayMs: 10_000 },
   }: {
     image: string
     foundation: Foundation
@@ -65,6 +67,8 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     readerSecret(): Promise<SecretReference>
     lock: { verify(): Promise<void> }
     resolver?: DnsResolver
+    // A new revision usually becomes ready within a few minutes of apply.
+    readiness?: { attempts: number; delayMs: number }
   },
 ): Promise<{ inputs: T; finish(): Promise<string[]> }> {
   const { config, directory, run, ui, signal } = context
@@ -273,11 +277,19 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
     const reader = await output()
     const records = recordsFor(reader)
     const readerOrigin = reader.origin ?? block("Terraform did not report the reader origin.")
-    const status = (await read(
-      "containerapp", "show", "--name", previewName, "--resource-group", previewName,
-      "--query", "{latest:properties.latestRevisionName,ready:properties.latestReadyRevisionName}",
-    )) as { latest?: unknown; ready?: unknown }
-    const ready = typeof status.latest === "string" && status.latest === status.ready
+    const readerReady = async () => {
+      const status = (await read(
+        "containerapp", "show", "--name", previewName, "--resource-group", previewName,
+        "--query", "{latest:properties.latestRevisionName,ready:properties.latestReadyRevisionName}",
+      )) as { latest?: unknown; ready?: unknown }
+      return typeof status.latest === "string" && status.latest === status.ready
+    }
+    let ready = await readerReady()
+    for (let attempt = 1; !ready && attempt < readiness.attempts; attempt++) {
+      if (attempt === 1) ui.status("Waiting for the reader revision to become ready")
+      await delay(readiness.delayMs, undefined, { signal })
+      ready = await readerReady()
+    }
     const boundNow = bound || current.boundHostname === choice.hostname
     const targetOrigin = choice.hostname ? `https://${choice.hostname}` : `https://${reader.generated_hostname}`
     if (choice.hostname && !boundNow && !target.bind_custom_hostname && records) {
