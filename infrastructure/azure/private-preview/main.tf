@@ -403,13 +403,14 @@ resource "azurerm_role_assignment" "writer" {
 }
 
 output "reader" {
-  # The verification ID is published in DNS, so it is not secret.
+  # The verification ID is published in DNS, so it is not secret. try() keeps imports working
+  # before the moved blocks have been applied to state from the earlier preparation step.
   description = "Reader coordinates and the DNS values for a custom hostname. No credentials are emitted."
   value = {
     mode                          = var.reader
     origin                        = local.enabled ? local.reader_origin : null
-    generated_hostname            = local.enabled ? azurerm_container_app.reader[0].ingress[0].fqdn : null
-    custom_domain_verification_id = local.enabled ? nonsensitive(azurerm_container_app.reader[0].custom_domain_verification_id) : null
+    generated_hostname            = local.enabled ? try(azurerm_container_app.reader[0].ingress[0].fqdn, null) : null
+    custom_domain_verification_id = local.enabled ? try(nonsensitive(azurerm_container_app.reader[0].custom_domain_verification_id), null) : null
     app_name                      = local.reader_name
     resource_group                = azurerm_resource_group.reader.name
     environment_id                = azurerm_container_app_environment.reader.id
