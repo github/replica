@@ -324,6 +324,33 @@ describe("recurrence consolidator", () => {
     )
   })
 
+  it("drops a label once a later reassessment of another copy of the comment finds none", async () => {
+    const input = view([
+      { by: "ana-designer", prototype: 1 },
+      { by: "ana-designer", prototype: 1, labels: [] },
+    ])
+    for (const episode of input.episodes) {
+      episode.source.repositoryId = 42
+      episode.source.threadId = 101
+    }
+    const [original, copy] = input.events.filter((event) => event.type === "human_comment")
+    copy.payload.commentId = original.payload.commentId
+    input.events.push({
+      id: "ev_nolabel",
+      episodeId: copy.episodeId,
+      scope,
+      type: "no_annotation",
+      at: "2026-10-09T00:00:00.000000Z",
+      actor: { kind: "agent", id: "agent:copilot" },
+      parentEventId: copy.id,
+      payload: { target: { eventId: copy.id } },
+    })
+
+    const result = await run({ minReviewers: 1, minPrototypes: 1, minEpisodes: 1 }, input)
+
+    assert.deepEqual(result.proposals, [])
+  })
+
   it("gives the same proposals for the same evidence in any order", async () => {
     const input = view([
       {

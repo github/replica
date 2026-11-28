@@ -33,6 +33,7 @@ const SIGNALS = [
   "other",
 ]
 const OBSERVATIONS = ["observed", "preference", "question", "praise", "other"]
+const JUDGMENTS = ["annotation", "no_annotation"]
 
 /**
  * Proposes a learning for each labeled theme that recurs across distinct threads, prototypes,
@@ -100,9 +101,11 @@ export function createRecurrenceConsolidator(options = {}) {
           .filter((event) => FEEDBACK_TYPES.includes(event?.type))
           .map((event) => `${commentKey(event, episodes)}\u0000${event.actor.id}`),
       )
+      // No-label judgments compete too, so a reassessment of one copy of a comment, such as
+      // one kept by a repository migration, retires a label left on another copy.
       const latestLabels = new Map()
       for (const event of view.events) {
-        if (event.type !== "annotation" || superseded.has(event.id)) continue
+        if (!JUDGMENTS.includes(event.type) || superseded.has(event.id)) continue
         const target = events.get(event.payload.target.eventId)
         if (!target) continue
         const key = `${commentKey(target, episodes)}\u0000${event.actor.id}`
@@ -114,7 +117,10 @@ export function createRecurrenceConsolidator(options = {}) {
         if (previous && previous.at === event.at) {
           const payload = without(event.payload, "target")
           const previousPayload = without(previous.payload, "target")
-          if (canonicalJson(payload) !== canonicalJson(previousPayload))
+          if (
+            event.type !== previous.type ||
+            canonicalJson(payload) !== canonicalJson(previousPayload)
+          )
             throw new LearningError(
               "conflict",
               "The same labeler recorded conflicting labels at the same time.",
@@ -128,6 +134,7 @@ export function createRecurrenceConsolidator(options = {}) {
       const themes = new Map()
       let edited = 0
       for (const label of latestLabels.values()) {
+        if (label.type !== "annotation") continue
         const target = events.get(label.payload.target.eventId)
         if (feedbackText(target) === null) continue
         if (

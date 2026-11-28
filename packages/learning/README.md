@@ -215,7 +215,7 @@ For database checks, point `REPLICA_LEARNING_TEST_DATABASE_URL` at a dedicated d
 
 ## Label with Copilot
 
-`replica-learning label` with no file labels every comment the labeler has not been asked about, then reports how many it labeled and what Copilot reported it cost. Add `--relabel` to ask about those comments again; new labels supersede earlier judgments by the same labeler. The built-in labeler uses the [Copilot SDK](https://github.com/github/copilot-sdk), an optional dependency that `npm ci` installs:
+`replica-learning label` with no file labels every comment the labeler has not been asked about, then reports how many it labeled and what Copilot reported it cost. Add `--relabel` to ask about those comments again; new labels supersede earlier judgments by the same labeler. A reassessment that finds no label stops the earlier label from counting, even when a repository migration kept it on another copy of the comment. The built-in labeler uses the [Copilot SDK](https://github.com/github/copilot-sdk), an optional dependency that `npm ci` installs:
 
 - Copilot sees only comments the review purpose may use now, grouped in their threads, without who wrote them, plus the theme keys already in use so it reuses them.
 - Copilot is asked about each comment once. When it gives a comment no label, or a label the contract refuses, the store records a `no_annotation` event for that labeler, so it is not asked about that comment again. It can still see the comment as context when asked about another comment in the same thread. An edited comment is a new version and is asked about again.
