@@ -173,7 +173,7 @@ it("rechecks SKU support on resume and reselects an incompatible draft region wi
   expect(prerequisitePhases).toEqual(["checks"])
   expect(checkpointPhases).toEqual(["checks"])
   expect(resumed.field).not.toHaveBeenCalled()
-  expect(resumed.select).toHaveBeenCalledTimes(2)
+  expect(resumed.select).toHaveBeenCalledOnce()
   expect(run.mock.calls.some(([, args]) => args[0] === "account" && args[1] === "list")).toBe(true)
   expect(run.mock.calls.some(([, args]) => args[0] === "rest")).toBe(true)
   expect(run.mock.calls.filter(([, args]) => args[0] === "provider")).toHaveLength(4)

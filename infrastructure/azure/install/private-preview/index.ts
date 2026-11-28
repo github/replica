@@ -16,10 +16,10 @@ import {
 } from "./dns/index.ts"
 import { verifyPreviewGrants } from "./grants/index.ts"
 import {
+  checkPrivatePreviewChoice,
   hubOrigin,
   hubPreviewInputs,
   hubTrustedProxyHops,
-  sameSiteHosts,
   type HubPreviewInputs,
 } from "./hub-environment/index.ts"
 import { allowedPreviewDeletion, validatePrivatePreviewPlan } from "./plan/index.ts"
@@ -106,19 +106,7 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
 
   const origin = hubOrigin(inputs)
   const hops = hubTrustedProxyHops(inputs)
-  if (choice.reader === "on") {
-    if (!origin || !hops)
-      return block(
-        "turning on the private prototype service needs Hub's sign-in settings. Run npm run setup:post to configure sign-in, including HUB_APPLICATION_ORIGIN and HUB_TRUSTED_PROXY_HOPS, then run Update again. No changes were made.",
-      )
-    const hubHost = new URL(origin).hostname
-    if (choice.hostname ? !sameSiteHosts(hubHost, choice.hostname) : !hubHost.endsWith(".azurecontainerapps.io"))
-      block(
-        choice.hostname
-          ? `${choice.hostname} must be a hostname under Hub's hostname ${hubHost}, such as preview.${hubHost}. No changes were made.`
-          : `Hub uses ${hubHost}, so the reader needs a custom hostname under it, such as preview.${hubHost}. No changes were made.`,
-      )
-  }
+  checkPrivatePreviewChoice(choice, inputs)
 
   const guard = await guardPreviewState({ azure: context.azure, directory, target: stateTarget, resourcesExist })
   let releaseLock: Awaited<ReturnType<typeof acquireLease>> | undefined
@@ -196,7 +184,12 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       )
       return false
     }
-    return (await binding()) === "SniEnabled"
+    if ((await binding()) === "SniEnabled") return true
+    ui.notice?.(
+      "warning",
+      `Azure accepted ${hostname} but has not bound its certificate yet. Hub playback stays off. Run Update again later.`,
+    )
+    return false
   }
   const expectedGrants = (variables: PreviewVariables, readerPrincipalId: string) => ({
     subscriptionId,
@@ -286,7 +279,9 @@ export async function preparePrivatePreview<T extends HubPreviewInputs>(
       expandHub.origin !== origin || expandHub.hops !== hops
     ) {
       notes.push(
-        `The reader moves to ${targetOrigin} after this release. Hub playback stays off; run Update again to turn it on.`,
+        target.bind_custom_hostname && expand.bind_custom_hostname
+          ? `The certificate for ${choice.hostname} is not bound yet. Hub playback stays off; run Update again later.`
+          : `The reader moves to ${targetOrigin} after this release. Hub playback stays off; run Update again to turn it on.`,
       )
     } else if (!ready) {
       notes.push("The reader revision is not ready yet. Hub playback stays off; run Update again to recheck.")

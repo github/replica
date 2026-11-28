@@ -6,6 +6,12 @@ import type { WizardSession } from "../session/index.ts"
 import { formatDeploymentSummary } from "../deployment-summary/index.ts"
 import { createPostgresAvailability } from "../../azure/install/postgres-availability/index.ts"
 import { askPrivatePreview } from "../private-preview-choice/index.ts"
+import { installationWorkspace } from "../workspace/index.ts"
+import { readInstallationInputs } from "../../azure/install/inputs/index.ts"
+import {
+  checkPrivatePreviewChoice,
+  PrivatePreviewChoiceError,
+} from "../../azure/install/private-preview/hub-environment/index.ts"
 
 export async function runWizard({
   ui,
@@ -116,10 +122,21 @@ export async function runWizard({
     )
   }
   // Resuming a started deployment keeps the saved choice instead of changing its target.
-  const privatePreview =
-    entryAction === "resume" && existing
-      ? existing.privatePreview
-      : await askPrivatePreview(ui, existing?.privatePreview)
+  let privatePreview = existing?.privatePreview
+  if (!(entryAction === "resume" && existing)) {
+    const inputs = await readInstallationInputs(installationWorkspace(config, directory), config)
+    // Ask again until the choice fits Hub's saved settings, so a saved choice never blocks Resume.
+    while (true) {
+      privatePreview = await askPrivatePreview(ui, privatePreview, { firstInstall: !existing })
+      try {
+        checkPrivatePreviewChoice(privatePreview, inputs)
+        break
+      } catch (error) {
+        if (!(error instanceof PrivatePreviewChoiceError)) throw error
+        ui.notice?.("error", error.message)
+      }
+    }
+  }
   // The default needs no saved setting, so earlier configurations stay unchanged.
   if (
     privatePreview &&

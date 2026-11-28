@@ -66,6 +66,33 @@ export function hubPreviewInputs<T extends HubPreviewInputs>(
   return next
 }
 
+export class PrivatePreviewChoiceError extends Error {}
+
+// Checks a choice against saved Hub inputs; setup runs it before any Azure change.
+export function checkPrivatePreviewChoice(
+  choice: { reader: string; hostname?: string } | undefined,
+  inputs: HubPreviewInputs,
+): void {
+  if (choice?.reader !== "on") return
+  const block = (reason: string): never => {
+    throw new PrivatePreviewChoiceError(
+      `Private preview blocked: ${reason} The private prototype service was not changed.`,
+    )
+  }
+  const origin = hubOrigin(inputs)
+  if (!origin || !hubTrustedProxyHops(inputs))
+    block(
+      "turning on the private prototype service needs Hub's sign-in settings. Choose Off, run npm run setup:post to configure sign-in, including HUB_APPLICATION_ORIGIN and HUB_TRUSTED_PROXY_HOPS, then run Update and choose On.",
+    )
+  const hubHost = new URL(origin!).hostname
+  if (choice.hostname ? !sameSiteHosts(hubHost, choice.hostname) : !hubHost.endsWith(".azurecontainerapps.io"))
+    block(
+      choice.hostname
+        ? `${choice.hostname} must be a hostname under Hub's hostname ${hubHost}, such as preview.${hubHost}.`
+        : `Hub uses ${hubHost}, so the reader needs a custom hostname under it, such as preview.${hubHost}.`,
+    )
+}
+
 export function hubOrigin(inputs: HubPreviewInputs): string | undefined {
   if (inputs.runtime_secret_references?.HUB_APPLICATION_ORIGIN) return undefined
   return inputs.hub_application_origin ?? inputs.runtime_environment_variables?.HUB_APPLICATION_ORIGIN

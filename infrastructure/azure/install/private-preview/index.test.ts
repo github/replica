@@ -131,12 +131,18 @@ async function fixture({
   orphaned = false,
   openedLineage,
   unexpectedReaderGrant = false,
+  revisionReady = true,
+  bindFailure,
+  conditionDroppedOnApply = false,
 }: {
   choice?: PrivatePreviewChoice
   current?: Current
   orphaned?: boolean
   openedLineage?: string
   unexpectedReaderGrant?: boolean
+  revisionReady?: boolean
+  bindFailure?: "rejected" | "never bound"
+  conditionDroppedOnApply?: boolean
 }) {
   const directory = resolve(`.preview-prepare-test-${randomUUID()}`)
   directories.push(directory)
@@ -185,7 +191,7 @@ async function fixture({
       const variables = JSON.parse(await readFile(file, "utf8")) as Variables
       applied.push(variables)
       live.reader = variables.reader
-      live.unconditioned = false
+      live.unconditioned = conditionDroppedOnApply
       live.writer = variables.writer_principal_id !== null
       live.secret = variables.reader === "enabled" && variables.reader_secret !== null
       live.hostname = variables.reader === "enabled" ? variables.custom_hostname : null
@@ -236,10 +242,13 @@ async function fixture({
       if (unexpectedReaderGrant) grants.push(grant(readerPrincipal, "Storage Blob Data Contributor", storageAccountId))
       return JSON.stringify(grants)
     }
-    if (operation === "containerapp show --name") return JSON.stringify({ latest: "reader--1", ready: "reader--1" })
+    if (operation === "containerapp show --name")
+      return JSON.stringify({ latest: "reader--2", ready: revisionReady ? "reader--2" : "reader--1" })
     if (operation === "containerapp hostname list")
       return JSON.stringify([...live.bindings].map(([name, bindingType]) => ({ name, bindingType })))
     if (operation === "containerapp hostname bind") {
+      if (bindFailure === "rejected") throw new Error("Certificate validation failed")
+      if (bindFailure === "never bound") return ""
       live.bindings.set(value("--hostname"), "SniEnabled")
       return ""
     }
@@ -270,7 +279,7 @@ async function fixture({
       },
     )
   const uploads = () => azure.mock.calls.filter((call) => call.slice(0, 3).join(" ") === "storage blob upload")
-  return { prepare, applied, inits, leases, uploads, azure }
+  return { prepare, applied, inits, leases, uploads, azure, notice }
 }
 
 describe("preparePrivatePreview", () => {
@@ -491,6 +500,43 @@ describe("preparePrivatePreview", () => {
     expect(applied[1]).toMatchObject({ hub_application_origin: playingHub.hub_application_origin, trusted_proxy_hops: 1 })
     expect(applied).toHaveLength(2)
     expect(notes).toMatch(/Hub playback stays off; run Update again/)
+  })
+
+  it("keeps Hub playback off while the reader revision is not ready", async () => {
+    const { prepare } = await fixture({ choice: on(), revisionReady: false })
+
+    const prepared = await prepare(generatedHub)
+    const notes = (await prepared.finish()).join("\n")
+
+    expect(prepared.inputs).toEqual(generatedHub)
+    expect(notes).toMatch(/revision is not ready/)
+  })
+
+  it.each(["rejected", "never bound"] as const)(
+    "keeps Hub playback off when the certificate binding is %s",
+    async (bindFailure) => {
+      const hostname = "preview.replica.coreai.design"
+      const { prepare, notice } = await fixture({ choice: on({ hostname }), current: { reader: "enabled" }, bindFailure })
+
+      const prepared = await prepare(customHub, dnsReady)
+      const notes = (await prepared.finish()).join("\n")
+
+      expect(prepared.inputs).toEqual(customHub)
+      expect(notes).toContain(`certificate for ${hostname} is not bound yet`)
+      expect(notes).not.toMatch(/moves to/)
+      expect(notice).toHaveBeenCalledWith("warning", expect.stringMatching(new RegExp(`${hostname}.*certificate|certificate.*${hostname}`)))
+    },
+  )
+
+  it("stops before the Hub release and keeps the release lock when a grant is wrong after apply", async () => {
+    const { prepare, applied, leases } = await fixture({ current: { reader: "disabled" }, conditionDroppedOnApply: true })
+
+    await expect(prepare(generatedHub)).rejects.toThrow(/does not deny blob listing/)
+
+    expect(applied).toHaveLength(1)
+    expect(leases).toHaveLength(1)
+    expect(leases[0]!.release).not.toHaveBeenCalled()
+    expect(leases[0]!.reportRetained).toHaveBeenCalled()
   })
 
   it("blocks before any apply when the reader has a grant the wizard does not manage", async () => {

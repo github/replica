@@ -32,9 +32,15 @@ async function ask<T>(
 export async function askPrivatePreview(
   ui: WizardUI,
   saved: PrivatePreviewChoice | undefined,
+  { firstInstall = false }: { firstInstall?: boolean } = {},
 ): Promise<PrivatePreviewChoice> {
   const current = saved?.reader ?? "off"
-  const reader = (await ui.select(
+  // The reader needs Hub's sign-in settings, which exist only after the first release.
+  if (firstInstall)
+    ui.status(
+      "The private prototype service reader stays off on a new installation. After configuring sign-in with npm run setup:post, run Update to turn it on.",
+    )
+  const reader = firstInstall ? "off" : (await ui.select(
     "Private prototype service. Off is the default; turning it on exposes a reader that serves private Builds to signed-in users.",
     [...readerOptions].sort((left, right) => Number(right.value === current) - Number(left.value === current)),
   )) as PrivatePreviewChoice["reader"]

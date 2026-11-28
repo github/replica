@@ -17,6 +17,7 @@ import { deploymentResult } from "./result/index.ts"
 import type { AzureInstallation, DeploymentResult, Foundation, Installation } from "./types.ts"
 import { openInstallationWorkspace } from "./workspace/index.ts"
 import { preparePrivatePreview } from "./private-preview/index.ts"
+import { checkPrivatePreviewChoice } from "./private-preview/hub-environment/index.ts"
 import { readInstallationInputs } from "./inputs/index.ts"
 import { approveDeployment } from "./approval/index.ts"
 import { retryableProvisioningFailure } from "./retryable-provisioning-failure/index.ts"
@@ -90,6 +91,7 @@ async function install(
   },
 ): Promise<DeploymentResult> {
   const operatorInputs = await readInstallationInputs(directory, config)
+  checkPrivatePreviewChoice(config.privatePreview, operatorInputs)
   const postgres = {
     postgres_sku: operatorInputs.postgres_sku ?? guidedPostgresProfile.postgres_sku,
     postgres_version: operatorInputs.postgres_version ?? guidedPostgresProfile.postgres_version,

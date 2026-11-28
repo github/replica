@@ -58,7 +58,6 @@ variable "storage_account_id" {
   }
 }
 
-
 variable "image" {
   type = string
   validation {

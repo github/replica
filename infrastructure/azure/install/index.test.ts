@@ -373,6 +373,20 @@ it("rejects an already cancelled installation before commands, approval, or work
   expect(await readdir(s.directory)).toEqual([])
 })
 
+it("blocks a saved private preview reader without Hub sign-in settings before approval or cloud changes", async () => {
+  const s = await scenario()
+  s.config.privatePreview = { reader: "on", inline: false, writerRepositoryIds: [] }
+  s.ui.confirm = vi.fn(async () => true)
+  const availability = vi.fn<PostgresAvailability>(async () => true)
+
+  await expect(installAzure(s.config, { ...s, availability })).rejects.toThrow(/^Private preview blocked: .*sign-in settings/)
+
+  // Only the read-only target check runs before installation inputs are read.
+  expect(s.events.map(({ command }) => command.slice(0, 3))).toEqual([["az", "account", "show"]])
+  expect(availability).not.toHaveBeenCalled()
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+})
+
 it("stops after cancellation during compatibility lookup before approval or cloud mutation", async () => {
   const s = await scenario()
   const controller = new AbortController()
