@@ -2107,20 +2107,59 @@ async function serveMcp(session) {
       updates,
     }
   }
-  // Commits whose analysis this server started. A retried report for one of them
-  // needs no second run, but a new report or one this server never analyzed does.
-  const analyzedCommits = new Set()
+  // Cache only successful runs; a distinct report advances that commit's generation.
+  const analyzedCommits = new Map()
+  const analysisGenerations = new Map()
+  const activeAnalyses = new Map()
   /** Starts the labeling, consolidating, and scoring a person would otherwise run. */
-  function analyzeLater(commitSha) {
-    if (session.values.manual || analyzedCommits.has(commitSha)) return
+  function analyzeLater(commitSha, { force = false } = {}) {
+    if (session.values.manual) return
+    let generation
+    if (commitSha) {
+      generation = analysisGenerations.get(commitSha) ?? 0
+      if (force) {
+        generation += 1
+        analysisGenerations.set(commitSha, generation)
+      } else if (
+        analyzedCommits.get(commitSha) === generation ||
+        activeAnalyses.get(commitSha)?.has(generation)
+      ) {
+        return
+      }
+    }
     try {
-      session.startAnalysis({
+      const started = session.startAnalysis({
         cwd: session.cwd,
         env: session.env,
         dataDirectory: session.environment.dataDirectory,
         args: [...storeArguments(session), ...(commitSha ? ["--commit", commitSha] : [])],
       })
-      if (commitSha) analyzedCommits.add(commitSha)
+      if (!commitSha) return
+      if (!started || typeof started.once !== "function") {
+        analyzedCommits.set(commitSha, generation)
+        return
+      }
+      const active = activeAnalyses.get(commitSha) ?? new Set()
+      active.add(generation)
+      activeAnalyses.set(commitSha, active)
+      let finished = false
+      const finish = (code, detail) => {
+        if (finished) return
+        finished = true
+        active.delete(generation)
+        if (active.size === 0) activeAnalyses.delete(commitSha)
+        if (code === 0 && (analysisGenerations.get(commitSha) ?? 0) === generation)
+          analyzedCommits.set(commitSha, generation)
+        else if (analyzedCommits.get(commitSha) === generation) analyzedCommits.delete(commitSha)
+        if (code !== 0)
+          session.stderr.write(
+            `replica-learning mcp: analysis did not complete successfully (${detail}); a later report can retry it.\n`,
+          )
+      }
+      started.once("error", (error) => finish(undefined, error.message))
+      started.once("close", (code, signal) =>
+        finish(code, signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`),
+      )
     } catch (error) {
       session.stderr.write(`replica-learning mcp: analysis did not start: ${error.message}\n`)
     }
@@ -2165,8 +2204,7 @@ async function serveMcp(session) {
           }),
         )
         // The running analysis may have read this commit's reports already.
-        if (result.stored) analyzedCommits.delete(report.commitSha)
-        analyzeLater(report.commitSha)
+        analyzeLater(report.commitSha, { force: result.stored })
         return result
       },
       submitSession: async (input) => {

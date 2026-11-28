@@ -13,20 +13,20 @@ const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,98}[A-Za-z0-9])?$/
 // A person may take a while to read a learning, so a form waits longer than a call.
 export const FORM_TIMEOUT_MS = 30 * 60 * 1000
 const DONE = { accept: "accepted", reject: "rejected", apply: "applied", dismiss: "dismissed" }
-// Starts the command in its arguments and exits, so that command has no living parent.
+// The detached launcher preserves the analysis and relays its completion status.
 const LAUNCH = `const [command, ...rest] = process.argv.slice(1)
-require("node:child_process")
+const child = require("node:child_process")
   .spawn(command, rest, { detached: true, stdio: "inherit" })
-  .on("error", () => {})
-  .unref()`
+child.on("error", () => { process.exitCode = 1 })
+child.on("close", (code) => { process.exitCode = code ?? 1 })`
 
 /**
  * Starts `replica-learning analyze` as its own process, so it finishes even when the
  * agent session that asked for it ends first. Its output goes to analysis.log in the
  * data directory, so a person can see what it did and what Copilot usage it spent.
  *
- * A short-lived middle process starts it. Copilot CLI stops an MCP server's whole
- * process tree when a session ends, and that would stop a direct child mid-analysis.
+ * A detached middle process keeps it running if Copilot CLI stops the server's process
+ * tree when the session ends. It also relays the exit status while the server is alive.
  *
  * @param {{ cwd: string, env: object, dataDirectory: string, args: string[] }} options
  */
@@ -45,6 +45,7 @@ export function startAnalysis({ cwd, env, dataDirectory, args }) {
     )
     child.on("error", () => {})
     child.unref()
+    return child
   } finally {
     closeSync(log)
   }

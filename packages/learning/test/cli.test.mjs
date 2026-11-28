@@ -140,7 +140,7 @@ async function learnFromReviews(repo, { team = true } = {}) {
  * client answers each form the server shows with the next of formAnswers, as a person
  * would, and records the forms it was shown. Analysis is recorded instead of started.
  */
-async function connect(repo, args, { formAnswers } = {}) {
+async function connect(repo, args, { formAnswers, startAnalysis } = {}) {
   const stdin = new PassThrough()
   const replies = new Map()
   const forms = []
@@ -175,7 +175,7 @@ async function connect(repo, args, { formAnswers } = {}) {
     stdout,
     stderr: { write: (text) => (errors += text) },
     clock: () => CLOCK,
-    startAnalysis: (options) => analyses.push(options.args),
+    startAnalysis: startAnalysis ?? ((options) => analyses.push(options.args)),
   })
   // Fail instead of waiting forever when the server stops early, such as when the
   // optional MCP SDK is not installed.
@@ -1965,6 +1965,70 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(readdirSync(evidence).filter((name) => name.endsWith(".png")).length, 1)
   })
 
+  it("retries a report's analysis after failure but deduplicates active and successful runs", async () => {
+    const repo = checkout("mcp-analysis-retry")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const analyses = []
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      startAnalysis: ({ args }) => {
+        const listeners = new Map()
+        const launcher = {
+          once(event, listener) {
+            listeners.set(event, listener)
+            return this
+          },
+        }
+        analyses.push({
+          args,
+          close(code, signal) {
+            listeners.get("close")?.(code, signal)
+          },
+        })
+        return launcher
+      },
+    })
+    const guidance = (await mcp.call("get_guidance", { task: "Build the form" })).data
+    const report = {
+      reportId: "retry-analysis",
+      guidanceIds: [guidance.guidanceId],
+      commitSha: "b".repeat(40),
+      used: guidance.learnings.map(({ deliveryId }) => ({ deliveryId })),
+    }
+
+    assert.equal((await mcp.call("report_usage", report)).data.stored, true)
+    assert.equal(analyses.length, 1)
+    assert.equal((await mcp.call("report_usage", report)).data.stored, false)
+    assert.equal(analyses.length, 1)
+
+    analyses[0].close(1)
+    await setTimeout(0)
+    assert.equal((await mcp.call("report_usage", report)).data.stored, false)
+    assert.equal(analyses.length, 2)
+    assert.equal((await mcp.call("report_usage", report)).data.stored, false)
+    assert.equal(analyses.length, 2)
+
+    analyses[1].close(0)
+    await setTimeout(0)
+    assert.equal((await mcp.call("report_usage", report)).data.stored, false)
+    assert.equal(analyses.length, 2)
+    assert.deepEqual(
+      analyses.map(({ args }) => args),
+      [
+        ["--commit", "b".repeat(40)],
+        ["--commit", "b".repeat(40)],
+      ],
+    )
+    assert.equal(await mcp.close(), 0)
+  })
+
   it("refuses MCP writes when a learning store file is already tracked", async () => {
     const repo = checkout("mcp-tracked-store")
     const grant = (
@@ -2605,15 +2669,20 @@ describe("startAnalysis()", () => {
     after(() => rmSync(root, { recursive: true, force: true }))
     const log = path.join(root, "data", "analysis.log")
 
-    startAnalysis({
+    const launcher = startAnalysis({
       cwd: root,
       env: process.env,
       dataDirectory: path.join(root, "data"),
       args: ["--repository", "octo/demo"],
     })
+    const finished = new Promise((resolve, reject) => {
+      launcher.once("error", reject)
+      launcher.once("close", (code, signal) => resolve({ code, signal }))
+    })
 
     const deadline = Date.now() + 10_000
     while (!readFileSync(log, "utf8") && Date.now() < deadline) await setTimeout(50)
     assert.match(readFileSync(log, "utf8"), /--repository needs --dir/)
+    assert.deepEqual(await finished, { code: 1, signal: null })
   })
 })
