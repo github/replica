@@ -42,6 +42,19 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
                 </Text>
                 <strong>{data.repository}</strong>
               </div>
+              {data.branch ? (
+                <div className="canvas-pairings__repository">
+                  <Text as="span" className="canvas-pairings__label">
+                    {data.branchLabel}
+                  </Text>
+                  <strong>{data.branch}</strong>
+                </div>
+              ) : null}
+              {data.approvalDeadline ? (
+                <Text as="p" className="canvas-pairings__explanation">
+                  {data.approvalDeadline}
+                </Text>
+              ) : null}
               <Text as="p" className="canvas-pairings__explanation">
                 {data.permissions}
               </Text>
@@ -52,18 +65,31 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
 
               <form action={data.approvePath} method="post" className="canvas-pairings__actions">
                 <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-                <input
-                  type="hidden"
-                  name="learnings_consent_version"
-                  value={data.learningsConsentVersion}
-                />
+                {data.learningsConsentVersion ? (
+                  <input
+                    type="hidden"
+                    name="learnings_consent_version"
+                    value={data.learningsConsentVersion}
+                  />
+                ) : null}
                 <Button type="submit" variant="primary">
                   {data.approveLabel}
                 </Button>
-                <Button as="a" href={data.cancelPath} variant="secondary">
-                  {data.cancelLabel}
-                </Button>
+                {!data.cancelMethod ? (
+                  <Button as="a" href={data.cancelPath} variant="secondary">
+                    {data.cancelLabel}
+                  </Button>
+                ) : null}
               </form>
+              {data.cancelMethod ? (
+                <form action={data.cancelPath} method="post">
+                  <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+                  <input type="hidden" name="_method" value={data.cancelMethod} />
+                  <Button type="submit" variant="secondary">
+                    {data.cancelLabel}
+                  </Button>
+                </form>
+              ) : null}
             </>
           ) : (
             <>
@@ -74,6 +100,7 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
                     <li key={grant.id} className="canvas-pairings__grant">
                       <div>
                         <strong>{grant.repository}</strong>
+                        {grant.branch ? <Text as="p">{grant.branch}</Text> : null}
                         <Text as="p" className="canvas-pairings__explanation">
                           {grant.expiresLabel}
                         </Text>

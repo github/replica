@@ -117,9 +117,13 @@ class Analytics::Transport
   def segment_payload(event)
     payload = {
       event: event.name, messageId: event.uuid, timestamp: event.occurred_at.iso8601(6),
-      properties: event.properties
+      properties: event.properties.merge("actor_type" => event.actor_kind)
     }
-    event.actor_id ? payload.merge(userId: event.actor_id) : payload.merge(anonymousId: "system/#{event.uuid}")
+    if event.actor_kind == "person"
+      payload.merge(userId: event.actor_id)
+    else
+      payload.merge(anonymousId: event.actor_id || "system/#{event.uuid}")
+    end
   end
 
   # Supplies the import API's required identity, time, and deduplication fields.
@@ -129,7 +133,7 @@ class Analytics::Transport
       properties: event.properties.merge(
         "time" => event.occurred_at.to_i,
         "distinct_id" => event.actor_id || "system/#{event.uuid}",
-        "actor_type" => event.actor_id ? "person" : "system",
+        "actor_type" => event.actor_kind,
         "$insert_id" => event.uuid,
         "ip" => 0
       )

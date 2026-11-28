@@ -96,6 +96,21 @@ describe("PrototypeAuthorFilter()", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument()
   })
 
+  it("selects automation independently of human author searches", () => {
+    const onChange = vi.fn()
+    render(
+      <PrototypeAuthorFilter
+        listing={{ ...prototypeListing, author: "automation", authorLabel: "Automation" }}
+        onChange={onChange}
+        onSearch={vi.fn(() => Promise.resolve({ authors: [], nextCursor: null }))}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Author: Automation" }))
+    const choice = screen.getByRole("menuitemradio", { name: "Automation", checked: true })
+    fireEvent.keyDown(choice, { key: "Enter" })
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("automation")
+  })
+
   it("reports lookup failures and retries without losing the pinned Me option", async () => {
     const onSearch = vi
       .fn(() => Promise.resolve({ authors: [], nextCursor: null }))

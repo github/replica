@@ -3,25 +3,26 @@
 # Table name: prototypes
 # Database name: primary
 #
-#  id                        :integer          not null, primary key
-#  branch_deleted_at         :datetime
-#  branch_name               :string           not null
-#  description               :string(500)
-#  first_published_at        :datetime
-#  head_observation_revision :bigint           default(0), not null
-#  local_head_observed_at    :datetime
-#  name                      :string
-#  registered_at             :datetime
-#  replica                   :boolean          default(FALSE), not null
-#  retired_head_sha          :string
-#  start_page                :string(2048)
-#  start_page_import_error   :string
-#  start_page_set_at         :datetime
-#  created_at                :datetime         not null
-#  updated_at                :datetime         not null
-#  author_id                 :integer
-#  current_build_id          :integer
-#  repository_id             :integer          not null
+#  id                              :integer          not null, primary key
+#  branch_deleted_at               :datetime
+#  branch_name                     :string           not null
+#  description                     :string(500)
+#  first_published_at              :datetime
+#  head_observation_revision       :bigint           default(0), not null
+#  local_head_observed_at          :datetime
+#  name                            :string
+#  registered_at                   :datetime
+#  replica                         :boolean          default(FALSE), not null
+#  retired_head_sha                :string
+#  start_page                      :string(2048)
+#  start_page_import_error         :string
+#  start_page_set_at               :datetime
+#  created_at                      :datetime         not null
+#  updated_at                      :datetime         not null
+#  author_id                       :integer
+#  current_build_id                :integer
+#  registration_task_connection_id :integer
+#  repository_id                   :integer          not null
 #
 # Indexes
 #
@@ -31,13 +32,15 @@
 #  index_prototypes_on_current_build_id                           (current_build_id)
 #  index_prototypes_on_gallery_author                             (repository_id,author_id,registered_at,id) WHERE branch_deleted_at IS NULL AND registered_at IS NOT NULL
 #  index_prototypes_on_gallery_order                              (repository_id,registered_at,id) WHERE branch_deleted_at IS NULL AND registered_at IS NOT NULL
+#  index_prototypes_on_registration_task_connection_id            (registration_task_connection_id)
 #  index_prototypes_on_repository_id                              (repository_id)
 #
 # Foreign Keys
 #
-#  [current_build_id, id]  ([current_build_id, id] => builds[id, prototype_id]) ON DELETE => restrict
-#  author_id               (author_id => users.id)
-#  repository_id           (repository_id => repositories.id)
+#  [current_build_id, id]                                         ([current_build_id, id] => builds[id, prototype_id]) ON DELETE => restrict
+#  [registration_task_connection_id, repository_id, branch_name]  ([registration_task_connection_id, repository_id, branch_name] => task_connections[id, repository_id, branch_name]) ON DELETE => restrict
+#  author_id                                                      (author_id => users.id)
+#  repository_id                                                  (repository_id => repositories.id)
 #
 # Check Constraints
 #
@@ -45,6 +48,7 @@
 #  prototypes_description           (description IS NULL OR length(trim(description)) BETWEEN 1 AND 500)
 #  prototypes_name                  (name IS NULL OR length(trim(name)) BETWEEN 1 AND 255)
 #  prototypes_registration          (registered_at IS NULL OR name IS NOT NULL)
+#  prototypes_registration_actor    (registration_task_connection_id IS NULL OR author_id IS NULL)
 #  prototypes_replica_unregistered  (replica = 0 OR registered_at IS NULL)
 #  prototypes_retired_head          (retired_head_sha IS NULL OR (branch_deleted_at IS NOT NULL AND length(retired_head_sha) = 40 AND retired_head_sha NOT GLOB '*[^0-9a-f]*'))
 #  prototypes_start_page            (start_page IS NULL OR (length(CAST(start_page AS BLOB)) BETWEEN 1 AND 2048 AND substr(start_page, 1, 1) = '/' AND substr(start_page, 1, 2) != '//'))
@@ -61,6 +65,7 @@ class Prototype < ApplicationRecord
 
   belongs_to :repository
   belongs_to :author, class_name: "User", optional: true
+  belongs_to :registration_task_connection, class_name: "TaskConnection", optional: true
   belongs_to :current_build, class_name: "Build", optional: true
   has_many :builds
   has_many :branch_banner_dismissals, dependent: :delete_all
@@ -69,6 +74,7 @@ class Prototype < ApplicationRecord
   has_many :improvement_notes, -> { where(root_id: nil) },
     class_name: "ImprovementComment", dependent: :restrict_with_exception
   has_many :share_links, dependent: :restrict_with_exception
+  has_object :task_registration
 
   validates :branch_name, presence: true, length: { maximum: 255 }
   validates :branch_name, uniqueness: { scope: :repository_id, conditions: -> { active } },
@@ -84,20 +90,28 @@ class Prototype < ApplicationRecord
   before_validation :record_start_page_setting, if: :will_save_change_to_start_page?
   validate :start_page_is_local
   validate :first_publication_is_unchanged, on: :update
+  validate :registration_actor_is_valid
   validates :registered_at, absence: true, if: :replica?
 
   # Registers a branch, or edits its metadata unless registration-only intent was supplied.
   def register!(name: self.name, description: self.description, start_page: UNCHANGED_START_PAGE, author: nil,
-    registration_only: false)
+    registration_only: false, registration_task_connection: nil)
     repository.with_lock do
       lock!
       raise ActiveRecord::RecordNotFound unless reviewable?
       return if registration_only && registered?
 
       first_registration = !registered?
+      self.registration_task_connection = registration_task_connection if first_registration && registration_task_connection
 
       unless start_page.equal?(UNCHANGED_START_PAGE)
         assign_attributes(start_page:, start_page_set_at: Time.current, start_page_import_error: nil)
+      end
+
+      if registration_task_connection &&
+          (registration_task_connection.revoked_at || registration_task_connection.expires_at.nil? ||
+            registration_task_connection.expires_at <= Time.current)
+        raise TaskConnection::Unauthorized
       end
 
       update! \
@@ -111,11 +125,20 @@ class Prototype < ApplicationRecord
           repository:,
           name: "prototype_registered",
           source_key: "prototype/#{id}/registered",
-          actor_id: Analytics.actor_id(user: author || Current.user),
+          actor_id: Analytics.actor_id(
+            user: self.registration_task_connection ? nil : author || Current.user,
+            task_connection: self.registration_task_connection
+          ),
+          actor_kind: ("workload" if self.registration_task_connection),
           occurred_at: registered_at,
           properties: { prototype_id: id }
       end
     end
+  end
+
+  # Registers only the explicitly requested imported commit under live task consent.
+  def register_from_task_connection!(connection:, commit_sha:)
+    task_registration.register!(connection:, commit_sha:)
   end
 
   # Remembers first publication after the event itself expires.
@@ -182,6 +205,20 @@ class Prototype < ApplicationRecord
   end
 
   private
+
+  # Keeps workload provenance separate from human attribution and retained across edits.
+  def registration_actor_is_valid
+    if registration_task_connection
+      if author_id || registration_task_connection.repository_id != repository_id ||
+          registration_task_connection.branch_name != branch_name
+        errors.add(:registration_task_connection, "must match the repository branch without a human author")
+      end
+    end
+    if registered_at_in_database.present? &&
+        (will_save_change_to_author_id? || will_save_change_to_registration_task_connection_id?)
+      errors.add(:base, "Registration attribution cannot change.")
+    end
+  end
 
   # Existing prototype metadata does not make a new default branch a prototype.
   def mark_replica_build_owner

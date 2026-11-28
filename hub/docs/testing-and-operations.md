@@ -8,6 +8,7 @@ Follow the [shared testing and review guide](../../docs/testing-and-review.md). 
 | Rails test            | `bin/devcontainer exec bin/rails test PATH`               |
 | TypeScript test       | `bin/devcontainer exec npm test -- PATH`                  |
 | Extension Node test   | `bin/devcontainer exec npm run extension:test`            |
+| Private task client   | `bin/devcontainer exec npm run task-client:test`          |
 | Type check            | `bin/devcontainer exec npm run typecheck`                 |
 | Extension build       | `bin/devcontainer exec npm run extension:build`           |
 | Extension asset check | `bin/devcontainer exec npm run extension:assets:check`    |

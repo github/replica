@@ -14,7 +14,10 @@ class SessionRevocationsController < SuperglueController
   def show
     @browser_count = Session.count
     @canvas_count = CanvasGrant.current.count
+    @task_count = TaskConnection.displayable.count
     @pairing_count = CanvasPairing.where(consumed_at: nil).where("expires_at > ?", Time.current).count
+    @pairing_count += TaskConnection.where(approved_at: nil, revoked_at: nil)
+      .where("approval_expires_at > ?", Time.current).count
     record_security_audit(outcome: "succeeded")
   end
 

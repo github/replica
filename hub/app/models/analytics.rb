@@ -6,9 +6,13 @@ module Analytics
   end
 
   # Correlates authored actions across this Hub without exporting GitHub identities.
-  def self.actor_id(user: nil, github_id: nil)
+  def self.actor_id(user: nil, github_id: nil, task_connection: nil)
     identity = github_id || user&.github_id
-    identity = identity ? "github/#{identity}" : ("local/#{user.id}" if user)
+    identity = if task_connection
+      "task_connection/#{task_connection.id}"
+    else
+      identity ? "github/#{identity}" : ("local/#{user.id}" if user)
+    end
     return if identity.nil?
 
     key = Rails.application.key_generator.generate_key("replica/analytics/actors", 32)

@@ -455,7 +455,7 @@ DEPENDENCIES
   opentelemetry-sdk
   propshaft
   puma (>= 5.0)
-  rails (~> 8.1.4)
+  rails (~> 8.1.4, >= 8.1.4.1)
   rexml (~> 3.4)
   rubocop-rails-omakase
   rubyzip (~> 3.7)

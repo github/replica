@@ -18,6 +18,8 @@ Hub serializes the cutoff, its success audit, and the live actor, same-browser S
 
 At commit, Hub deletes browser Sessions and their signed-in preview handoffs. It marks all existing canvas grants revoked, including renewable grants whose access tokens already expired. It cancels pending canvas pairings, approved but unconsumed pairings, fresh-authorization challenges, and operator-enrollment proofs. No pending proof is left to expire naturally.
 
+The cutoff also revokes approved task connections and clears their private redemption proofs. It deletes unapproved task requests but retains approved connection rows for workload attribution. A delayed permission response cannot issue or use an old task credential after the cutoff.
+
 The transaction also advances a persisted deployment generation. Ordinary OAuth captures that generation when it starts; Session issuance rereads it inside a write transaction. A callback that started before the cutoff cannot issue a Session afterward, including when GitHub's response was already in flight. The user receives a message to start a new sign-in. New OAuth flows use the new generation.
 
 Canvas approval rereads its initiating browser Session under the approval lock. Consumption rereads the pairing under its lock; deleted pairings cannot issue grants. Renewal and interactive activity reread revocation under the grant lock. Preview issuance and one-use consumption reread the persisted Session. An operation committed before the cutoff is included; an old credential waiting behind it is denied. GitHub checks remain outside these write transactions.

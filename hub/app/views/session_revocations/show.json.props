@@ -20,9 +20,10 @@ json.scope t(@ended ? "session_revocation.result_scope" : "session_revocation.sc
 json.ownSession(Current.user ? t("session_revocation.own_session", login: Current.user.login) : nil)
 json.verification t("session_revocation.verification")
 json.counts(@browser_count ? t(
-  "session_revocation.counts", browsers: @browser_count, canvases: @canvas_count, pairings: @pairing_count
+  "session_revocation.counts", browsers: @browser_count, canvases: @canvas_count,
+  tasks: @task_count, pairings: @pairing_count
 ) : nil)
-json.emptyLabel(@browser_count == 1 && @canvas_count == 0 && @pairing_count == 0 ? t("session_revocation.empty") : nil)
+json.emptyLabel(@browser_count == 1 && @canvas_count == 0 && @task_count == 0 && @pairing_count == 0 ? t("session_revocation.empty") : nil)
 json.confirmLabel t("session_revocation.confirm")
 json.submitLabel t("session_revocation.submit")
 json.cancelLabel t("session_revocation.cancel")

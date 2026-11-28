@@ -56,6 +56,10 @@ class SessionRevocation < ApplicationRecord
       cutoff.update!(generation: cutoff.generation + 1, ended_at: now)
       CanvasGrant.where(revoked_at: nil).update_all(revoked_at: now, updated_at: now)
       CanvasPairing.delete_all
+      TaskConnection.where(revoked_at: nil).update_all(
+        revoked_at: now, device_code_digest: nil, updated_at: now
+      )
+      TaskConnection.where(approved_at: nil).delete_all
       FreshAuthorization.delete_all
       HubAdminEnrollment.delete_all
       Session.delete_all

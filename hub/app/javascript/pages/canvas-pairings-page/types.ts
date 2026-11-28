@@ -15,7 +15,11 @@ export type CanvasPairingsPageData =
       repository: string
       repositoryLabel: string
       permissions: string
-      learningsConsentVersion: string
+      learningsConsentVersion?: string
+      branch?: string
+      branchLabel?: string
+      approvalDeadline?: string
+      cancelMethod?: "delete"
       expiration: string
       connectionsLabel: string
       connectionsPath: string
@@ -34,6 +38,7 @@ export type CanvasPairingsPageData =
       grants: {
         id: number
         repository: string
+        branch?: string
         expiresLabel: string
         revokePath: string
       }[]

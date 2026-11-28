@@ -63,6 +63,8 @@ json.listing do
   json.author @listing.author
   author_label = if @listing.author == "me"
     t("repositories.show.filters.me")
+  elsif @listing.author == "automation"
+    t("repositories.show.filters.automation")
   elsif @listing.author_user
     "@#{@listing.author_user.login}"
   elsif @listing.author.present?
@@ -78,7 +80,7 @@ json.listing do
   json.authorsPath repository_prototype_authors_path(@repository.route_id)
   json.path repository_path(@repository.route_id)
   json.copy do
-    %w[author me all_authors search_authors more_authors first_authors no_authors loading retry
+    %w[author me automation all_authors search_authors more_authors first_authors no_authors loading retry
       authors_failed results_failed previous next pagination updating shown].each do |key|
       json.set! key.camelize(:lower), t("repositories.show.filters.#{key}", count: @prototypes.length)
     end
@@ -160,6 +162,13 @@ json.prototypes do
         json.avatarUrl User::LOCAL_AVATAR_URL
         json.label t("repositories.show.card_author", login: Current.user.login)
         json.ownerLabel "@#{Current.user.login}"
+        json.url nil
+      end
+    elsif prototype.registration_task_connection_id
+      json.author do
+        json.avatarUrl nil
+        json.label t("repositories.show.filters.automation")
+        json.ownerLabel t("repositories.show.filters.automation")
         json.url nil
       end
     elsif prototype.author

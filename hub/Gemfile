@@ -14,7 +14,7 @@ gem "opentelemetry-instrumentation-net_http", require: false
 gem "opentelemetry-sdk", require: false
 gem "propshaft"
 gem "puma", ">= 5.0"
-gem "rails", "~> 8.1.4"
+gem "rails", "~> 8.1.4", ">= 8.1.4.1"
 gem "rexml", "~> 3.4"
 gem "rubyzip", "~> 3.7"
 gem "solid_cable"

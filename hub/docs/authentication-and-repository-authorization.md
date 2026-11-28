@@ -12,7 +12,7 @@ Session -> Hub asks GitHub for current permission -> show repository or deny acc
 
 Hub admits repository users when they can read at least one installed repository. A `none` permission on another installed repository does not prevent sign-in. Explicitly enrolled Hub operators can also sign in to administer the deployment without repository access. Hub stores their GitHub ID and current profile, but not their OAuth token. The browser cookie points to a `Session` record that Hub deletes when the person signs out.
 
-Signed-out visits to protected pages save the requested internal path and query for after sign-in, including Create, preview authorization, and canvas pairing. Hub consumes the saved destination before rotating the browser session and rejects external URLs, protocol-relative paths, backslashes, whitespace, and control characters. Only GET destinations are saved; sign-in never replays a mutation. The destination still requires its normal access checks.
+Signed-out visits to protected pages save the requested internal path and query for after sign-in, including Create, preview authorization, canvas pairing, and task approval. Hub consumes the saved destination before rotating the browser session and rejects external URLs, protocol-relative paths, backslashes, whitespace, and control characters. Only GET destinations are saved; sign-in never replays a mutation. The destination still requires its normal access checks.
 
 Without a saved destination, a successful sign-in opens the welcome page for a new user or `/repositories` for a returning user, regardless of Hub administrator status. Signed-in visits to `/` go to `/repositories`. The repository entry point opens the first readable repository or returns not found when none is available. Hub administrators can still open `/security_audit` directly.
 
@@ -23,6 +23,54 @@ Hub remembers the answer for one minute. If GitHub cannot answer, Hub denies tha
 For an existing Hub user, a successful uncached response with the creator's exact immutable GitHub ID and explicit `none` permission permanently revokes that creator's public links for that repository, including during sign-in. Outages, bare 404s and unverified identities do not. This happens only when Hub observes a permission lookup, not continuously or on anonymous share visits; see [Share links](share-links.md#creator-access-loss).
 
 Every analytics-destination mutation also requires GitHub identity verification within the last five minutes on the same browser Session or canvas grant. This additional check never replaces repository permission. GitHub may reuse its browser session; it does not guarantee a password or MFA prompt. See [Fresh GitHub authorization](fresh-authorization.md) for the one-use challenge and explicit retry contract.
+
+## Branch-scoped task connections
+
+A task connection is a separate workload identity, not a browser Session or canvas grant. A repository writer approves one repository and prototype branch in Hub. Later commits on that branch use the same connection until its fixed deadline: exactly 24 hours after approval, with no automatic extension. Another branch or a new connection requires another approval. The approving person is consent provenance and the permission subject, not the task's registration actor.
+
+The connection exchange is:
+
+1. `POST /api/tasks/connections` with `repository` and `branch` creates a ten-minute approval request. The response includes a private `deviceCode` and a public `verificationUrl` and `userCode`.
+2. The task posts only the approval URL, comparison code, repository and branch in its conversation. A writer signs in using their own browser, checks those values and deliberately approves or denies the request. Opening the link alone grants nothing.
+3. `POST /api/tasks/connections/token` submits the private `device_code`. A pending request returns `pending`. Approved consent can be consumed once, before the ten-minute request deadline, returning an `rt_` access token and immutable connection scope. Hub stores only proof and token digests.
+4. `GET /api/tasks/connection` uses `Authorization: Bearer ...` to verify the live connection. `DELETE /api/tasks/connection` disconnects it. The approving person can also revoke access at `/tasks/connections`, including after losing repository write access. Revocation does not delete retained Builds or the connection's attribution.
+
+The token is never placed in the public approval link, browser page data, registration parameters, or conversation output. A lost token-exchange response cannot be replayed to recover the token: revoke the connection in Hub and approve a new one. Expired and revoked credentials do not recover through polling, follow-up commits, or browser sign-in.
+
+Every issuance or authenticated read performs an uncached GitHub check for the approving person's exact identity and current write permission. GitHub failures deny the operation rather than using cached permission. Hub also rechecks the installation, deployment revocation generation, persisted consent, branch scope and expiry after the external lookup. This is a repository permission check, not continuous account-suspension detection.
+
+`TaskConnection#with_publication_authorization!` is the authorization boundary for a dependent publication operation. It captures the generation and App installation snapshot before GitHub work, then enters the existing revocation and App barriers and locks repository, connection, and finally the caller's publication record. Revocation uses repository then connection. The operation must recheck the fixed deadline immediately before its write. A controller must not wrap a domain operation that already invokes this guard in another invocation. It must not set `Current.user` to the approving person.
+
+`GET /api/tasks/prototype` resolves only the approved branch to its current Prototype ID after fresh authorization. A null ID means normal discovery has not found the branch; the lookup never creates or registers it. The task must name this expected ID and the exact full commit SHA in an explicit `PUT /api/tasks/prototype/registration` request with `prototype_id` and `commit_sha`. Hub calls the workload-registration operation once, without a second controller authorization transaction. Each follow-up commit requires another explicit registration command, but not another browser approval before the fixed deadline.
+
+Registration returns `ready` only with the requested commit's imported successful Build and an authenticated URL pinned to that Build. Other outcomes are `pending`, `failed`, `superseded`, or `blocked`, with a machine-readable reason and phase. A changed target requires a new lookup and explicit command; the client never silently chooses another Prototype, commit, or workflow attempt. Saved Build evidence includes the Build ID and number, GitHub workflow run and attempt, and artifact ID when known. A successful response preserves the first registrant and distinguishes a newly created registration from an existing one.
+
+This capability grants no screenshot, public-sharing, review-writing, administration, or general repository-reading API. Returned links still require each viewer's normal Hub sign-in and repository authorization.
+
+### Private task client
+
+`hub/script/task-client.mjs` provides a dependency-free reference client for the connection exchange. From a Replica checkout:
+
+```sh
+node hub/script/task-client.mjs start https://hub.example.com welcome-task github/prototype prototype/welcome
+node hub/script/task-client.mjs poll https://hub.example.com welcome-task
+node hub/script/task-client.mjs status https://hub.example.com welcome-task
+node hub/script/task-client.mjs lookup https://hub.example.com welcome-task
+node hub/script/task-client.mjs register https://hub.example.com welcome-task 42 0123456789abcdef0123456789abcdef01234567
+node hub/script/task-client.mjs disconnect https://hub.example.com welcome-task
+```
+
+Only the first response's public comparison fields belong in Slack. Poll no faster than the returned interval. Replace the registration example's ID and SHA with the lookup result and the exact intended commit. A pending result needs an explicit retry of that target after the normal Build/import flow progresses, not an automatic retarget. Run the client from a Git checkout. It stores private state under `~/.config/replica/tasks/<task-name>/`, outside the whole checkout, with owner-only directory and file permissions. It refuses symbolic-link paths, insecure permissions, non-HTTPS origins, redirects, unexpected scope, extended credential lifetimes, and ready results without exact saved Build evidence. Saved approval is revalidated with Hub; it is not evidence that the credential remains live. Disconnect removes a saved credential after Hub confirms revocation or rejects it as unauthorized, but preserves state if Hub cannot be reached.
+
+These filesystem permissions do not isolate credentials from repository code running as the same operating-system user. Before distributing this client into a native cloud task, verify an authorized private execution/storage boundary in that actual host. The task name is only a local state key: Hub does not infer a Slack initiator or trust a supplied native task ID. This implementation neither installs the client in prototype repositories nor provisions cloud credentials, MCP settings or network access.
+
+### Cloud reachability and rollout checks
+
+Native Slack Copilot tasks use GitHub Cloud sandboxes. Do not assume Actions-only setup steps, runner networking or Actions OIDC apply to them. Working GitHub API credentials are not Hub credentials.
+
+The connection client needs the Hub HTTPS API origin to resolve and respond. An operator must check the actual sandbox's approved internet-access policy and, separately, any private DNS or routing requirement. A DNS failure or `ERR_BLOCKED_BY_CLIENT` does not identify which control is responsible. Narrow allowlist changes, if approved, require a new cloud session; never disable a firewall or work around organization policy.
+
+Verify API reachability without a credential first. Then use an explicitly authorized test repository/branch to confirm browser approval, private one-use consumption, follow-up access without reapproval, fixed expiry, role loss, GitHub outage and revocation. Check that returned authenticated links work only for authorized viewers. Do not copy browser state, automate sign-in or upload screenshots. Actual native-host credential isolation and deployed end-to-end publication remain separate rollout gates; local tests do not establish either.
 
 ## App ownership and repository visibility
 

@@ -13,7 +13,11 @@ module SecurityAuditing
   def audit_security_request
     Current.security_audit_context = {
       ip_address: security_audit_ip,
-      source: self.class.module_parent == CanvasApi ? "canvas" : "browser"
+      source: case self.class.module_parent_name
+              when "CanvasApi" then "canvas"
+              when "TaskApi" then "task"
+              else "browser"
+              end
     }.merge(SecurityAuditEvent.device_context(request.user_agent))
     yield
     return if response.status == 429 || security_audit_action.nil? || @security_audit_recorded

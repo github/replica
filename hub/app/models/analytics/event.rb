@@ -4,6 +4,7 @@
 # Database name: primary
 #
 #  id            :integer          not null, primary key
+#  actor_kind    :string           default("system"), not null
 #  name          :string           not null
 #  occurred_at   :datetime         not null
 #  properties    :json             not null
@@ -26,6 +27,7 @@
 #
 # Check Constraints
 #
+#  analytics_events_actor_kind  ((actor_kind = 'system' AND actor_id IS NULL) OR (actor_kind IN ('person', 'workload') AND actor_id IS NOT NULL))
 #  analytics_events_name        (name IN ('prototype_registered', 'prototype_first_published', 'build_published', 'review_comment_created', 'review_reply_added', 'review_thread_resolved', 'review_thread_reopened'))
 #  analytics_events_properties  (json_valid(properties) AND json_type(properties) = 'object')
 #
@@ -51,11 +53,12 @@ class Analytics::Event < ApplicationRecord
   scope :retained, -> { where(occurred_at: 90.days.ago..) }
 
   # Records a fact once, in the same transaction as its source state change.
-  def self.record!(repository:, name:, source_key:, properties:, actor_id: nil, occurred_at: Time.current)
+  def self.record!(repository:, name:, source_key:, properties:, actor_id: nil, actor_kind: nil, occurred_at: Time.current)
     repository.with_lock do
       repository.analytics_events.create_or_find_by!(source_key:) do |event|
         event.name = name
         event.actor_id = actor_id
+        event.actor_kind = actor_kind || (actor_id ? "person" : "system")
         event.occurred_at = occurred_at
         event.uuid = SecureRandom.uuid
         event.properties = properties.merge(repository_id: repository.id)

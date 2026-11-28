@@ -1,0 +1,25 @@
+json.kind "approval"
+json.pageTitle t("task_connections.show.heading")
+json.productName t("application.name")
+json.heading t("task_connections.show.heading")
+json.description t("task_connections.show.description")
+json.codeLabel t("task_connections.show.code_label")
+json.codeInstruction t("task_connections.show.code_instruction")
+json.code @connection.user_code
+json.repositoryLabel t("task_connections.show.repository_label")
+json.repository @connection.repository.name_with_owner
+json.branchLabel t("task_connections.show.branch_label")
+json.branch @connection.branch_name
+json.approvalDeadline t \
+  "task_connections.show.approval_deadline",
+  date: @connection.approval_expires_at.utc.strftime("%B %-d, %Y at %H:%M UTC")
+json.permissions t("task_connections.show.permissions")
+json.expiration t("task_connections.show.expiration")
+json.connectionsLabel t("task_connections.index.heading")
+json.connectionsPath task_connections_path
+json.approveLabel t("task_connections.show.approve")
+json.approvePath task_approval_path(@connection.user_code)
+json.cancelLabel t("task_connections.show.cancel")
+json.cancelPath task_approval_path(@connection.user_code)
+json.cancelMethod "delete"
+json.authenticityToken form_authenticity_token

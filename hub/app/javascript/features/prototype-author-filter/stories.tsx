@@ -33,9 +33,11 @@ const meta = {
               ? args.listing.authorLabel
               : author === "me"
                 ? "Me"
-                : author === "2"
-                  ? `@${mona.login}`
-                  : "All authors",
+                : author === "automation"
+                  ? "Automation"
+                  : author === "2"
+                    ? `@${mona.login}`
+                    : "All authors",
         }}
         onChange={(value) => {
           setAuthor(value)
@@ -57,6 +59,10 @@ export const Single: Story = {}
 
 export const Me: Story = {
   args: { listing: { ...prototypeListing, author: "me", authorLabel: "Me" } },
+}
+
+export const Automation: Story = {
+  args: { listing: { ...prototypeListing, author: "automation", authorLabel: "Automation" } },
 }
 
 export const LongAuthor: Story = {

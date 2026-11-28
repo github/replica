@@ -156,6 +156,35 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
     assert_filters stale.fetch("listing").fetch("pagePath"), q: "Needle", author: "me"
   end
 
+  test "automation attribution is distinct from the approving human and unavailable legacy authors" do
+    repository, user = sign_in_repository
+    mine = registered_prototype(repository, author: user)
+    unknown = registered_prototype(repository)
+    automated = prototypes.create(repository:, branch_name: "prototype/automated")
+    now = Time.current.change(usec: 0)
+    connection = TaskConnection.create! \
+      repository:, branch_name: automated.branch_name,
+      user_code: SecureRandom.hex(5), approval_expires_at: now + 10.minutes,
+      approving_user: user, approved_at: now, expires_at: now + 24.hours
+    automated.register!(name: "Navigation", registration_task_connection: connection)
+
+    data = listing(repository, author: "automation")
+    assert_equal [ automated.id.to_s ], data.fetch("prototypes").pluck("id")
+    assert_equal "automation", data.fetch("listing").fetch("author")
+    assert_equal I18n.t("repositories.show.filters.automation"), data.fetch("listing").fetch("authorLabel")
+    author = data.fetch("prototypes").sole.fetch("author")
+    assert_equal I18n.t("repositories.show.filters.automation"), author.fetch("ownerLabel")
+    assert_nil author.fetch("url")
+    assert_equal [ mine.id.to_s ], listing(repository, author: "me").fetch("prototypes").pluck("id")
+    all = listing(repository).fetch("prototypes")
+    assert_equal [ mine, unknown, automated ].map { _1.id.to_s }.sort, all.pluck("id").sort
+    search_label = author.fetch("ownerLabel")
+    assert_includes listing(repository, q: search_label).fetch("prototypes").pluck("id"), automated.id.to_s
+    legacy = all.find { _1.fetch("id") == unknown.id.to_s }
+    assert_equal I18n.t("repositories.show.unknown_author"), legacy.fetch("author").fetch("ownerLabel")
+    assert_nil automated.reload.author_id
+  end
+
   test "rejects malformed filters and page numbers instead of silently defaulting them" do
     repository, user = sign_in_repository
     registered_prototype(repository, author: user)

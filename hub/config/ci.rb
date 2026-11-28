@@ -11,6 +11,7 @@ CI.run do
   step "Build: Test browser", "env RAILS_ENV=test bundle exec vite build"
   step "Tests: Rails", "bin/rails test"
   step "Tests: TypeScript", "npm test"
+  step "Tests: Task client", "npm run task-client:test"
   step "Tests: Build controls", "npm run controls:test"
   step "Build: Controls bridge", "npm run controls:assets:check"
   step "Tests: Prototype extension", "npm run extension:test"

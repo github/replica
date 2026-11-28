@@ -48,7 +48,7 @@ The body is a JSON template. A literal value stays literal. To insert one approv
 }
 ```
 
-Template version 1 allows `event_id` (stable UUID), `event_name`, `occurred_at` (ISO 8601 UTC timestamp), `repository_id`, optional opaque `actor_id`, optional `prototype_id`, `build_id`, `thread_id`, and `comment_id`, and `properties` (only the applicable scoped IDs). An optional field must declare a scalar `when_missing` fallback, including `null` if appropriate. A whole-value `{"$secret":"name"}` also works in the JSON body. Invalid or missing references fail configuration instead of silently dropping part of a request. The template is bounded in depth and size, and Hub does not add extra body fields: providers with strict schemas may omit the `event_id` body field and still receive the UUID in `X-Replica-Event-Id` on every attempt.
+Template version 1 allows `event_id` (stable UUID), `event_name`, `occurred_at` (ISO 8601 UTC timestamp), `repository_id`, `actor_kind`, optional opaque `actor_id`, optional `prototype_id`, `build_id`, `thread_id`, and `comment_id`, and `properties` (only the applicable scoped IDs). An optional field must declare a scalar `when_missing` fallback, including `null` if appropriate. A whole-value `{"$secret":"name"}` also works in the JSON body. Invalid or missing references fail configuration instead of silently dropping part of a request. The template is bounded in depth and size, and Hub does not add extra body fields: providers with strict schemas may omit the `event_id` body field and still receive the UUID in `X-Replica-Event-Id` on every attempt.
 
 By default, any 2xx response means the endpoint accepted the request. For a provider that returns JSON confirmation, configure one JSON Pointer such as `/result/accepted` and an expected JSON scalar such as `true`; both 2xx **and** that exact field/value are required. Hub never stores or shows response text. The sample request preview uses made-up identifiers and redacted secrets; it sends no network request.
 
@@ -78,7 +78,7 @@ Events hold a type, timestamp, stable UUID, repository, and applicable Prototype
 
 Known authors receive one opaque identifier across this Hub's repositories, including commit authors without a Hub login. Hub does not infer identity from names or emails. Unknown authors have no stored actor. Actor IDs are pseudonymous, not anonymous: a destination can correlate actions across repositories. They use a purpose-specific HMAC key derived from `SECRET_KEY_BASE`. Keep that secret stable and backed up; rotating it changes future IDs but not retained events.
 
-For an event without a known author, Segment uses `system/<event UUID>` as its anonymous ID. Mixpanel uses the same event-specific value as `distinct_id` and sets `actor_type: system`, so the event appears in reports without implying a real person. Known-person Mixpanel events keep the HMAC actor ID and use `actor_type: person`. Repeated deliveries of one event keep the same identity.
+Events distinguish `person`, `workload`, and `system` actors. Task registrations use a workload ID, not the approving person's identity. Segment and Mixpanel include the kind as `actor_type`. Segment sends workload IDs as `anonymousId`, not `userId`; Mixpanel uses the workload ID as `distinct_id`. For an event without a known actor, both providers use the event-specific `system/<event UUID>` identity. Known-person Mixpanel events keep the HMAC actor ID. Repeated deliveries of one event keep the same identity.
 
 ## Provider delivery
 
