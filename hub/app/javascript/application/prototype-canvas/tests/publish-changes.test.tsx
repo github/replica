@@ -38,9 +38,7 @@ it("offers only an explicit committed publication when inspection and retry fail
     within(dialog).queryByRole("button", { name: "Commit changes & publish" }),
   ).not.toBeInTheDocument()
   expect(within(dialog).queryByRole("checkbox")).not.toBeInTheDocument()
-  expect(
-    within(dialog).getByRole("button", { name: "Publish committed version only" }),
-  ).toBeEnabled()
+  expect(within(dialog).getByRole("button", { name: "Publish without committing" })).toBeEnabled()
   expect(fetch.mock.calls.some(([path]) => path === "/api/publish")).toBe(false)
   fireEvent.click(within(dialog).getByRole("button", { name: "Retry check" }))
   await within(dialog).findByText("Git status still failed.")
@@ -51,7 +49,7 @@ it("offers only an explicit committed publication when inspection and retry fail
   ).not.toBeInTheDocument()
   expect(within(dialog).queryByRole("checkbox")).not.toBeInTheDocument()
   expect(fetch.mock.calls.some(([path]) => path === "/api/publish")).toBe(false)
-  fireEvent.click(within(dialog).getByRole("button", { name: "Publish committed version only" }))
+  fireEvent.click(within(dialog).getByRole("button", { name: "Publish without committing" }))
   await waitFor(() =>
     expect(fetch.mock.calls.filter(([path]) => path === "/api/publish")).toHaveLength(1),
   )
@@ -183,7 +181,7 @@ it.each(["commit-changes", "committed-only"] as const)(
     expect(fetch.mock.calls.some(([path]) => path === "/api/publish")).toBe(false)
     expect(
       within(dialog).getByText(
-        "Do you want to commit changes before publishing? Publishing the committed version only excludes your local uncommitted edits.",
+        "Your uncommitted changes won't be included if you publish without committing.",
       ),
     ).toBeVisible()
     expect(within(dialog).queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument()
@@ -195,8 +193,7 @@ it.each(["commit-changes", "committed-only"] as const)(
     fireEvent.click(remember)
     fireEvent.click(
       within(dialog).getByRole("button", {
-        name:
-          mode === "commit-changes" ? "Commit changes & publish" : "Publish committed version only",
+        name: mode === "commit-changes" ? "Commit changes & publish" : "Publish without committing",
       }),
     )
     await waitFor(() =>
@@ -455,7 +452,7 @@ it("offers publishing for local edits on an already published commit without rep
   )
   fireEvent.click(await screen.findByRole("button", { name: "Publish changes" }))
   const dialog = await screen.findByRole("dialog", { name: "Publish uncommitted changes?" })
-  fireEvent.click(within(dialog).getByRole("button", { name: "Publish committed version only" }))
+  fireEvent.click(within(dialog).getByRole("button", { name: "Publish without committing" }))
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
   fireEvent.click(screen.getByRole("button", { name: "Share prototype" }))
   const shared = await screen.findByRole("main", { name: "Share prototype" })
@@ -495,41 +492,52 @@ it("keeps the Published status non-interactive until local edits are detected", 
   view.unmount()
 })
 
-it("lists the detected changes and leaves local agent skills out of the commit", async () => {
-  const { fixture, fetch } = sharingFixture()
-  fixture.state.stats.workingTree = "changed"
-  const respond = fetch.getMockImplementation()!
-  fetch.mockImplementation((path, options) =>
-    path === "/api/publish/prepare"
-      ? Promise.resolve(
-          Response.json({
-            ...publishPreparation(fixture.state),
-            changes: {
-              files: { paths: ["src/App.tsx"], total: 3 },
-              localSkills: { paths: [".github/skills/publish/SKILL.md"], total: 1 },
-            },
-          }),
-        )
-      : respond(path, options),
-  )
-  const view = render(
-    <App config={{ name: "Demo", prototypeUrl: "http://localhost:4321/", token: "local" }} />,
-  )
-  fireEvent.click(await screen.findByRole("button", { name: "Publish" }))
-  const dialog = await screen.findByRole("dialog", { name: "Publish uncommitted changes?" })
-  const files = within(dialog).getByRole("region", { name: "Uncommitted changes" })
-  expect(
-    within(files)
-      .getAllByRole("listitem")
-      .map((item) => item.textContent),
-  ).toEqual(["src/App.tsx", "2 more"])
-  expect(
-    within(dialog).getByText(
-      "1 local agent skill file stays uncommitted. Copilot commits only changes related to this prototype task and asks if it cannot tell which changes belong.",
-    ),
-  ).toBeVisible()
-  view.unmount()
-})
+it.each([
+  {
+    paths: ["src/App.tsx"],
+    total: 3,
+    summary: "src/App.tsx\n2 more",
+  },
+  {
+    paths: ["src/a.tsx", "src/b.tsx", "src/c.tsx", "src/d.tsx"],
+    total: 4,
+    summary: "src/a.tsx\nsrc/b.tsx\nsrc/c.tsx\nsrc/d.tsx",
+  },
+  {
+    paths: ["src/a.tsx", "src/b.tsx", "src/c.tsx", "src/d.tsx", "src/e.tsx", "src/f.tsx"],
+    total: 9,
+    summary: "src/a.tsx\nsrc/b.tsx\nsrc/c.tsx\nsrc/d.tsx\n5 more",
+  },
+])(
+  "shows a bounded file summary and notes local agent skills",
+  async ({ paths, total, summary }) => {
+    const { fixture, fetch } = sharingFixture()
+    fixture.state.stats.workingTree = "changed"
+    const respond = fetch.getMockImplementation()!
+    fetch.mockImplementation((path, options) =>
+      path === "/api/publish/prepare"
+        ? Promise.resolve(
+            Response.json({
+              ...publishPreparation(fixture.state),
+              changes: {
+                files: { paths, total },
+                localSkills: { paths: [".github/skills/publish/SKILL.md"], total: 1 },
+              },
+            }),
+          )
+        : respond(path, options),
+    )
+    const view = render(
+      <App config={{ name: "Demo", prototypeUrl: "http://localhost:4321/", token: "local" }} />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Publish" }))
+    const dialog = await screen.findByRole("dialog", { name: "Publish uncommitted changes?" })
+    const files = within(dialog).getByRole("region", { name: "Uncommitted changes" })
+    expect(files).toHaveTextContent(summary, { normalizeWhitespace: false })
+    expect(within(dialog).getByText("1 local agent skill file stays uncommitted.")).toBeVisible()
+    view.unmount()
+  },
+)
 
 it("keeps a failed publish choice visible and never falls back to publishing the committed version", async () => {
   const { fixture, fetch } = sharingFixture()

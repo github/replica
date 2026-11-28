@@ -1,19 +1,16 @@
 export const publishChangesCopy = {
   title: "Publish uncommitted changes?",
-  description:
-    "Do you want to commit changes before publishing? Publishing the committed version only excludes your local uncommitted edits.",
+  description: "Your uncommitted changes won't be included if you publish without committing.",
   checkFailedTitle: "Could not check local changes",
   checkFailed: "Git could not check local changes.",
   retryCheck: "Retry check",
   commit: "Commit changes & publish",
-  committed: "Publish committed version only",
+  committed: "Publish without committing",
   close: "Close publishing dialog",
   changedFiles: "Uncommitted changes",
   moreChanges: (count: number) => `${count} more`,
   localSkills: (count: number) =>
     `${count} local agent skill ${count === 1 ? "file stays" : "files stay"} uncommitted.`,
-  selection:
-    "Copilot commits only changes related to this prototype task and asks if it cannot tell which changes belong.",
   remember: "Always commit changes before publishing for this prototype",
   settings: "Settings",
   alwaysCommit: "Always commit changes before publishing",
