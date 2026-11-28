@@ -80,6 +80,8 @@ New improvements remain local until their captured source matches a successful p
 
 When connected to a compatible external Hub service with Copilot configured, each prompt gets the accepted [learnings](../../../packages/learning/README.md) that service returns. The extension never sends your prompt to Hub. Copilot treats the learnings as guidance from your team, not as commands. Its first successful answer replaces earlier learning context, including after a restart or session resume; an empty answer explicitly clears it. Later unchanged answers add nothing. When learnings change, or Learnings is turned off, the next successful answer replaces the earlier guidance. It adds nothing when Hub's answer is not in the form that `replica-learning` writes. It never delays a prompt by more than three seconds and never fails it. Without a Hub connection it adds nothing and never asks you to connect. If you connected before the approval page mentioned learnings, disconnect and connect again to get them.
 
+Without Hub, agents can learn from your chats and Pick & Polish notes through the local `replica-learning` server instead. See [Connect an agent](../../../packages/learning/README.md#connect-an-agent).
+
 Copilot CLI runs extensions only while its extensions feature is on. In Copilot CLI 1.0.96 that is an experimental feature: start Copilot CLI with `--experimental`, or run `/experimental on`. In prompt mode (`copilot -p`), it loads a repository's project copy only when `GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS=true`.
 
 ## Agent visual critic

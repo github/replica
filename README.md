@@ -20,7 +20,7 @@ Explore Replica before setting anything up.
 
 ## Get started with Replica
 
-Replica has four parts:
+Replica has five parts:
 
 | Part | What it does |
 | --- | --- |
@@ -28,10 +28,13 @@ Replica has four parts:
 | **Copilot canvas extension** | Opens your local prototype alongside your Copilot conversation. |
 | **Replica Hub (in development)** | Starts an Express API and a routed React frontend. See [Hub development](hub/docs/development.md) for the current local workflow. Hosting and review features are not available yet. |
 | **GitHub build action** | Builds prototype files for upload. It is not needed for local prototyping, and the new Hub cannot receive those files yet. |
+| **Replica learning (preview)** | Turns the feedback you give agents into guidance you approve, so later prototypes follow it. It works locally without Hub and is not published to npm yet. |
 
 **Ready to make prototypes?** Follow [Get started with Replica](docs/getting-started.md) to install the GitHub Copilot app, add your team's prototyping repository, install the canvas, and create your first local prototype with controls.
 
 **Creating a prototyping repository?** Point your agent at [prototype repository setup](docs/prototype-repository-setup.md). It covers new and existing repositories, getting the starter running locally, and continuing with product guidance or a shared team baseline. Local prototyping needs no Hub.
+
+**Want agents to learn from your feedback?** Try [Replica learning](packages/learning/README.md#try-it) on a prototype you're working on. One command connects it, and the agent then suggests learnings from your chats and Pick & Polish notes. It runs locally and needs no Hub.
 
 **Setting up Replica for your organization?** Follow [environment setup](docs/prototype-environment.md) to add shared guidance and starting pages. Hosted publishing and review are not available yet. See [Hub architecture](hub/docs/architecture.md) for what is included and what is not.
 
@@ -47,6 +50,8 @@ Replica has four parts:
 ## Data and privacy
 
 Keep credentials and real customer data out of prototype repositories. GitHub services and your selected AI provider have their own data handling and terms.
+
+Replica learning keeps the chats it learns from in `.replica/learning/` inside your prototype checkout. It saves them only after you agree, and only while Git ignores that folder.
 
 The new Hub does not yet store prototype data, sign people in, or record activity. There is no deployment setup. See [Hub status](hub/README.md).
 

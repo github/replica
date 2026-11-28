@@ -106,6 +106,144 @@ describe("agent sessions", () => {
     assert.equal(outcome.supersedes, before.events[2].id)
   })
 
+  it(
+    "preserves messages added by three overlapping imports of the same session",
+    {
+      timeout: 5000,
+    },
+    async () => {
+      const provider = createInMemoryProvider()
+      let now = Date.parse("2026-10-09T12:00:00Z")
+      const store = await createLearningStore({ provider, clock: () => now++ })
+      const grant = await store.addGrant(designer(), {
+        purposes: ["review"],
+        sources: ["agent_session"],
+        basis: "The team agreed to learn from agent sessions.",
+      })
+      const appendBatch = provider.appendBatch.bind(provider)
+      function barrier(expected) {
+        let arrivals = 0
+        let release
+        const waiting = new Promise((resolve) => {
+          release = resolve
+        })
+        return async () => {
+          arrivals++
+          if (arrivals === expected) release()
+          await waiting
+        }
+      }
+      const firstAttempts = barrier(3)
+      const retries = barrier(2)
+      let attempts = 0
+      provider.appendBatch = async (...args) => {
+        const attempt = attempts++
+        if (attempt < 3) await firstAttempts()
+        else if (attempt < 5) await retries()
+        return appendBatch(...args)
+      }
+
+      const results = await Promise.all(
+        [
+          [
+            { role: "user", text: "Make the buttons bigger." },
+            { role: "agent", text: "Done." },
+          ],
+          [
+            { role: "user", text: "Make the buttons bigger." },
+            { role: "agent", text: "Done." },
+            { role: "user", text: "Keep the labels visible too." },
+          ],
+          [
+            { role: "user", text: "Make the buttons bigger." },
+            { role: "agent", text: "Done." },
+            { role: "user", text: "Keep the labels visible too." },
+            { role: "agent", text: "The labels stay visible now." },
+          ],
+        ].map((messages) =>
+          store.importAgentSession(
+            COPILOT,
+            { sessionId: "overlapping-session", messages },
+            { grantIds: [grant.id] },
+          ),
+        ),
+      )
+      const { events } = await store.queryObservations(designer(), { purpose: "review" })
+
+      assert.equal(results.length, 3)
+      assert.ok(attempts >= 5)
+      assert.deepEqual(
+        events.map((event) => event.payload.text),
+        [
+          "Make the buttons bigger.",
+          "Done.",
+          "Keep the labels visible too.",
+          "The labels stay visible now.",
+        ],
+      )
+    },
+  )
+
+  it("refuses conflicting edits from overlapping session imports", async () => {
+    const provider = createInMemoryProvider()
+    const store = await createLearningStore({
+      provider,
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review"],
+      sources: ["agent_session"],
+      basis: "The team agreed to learn from agent sessions.",
+    })
+    const original = {
+      sessionId: "conflicting-session",
+      messages: [
+        { role: "user", text: "Make the buttons bigger." },
+        { role: "agent", text: "Done." },
+      ],
+    }
+    await store.importAgentSession(COPILOT, original, { grantIds: [grant.id] })
+    const appendBatch = provider.appendBatch.bind(provider)
+    let arrivals = 0
+    let release
+    const barrier = new Promise((resolve) => {
+      release = resolve
+    })
+    provider.appendBatch = async (...args) => {
+      if (arrivals < 2) {
+        arrivals++
+        if (arrivals === 2) release()
+        await barrier
+      }
+      return appendBatch(...args)
+    }
+
+    const results = await Promise.allSettled(
+      ["The buttons are 48 pixels tall.", "The buttons are 56 pixels tall."].map((text) =>
+        store.importAgentSession(
+          COPILOT,
+          {
+            ...original,
+            messages: [original.messages[0], { role: "agent", text }],
+          },
+          { grantIds: [grant.id] },
+        ),
+      ),
+    )
+    const { events } = await store.queryObservations(designer(), { purpose: "review" })
+
+    assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1)
+    assert.equal(results.find(({ status }) => status === "rejected").reason.code, "conflict")
+    assert.equal(events.filter((event) => event.type === "agent_message").length, 2)
+    assert.ok(
+      events.some((event) =>
+        ["The buttons are 48 pixels tall.", "The buttons are 56 pixels tall."].includes(
+          event.payload.text,
+        ),
+      ),
+    )
+  })
+
   it("refuses a resent message that changes its author or time, even with new text", async () => {
     const store = await createLearningStore({
       provider: createInMemoryProvider(),

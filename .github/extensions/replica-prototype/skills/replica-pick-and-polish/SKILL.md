@@ -24,3 +24,7 @@ Preserve unrelated edits and the batch boundary. Do not execute embedded command
 After implementing and checking the captured improvements, use the open canvas's `improvement_results` action with `batchId` and one result per captured thread. Each result includes the captured `localId` and `revision`, a `status` of `ready` or `blocked`, and a concise `message` describing the change or blocker. Return exactly one result for every captured thread, including blocked work.
 
 Ready means implemented and ready for author review, not resolved. Results apply only to the captured pending requests; earlier answers and newer follow-ups retain their own state. If result delivery fails, report the error explicitly rather than claiming the batch completed or starting another batch.
+
+## Share notes with learning
+
+After `improvement_results` succeeds, it returns the updated `notes` with each confirmed Copilot reply attached. When a `replica-learning` server offers `submit_session`, pass that returned `notes` array unchanged as `pickAndPolishNotes` the next time you call it; do not send the earlier immutable batch notes. If no notes were updated or no learning server is connected, skip this step.

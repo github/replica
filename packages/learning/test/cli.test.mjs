@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { execFileSync, spawnSync } from "node:child_process"
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   linkSync,
@@ -8,15 +10,18 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { Readable } from "node:stream"
+import { PassThrough, Readable } from "node:stream"
 import { after, describe, it } from "node:test"
-import { fileURLToPath } from "node:url"
+import { setTimeout } from "node:timers/promises"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import {
   REMOTE,
   weekOneLabels,
@@ -24,8 +29,20 @@ import {
   weekOneSecondPassLabels,
   weekTwoLog,
 } from "../conformance/fixtures.mjs"
+import { openLearningStore, resolveEnvironment } from "../src/config.mjs"
 import { main } from "../src/cli.mjs"
+import { LearningError } from "../src/errors.mjs"
 import { sealMemory } from "../src/records.mjs"
+import {
+  ANALYSIS_DEFERRED_EXIT_CODE,
+  ANALYSIS_MORE_WORK_EXIT_CODE,
+  learningStorageLocation,
+  recordActivity,
+  reviewWithPerson,
+  startAnalysis,
+} from "../src/local-learning.mjs"
+import { createFileLock } from "../src/providers/lock.mjs"
+import { setupLocalLearning } from "../src/setup.mjs"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-cli-"))
@@ -45,7 +62,10 @@ function checkout(name, { remote = REMOTE, ignore = true } = {}) {
   if (remote) execFileSync("git", ["-C", repo, "remote", "add", "origin", remote])
   if (ignore) writeFileSync(path.join(repo, ".gitignore"), ".replica/\n")
   if (ignore && remote?.includes("github.com")) {
-    mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+    mkdirSync(path.join(repo, ".replica", "learning"), {
+      recursive: true,
+      mode: 0o700,
+    })
     writeFileSync(
       path.join(repo, ".replica", "learning", "config.json"),
       JSON.stringify({
@@ -69,7 +89,7 @@ async function cli(repo, args, { clock = CLOCK, stdin = "" } = {}) {
     stdout: { write: (text) => (stdout += text) },
     stderr: { write: (text) => (stderr += text) },
     stdin: Readable.from([Buffer.from(stdin)]),
-    clock: () => clock,
+    clock: typeof clock === "function" ? clock : () => clock,
   })
   return { code, stdout, stderr, json: () => JSON.parse(stdout) }
 }
@@ -78,6 +98,15 @@ async function ok(repo, args, options) {
   const result = await cli(repo, args, options)
   assert.equal(result.code, 0, `${args.join(" ")} failed: ${result.stderr}`)
   return result
+}
+
+async function waitFor(check, description) {
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    if (check()) return
+    await setTimeout(10)
+  }
+  assert.fail(`Timed out waiting for ${description}.`)
 }
 
 /**
@@ -91,7 +120,10 @@ async function learnFromReviews(repo, { team = true } = {}) {
     const current = JSON.parse(readFileSync(config, "utf8"))
     writeFileSync(
       config,
-      JSON.stringify({ ...current, consolidation: { options: { minEpisodes: 2 } } }),
+      JSON.stringify({
+        ...current,
+        consolidation: { options: { minEpisodes: 2 } },
+      }),
     )
   }
   const grant = (
@@ -126,6 +158,91 @@ async function learnFromReviews(repo, { team = true } = {}) {
     await ok(repo, ["consolidate", ...WINDOW, "--actor", "agent:copilot", "--json"])
   ).json()
   return { grant, imported, run, proposal: run.proposals[0] }
+}
+
+/**
+ * Starts the MCP server in a checkout and talks to it as an agent's client would. The
+ * client answers each form the server shows with the next of formAnswers, as a person
+ * would, and records the forms it was shown. Analysis is recorded instead of started.
+ */
+async function connect(repo, args, { formAnswers, startAnalysis } = {}) {
+  const stdin = new PassThrough()
+  const replies = new Map()
+  const forms = []
+  const analyses = []
+  let errors = ""
+  let pending = ""
+  // Every request waiting for a reply, so overlapping requests each wake up.
+  const waiting = new Set()
+  function send(message) {
+    stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`)
+  }
+  const stdout = {
+    write(text) {
+      pending += text
+      for (let end; (end = pending.indexOf("\n")) >= 0; pending = pending.slice(end + 1)) {
+        const message = JSON.parse(pending.slice(0, end))
+        if (message.method === "elicitation/create") {
+          forms.push(message.params)
+          send({ id: message.id, result: formAnswers.shift() })
+          continue
+        }
+        replies.set(message.id, message)
+        for (const wake of waiting) wake()
+      }
+      return true
+    },
+  }
+  const served = main(["mcp", ...args], {
+    cwd: repo,
+    env: {},
+    stdin,
+    stdout,
+    stderr: { write: (text) => (errors += text) },
+    clock: () => CLOCK,
+    startAnalysis: startAnalysis ?? ((options) => analyses.push(options.args)),
+  })
+  // Fail instead of waiting forever when the server stops early, such as when the
+  // optional MCP SDK is not installed.
+  const stopped = served.then((code) => {
+    throw new Error(`The MCP server stopped with exit code ${code}: ${errors}`)
+  })
+  stopped.catch(() => {})
+  let next = 0
+  async function request(method, params) {
+    const id = ++next
+    send({ id, method, params })
+    while (!replies.has(id)) {
+      const { promise, resolve } = Promise.withResolvers()
+      waiting.add(resolve)
+      await Promise.race([promise, stopped]).finally(() => waiting.delete(resolve))
+    }
+    return replies.get(id).result
+  }
+  async function call(name, input = {}) {
+    const result = await request("tools/call", { name, arguments: input })
+    return {
+      error: result.isError,
+      data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text),
+    }
+  }
+  const initialized = await request("initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: formAnswers ? { elicitation: {} } : {},
+    clientInfo: { name: "test", version: "1" },
+  })
+  send({ method: "notifications/initialized" })
+  return {
+    call,
+    request,
+    forms,
+    analyses,
+    instructions: initialized.instructions,
+    close() {
+      stdin.end()
+      return served
+    },
+  }
 }
 
 describe("replica-learning CLI: the first learning milestone", () => {
@@ -349,7 +466,10 @@ describe("replica-learning CLI: the first learning milestone", () => {
       path.join(here, "fixtures", "json-file-provider.mjs"),
       path.join(repo, "providers", "json-file-provider.mjs"),
     )
-    mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+    mkdirSync(path.join(repo, ".replica", "learning"), {
+      recursive: true,
+      mode: 0o700,
+    })
     writeFileSync(
       path.join(repo, ".replica", "learning", "config.json"),
       JSON.stringify({
@@ -448,7 +568,10 @@ describe("replica-learning CLI: labeling with a labeler", () => {
     const repo = checkout(name)
     mkdirSync(path.join(repo, "tools"))
     writeFileSync(path.join(repo, "tools", "labeler.mjs"), LABELER)
-    mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+    mkdirSync(path.join(repo, ".replica", "learning"), {
+      recursive: true,
+      mode: 0o700,
+    })
     writeFileSync(
       path.join(repo, ".replica", "learning", "config.json"),
       JSON.stringify({
@@ -497,7 +620,7 @@ describe("replica-learning CLI: labeling with a labeler", () => {
     assert.equal(run.proposals[0].themeKey, "visible-form-labels")
   })
 
-  it("labels and suggests learnings in one step and finds nothing new the second time", async () => {
+  it("labels and suggests learnings in one step, records each run, and finds nothing new the second time", async () => {
     const repo = configured("analyze")
     const grant = (
       await ok(repo, [
@@ -523,6 +646,434 @@ describe("replica-learning CLI: labeling with a labeler", () => {
     const second = (await ok(repo, ["analyze", "--json"])).json()
     assert.equal(second.labeled, 0)
     assert.equal(second.proposals, 0)
+    const activity = readFileSync(path.join(repo, ".replica", "learning", "activity.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    assert.deepEqual(
+      activity.map(({ state, commentsLabeled, suggestions }) => ({
+        state,
+        commentsLabeled,
+        suggestions,
+      })),
+      [
+        { state: "succeeded", commentsLabeled: first.labeled, suggestions: 1 },
+        { state: "succeeded", commentsLabeled: 0, suggestions: 0 },
+      ],
+    )
+  })
+
+  it("retries proposing an update when the commit score is already stored", async () => {
+    const repo = configured("analyze-commit-propose-update-retry")
+    const configPath = path.join(repo, ".replica", "learning", "config.json")
+    const config = JSON.parse(readFileSync(configPath, "utf8"))
+    config.consolidation = { options: { minEpisodes: 2 } }
+    writeFileSync(configPath, JSON.stringify(config))
+
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--purpose",
+        "instruction",
+        "--purpose",
+        "evaluation",
+        "--basis",
+        "The design team agreed to learn from and evaluate review feedback.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "evaluation",
+      "--source",
+      "agent_session",
+      "--basis",
+      "The team agreed to evaluate agent-session commit changes.",
+      "--by",
+      "github:ana-designer",
+    ])
+    await ok(repo, ["import", "hub-comments", "week-1.json", "--grant", grant.id])
+    await ok(repo, ["label", "labels.json", "--actor", "agent:copilot"])
+    const [proposal] = (
+      await ok(repo, ["consolidate", ...WINDOW, "--actor", "agent:copilot", "--json"])
+    ).json().proposals
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+
+    const commitSha = "a".repeat(40)
+    const recalled = (await ok(repo, ["recall", "--task", "Build the form", "--json"])).json()
+    writeFileSync(
+      path.join(repo, "report.json"),
+      JSON.stringify({
+        reportId: "retry-proposal",
+        guidanceIds: [recalled.guidanceId],
+        commitSha,
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      }),
+    )
+    await ok(repo, ["report-usage", "report.json", "--actor", "agent:copilot"])
+    const [used] = (await ok(repo, ["usage", "--commit", commitSha, "--json"])).json().reports[0]
+      .used
+
+    const hash = createHash("sha256").update(`analyze-score:${used.id}`).digest("hex")
+    const operationId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`
+    const environment = await resolveEnvironment({
+      cwd: repo,
+      env: {},
+    })
+    const { store } = await openLearningStore(environment, { clock: () => CLOCK })
+    try {
+      const score = await store.recordScore(
+        {
+          scope: environment.scope,
+          sourceRepository: environment.sourceRepository,
+          principal: { kind: "agent", id: "agent:copilot" },
+        },
+        {
+          usedLearningId: used.id,
+          operationId,
+          efficiency: 1,
+          followed: "followed",
+          reasoning: "The changed form still has the same issue.",
+          issue: "The form field label is not visible.",
+          inputs: ["build_diff"],
+          route: { kind: "auto", model: "fixture-model" },
+        },
+      )
+      assert.equal(score.stored, true)
+    } finally {
+      await store.close()
+    }
+    const repeatedScore = (
+      await ok(repo, ["score", used.id, "--operation-id", operationId, "--json"])
+    ).json()
+    assert.equal(repeatedScore.stored, false)
+
+    await ok(repo, [
+      "retire",
+      proposal.id,
+      "--by",
+      "github:ana-designer",
+      "--reason",
+      "The team no longer uses this learning.",
+    ])
+    const first = await cli(repo, ["analyze", "--commit", commitSha, "--json"])
+    assert.equal(first.code, 1)
+    assert.deepEqual(first.json().failed, ["propose-update"])
+
+    const retry = await cli(repo, ["analyze", "--commit", commitSha, "--json"])
+    assert.equal(retry.code, 1)
+    assert.deepEqual(retry.json().failed, ["propose-update"])
+  })
+
+  it("leaves new data to an analysis already waiting behind the running one", async () => {
+    const repo = configured("analyze-waiting")
+    const directory = path.join(repo, ".replica", "learning")
+    const finish = Promise.withResolvers()
+    const running = createFileLock({
+      path: path.join(directory, "analysis.lock"),
+    }).run(() => finish.promise)
+    let waiting
+    try {
+      await waitFor(
+        () => existsSync(path.join(directory, "analysis.lock")),
+        "the active analysis lock",
+      )
+      waiting = cli(repo, ["analyze", "--json"])
+      await waitFor(
+        () =>
+          readdirSync(directory).some(
+            (name) => name.startsWith("analysis-waiting-") && name.endsWith(".lock"),
+          ),
+        "the queued analysis lock",
+      )
+      const later = await cli(repo, ["analyze", "--json"])
+      assert.equal(later.code, ANALYSIS_DEFERRED_EXIT_CODE)
+      assert.deepEqual(later.json(), { waiting: true })
+      finish.resolve()
+      await running
+      assert.equal((await waiting).code, 0)
+    } finally {
+      finish.resolve()
+      await running
+      if (waiting) await waiting
+    }
+  })
+
+  it("waits for an occupied analysis lock when --wait is set", async () => {
+    const repo = configured("analyze-wait-option")
+    await learnFromReviews(repo)
+    const directory = path.join(repo, ".replica", "learning")
+    const finish = Promise.withResolvers()
+    const running = createFileLock({ path: path.join(directory, "analysis.lock") }).run(
+      () => finish.promise,
+    )
+    let waiting
+    try {
+      await waitFor(() => existsSync(path.join(directory, "analysis.lock")), "the active lock")
+      waiting = cli(repo, ["analyze", "--wait", "--json"])
+      await waitFor(
+        () =>
+          readdirSync(directory).some(
+            (name) => name.startsWith("analysis-waiting-") && name.endsWith(".lock"),
+          ),
+        "the queued analysis",
+      )
+      finish.resolve()
+      await running
+      const result = await waiting
+      assert.equal(result.code, 0, result.stderr)
+      assert.deepEqual(result.json().failed, [])
+    } finally {
+      finish.resolve()
+      await running
+      if (waiting) await waiting
+    }
+  })
+
+  it("preserves a conflict raised by analysis work after --wait acquires the lock", async () => {
+    const repo = configured("analyze-work-conflict")
+    await learnFromReviews(repo)
+    const directory = path.join(repo, ".replica", "learning")
+    const finish = Promise.withResolvers()
+    const running = createFileLock({ path: path.join(directory, "analysis.lock") }).run(
+      () => finish.promise,
+    )
+    let released = false
+    let workConflicts = 0
+    let waiting
+    try {
+      await waitFor(() => existsSync(path.join(directory, "analysis.lock")), "the active lock")
+      waiting = cli(repo, ["analyze", "--wait", "--json"], {
+        clock: () => {
+          if (released && workConflicts === 0) {
+            workConflicts++
+            throw new LearningError("conflict", "Analysis work found a changed scope.")
+          }
+          return CLOCK
+        },
+      })
+      await waitFor(
+        () =>
+          readdirSync(directory).some(
+            (name) => name.startsWith("analysis-waiting-") && name.endsWith(".lock"),
+          ),
+        "the queued analysis",
+      )
+      released = true
+      finish.resolve()
+      await running
+      const result = await waiting
+      assert.equal(result.code, 1)
+      assert.match(result.stderr, /Analysis work found a changed scope/)
+      assert.equal(workConflicts, 1)
+    } finally {
+      released = true
+      finish.resolve()
+      await running
+      if (waiting) await waiting
+    }
+  })
+
+  it("rechecks session evaluation consent after analysis waits for the lock", async () => {
+    const repo = configured("analyze-session-evaluation-consent")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "evaluation",
+        "--source",
+        "hub_review_comments",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to evaluate agent-session evidence.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    writeFileSync(path.join(repo, "prototype.txt"), "A committed prototype change.\n")
+    execFileSync("git", ["-C", repo, "add", "prototype.txt"])
+    execFileSync("git", [
+      "-C",
+      repo,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-qm",
+      "Prototype",
+    ])
+    const commitSha = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim()
+    const directory = path.join(repo, ".replica", "learning")
+    const finish = Promise.withResolvers()
+    const running = createFileLock({ path: path.join(directory, "analysis.lock") }).run(
+      () => finish.promise,
+    )
+    let mcp
+    let analysisFinished
+    try {
+      await waitFor(() => existsSync(path.join(directory, "analysis.lock")), "the active lock")
+      mcp = await connect(repo, ["--actor", "agent:copilot"], {
+        startAnalysis: (options) => {
+          const child = startAnalysis(options)
+          analysisFinished = new Promise((resolve) => child.once("close", resolve))
+          return child
+        },
+      })
+      const guidance = (await mcp.call("get_guidance", { task: "Build the form" })).data
+      const report = await mcp.call("report_usage", {
+        reportId: "consent-lock-race",
+        guidanceIds: [guidance.guidanceId],
+        commitSha,
+        used: guidance.learnings.map(({ deliveryId }) => ({ deliveryId })),
+      })
+      assert.equal(report.data.stored, true)
+      await waitFor(
+        () =>
+          readdirSync(directory).some(
+            (name) => name.startsWith("analysis-waiting-") && name.endsWith(".lock"),
+          ),
+        "the analysis queued behind the lock",
+      )
+      assert.equal(await mcp.close(), 0)
+      mcp = undefined
+      await ok(repo, [
+        "grants",
+        "withdraw",
+        grant.id,
+        "--purpose",
+        "evaluation",
+        "--by",
+        "github:ana-designer",
+      ])
+      finish.resolve()
+      await running
+      await analysisFinished
+
+      const log = path.join(directory, "analysis.log")
+      assert.match(readFileSync(log, "utf8"), /No active evaluation grant for agent sessions/)
+      assert.doesNotMatch(readFileSync(log, "utf8"), /No one is signed in to Copilot here/)
+    } finally {
+      finish.resolve()
+      await running
+      if (mcp) await mcp.close()
+      if (analysisFinished) await analysisFinished
+    }
+  })
+
+  it("finishes submitted analysis after its MCP server closes", async () => {
+    const repo = configured("mcp-analysis-close")
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    let analysisFinished
+    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", grant.id], {
+      startAnalysis: (options) => {
+        const child = startAnalysis(options)
+        analysisFinished = new Promise((resolve) => child.once("close", resolve))
+        return child
+      },
+    })
+    const submitted = await mcp.call("submit_session", {
+      sessionId: "analysis-close-session",
+      messages: [{ role: "user", text: "Keep the labels visible." }],
+    })
+    assert.equal(submitted.error, undefined)
+    assert.equal(await mcp.close(), 0)
+    await analysisFinished
+
+    const directory = path.join(repo, ".replica", "learning")
+    const activity = path.join(directory, "activity.jsonl")
+    await waitFor(
+      () => existsSync(activity) && readFileSync(activity, "utf8").length > 0,
+      "analysis",
+    )
+    const run = JSON.parse(readFileSync(activity, "utf8").trim().split("\n").at(-1))
+    assert.equal(run.state, "succeeded")
+  })
+
+  it("keeps waiting analyses for different repositories separate in a shared store", async () => {
+    const firstRepo = checkout("analyze-shared-first")
+    const secondRepo = checkout("analyze-shared-second")
+    const directory = path.join(work, "analyze-shared-store")
+    mkdirSync(directory)
+    chmodSync(directory, 0o700)
+    const store = ["--dir", directory]
+    const firstScope = ["--repository", "github.com/repositories/123456"]
+    const secondScope = ["--repository", "github.com/repositories/654321"]
+    const finish = Promise.withResolvers()
+    const running = createFileLock({
+      path: path.join(directory, "analysis.lock"),
+    }).run(() => finish.promise)
+    let first
+    let second
+    try {
+      await waitFor(
+        () => existsSync(path.join(directory, "analysis.lock")),
+        "the active shared-store analysis lock",
+      )
+      first = cli(firstRepo, ["analyze", ...store, ...firstScope, "--json"])
+      await waitFor(
+        () =>
+          readdirSync(directory).some(
+            (name) => name.startsWith("analysis-waiting-") && name.endsWith(".lock"),
+          ),
+        "the queued shared-store analysis lock",
+      )
+      second = cli(secondRepo, ["analyze", ...store, ...secondScope, "--json"])
+      const early = await Promise.race([
+        second.then(() => "finished"),
+        setTimeout(100).then(() => "still waiting"),
+      ])
+      assert.equal(early, "still waiting")
+    } finally {
+      finish.resolve()
+      await running
+      await Promise.all([first, second].filter(Boolean))
+    }
+    const [firstResult, secondResult] = await Promise.all([first, second])
+    assert.equal(firstResult.code, 0, firstResult.stderr)
+    assert.equal(secondResult.code, 0, secondResult.stderr)
   })
 
   it("prints what labeling cost", async () => {
@@ -1140,8 +1691,14 @@ describe("replica-learning CLI: guard rails", () => {
     const result = await cli(repo, ["status"])
     assert.equal(result.code, 1)
     assert.match(result.stderr, /no origin remote/)
+    const analysis = await cli(repo, ["analyze"])
+    assert.equal(analysis.code, 1)
+    assert.match(analysis.stderr, /no origin remote/)
+    assert.doesNotMatch(analysis.stderr, /TypeError/)
     assert.equal((await cli(repo, ["doctor"])).code, 1)
-    const local = checkout("local-remote", { remote: "/srv/git/acme/checkout-prototypes.git" })
+    const local = checkout("local-remote", {
+      remote: "/srv/git/acme/checkout-prototypes.git",
+    })
     const unusable = await cli(local, ["status"])
     assert.equal(unusable.code, 1)
     assert.match(unusable.stderr, /Cannot read a host and owner\/name/)
@@ -1225,7 +1782,11 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal(await first(["--task-file", "task.txt"]), "visible-form-labels")
     assert.equal((await cli(repo, ["recall", "--task", "x", "--task-file", "task.txt"])).code, 2)
     assert.equal(
-      (await cli(repo, ["recall", "--task-file", "-"], { stdin: "x".repeat(70_000) })).code,
+      (
+        await cli(repo, ["recall", "--task-file", "-"], {
+          stdin: "x".repeat(70_000),
+        })
+      ).code,
       2,
     )
     assert.match(
@@ -1567,6 +2128,20 @@ describe("replica-learning CLI: guard rails", () => {
     assert.match(linked.stderr, /must not be a hard link/)
     rmSync(path.join(repo, "reports", "linked.png"))
     const args = ["report-usage", "report.json", "--actor", "agent:copilot", "--json"]
+    const bothScreenshotSources = JSON.parse(readFileSync(path.join(repo, "report.json"), "utf8"))
+    bothScreenshotSources.used[0].after.data = Buffer.from([1, 2, 3]).toString("base64")
+    writeFileSync(
+      path.join(repo, "report-both-sources.json"),
+      JSON.stringify(bothScreenshotSources),
+    )
+    const refusedSources = await cli(repo, [
+      "report-usage",
+      "report-both-sources.json",
+      "--actor",
+      "agent:copilot",
+    ])
+    assert.equal(refusedSources.code, 1)
+    assert.match(refusedSources.stderr, /names a file or carries data, not both/)
     assert.equal((await ok(repo, args)).json().stored, true)
     assert.equal((await ok(repo, args)).json().stored, false)
     const evidence = path.join(repo, ".replica", "learning", "evidence")
@@ -1615,6 +2190,1178 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal((await ok(repo, ["verify", "--json"])).json().ok, true)
   })
 
+  it("serves guidance to an agent over MCP and records what it used", async () => {
+    const repo = checkout("mcp")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "instruction",
+      "--source",
+      "hub_review_comments",
+      "--basis",
+      "The team agreed to provide review learnings as guidance.",
+      "--by",
+      "github:ana-designer",
+    ])
+    const sessionGrant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    writeFileSync(
+      path.join(repo, "after.png"),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]),
+    )
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    const { call } = mcp
+
+    const tools = (await mcp.request("tools/list", {})).tools
+    function description(name) {
+      return tools.find((tool) => tool.name === name).description
+    }
+    assert.match(description("report_usage"), /after each commit/)
+    assert.match(description("review_learnings"), /only when the person agrees/)
+    assert.match(description("submit_session"), /after you finish each request/)
+    assert.match(description("get_guidance"), /waitingForReview/)
+
+    const guidance = (await call("get_guidance", { task: "Build the form" })).data
+    const [memory] = guidance.learnings
+    assert.deepEqual(Object.keys(memory), ["id", "deliveryId"])
+    assert.equal(memory.id, proposal.id)
+    const [listed] = (await call("list_learnings", {})).data
+    assert.ok(guidance.text.includes(proposal.content))
+    const fetched = (await call("get_learning", { id: memory.id })).data
+    assert.equal(fetched.id, listed.id)
+    assert.equal(fetched.state, listed.state)
+    assert.equal("title" in listed, false)
+    assert.equal("content" in listed, false)
+    assert.equal("title" in fetched, false)
+    assert.equal("content" in fetched, false)
+    assert.equal(JSON.stringify([listed, fetched]).includes(proposal.title), false)
+    assert.equal(JSON.stringify([listed, fetched]).includes(proposal.content), false)
+    const shot = {
+      file: "after.png",
+      route: "/checkout",
+      viewport: { width: 1280, height: 800 },
+      theme: "light",
+      capturedAt: "2026-10-09T12:00:00.000000Z",
+    }
+    const report = {
+      reportId: "report-1",
+      guidanceIds: [guidance.guidanceId],
+      commitSha: "a".repeat(40),
+      used: [{ deliveryId: memory.deliveryId, after: shot }],
+    }
+    assert.match((await call("report_usage", report)).data, /^grant_inactive: /)
+    const screenshotGrant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "evaluation",
+        "--source",
+        "agent_screenshots",
+        "--basis",
+        "The team agreed to let Copilot see screenshots.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    assert.equal((await call("report_usage", report)).data.stored, true)
+    assert.deepEqual(mcp.analyses, [])
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "evaluation",
+      "--source",
+      "agent_session",
+      "--basis",
+      "The team agreed to evaluate agent use against commit changes.",
+      "--by",
+      "github:ana-designer",
+      "--json",
+    ])
+    assert.equal((await call("report_usage", report)).data.stored, false)
+    assert.deepEqual(mcp.analyses, [
+      ["--expected-origin", "acme/checkout-prototypes", "--commit", "a".repeat(40), "--wait"],
+    ])
+    assert.equal(await mcp.close(), 0)
+
+    // A server that names its grants may name screenshot grants too, which don't cover
+    // chats. It also analyzes a retried report that it never analyzed itself.
+    const named = await connect(repo, [
+      "--actor",
+      "agent:copilot",
+      "--grant",
+      sessionGrant.id,
+      "--grant",
+      screenshotGrant.id,
+    ])
+    assert.equal((await named.call("report_usage", report)).data.stored, false)
+    const conversation = {
+      sessionId: "s-1",
+      messages: [
+        { role: "user", text: "Fix all my notes." },
+        { role: "tool", text: "" },
+        { role: "agent", text: "Moved the labels." },
+      ],
+      pickAndPolishNotes: [
+        {
+          localId: "note-1",
+          revision: 1,
+          body: "Keep the labels above the fields.",
+          requestIds: ["note-1"],
+          thread: {
+            originalStatus: "open",
+            originalAuthor: { login: "jdoe_acme" },
+            messages: [
+              {
+                id: "reply-1",
+                role: "author",
+                body: "Keep the labels visible.",
+                author: { login: "jdoe_acme" },
+              },
+            ],
+          },
+          anchor: {
+            kind: "area",
+            route: { pathname: "/checkout", search: "", hash: "" },
+          },
+        },
+      ],
+    }
+    assert.equal((await named.call("submit_session", conversation)).error, undefined)
+    const stored = (await ok(repo, ["observations", "--purpose", "review", "--json"])).json()
+    assert.ok(
+      stored.events.some((event) => event.payload?.text === "Keep the labels above the fields."),
+    )
+    assert.ok(
+      stored.events.some(
+        (event) =>
+          event.payload?.text === "Keep the labels visible." &&
+          event.actor.id === "github:jdoe_acme",
+      ),
+    )
+    const later = {
+      ...report,
+      reportId: "report-2",
+      used: report.used.map(({ deliveryId }) => ({ deliveryId })),
+    }
+    assert.equal((await named.call("report_usage", later)).data.stored, true)
+    assert.equal((await named.call("report_usage", later)).data.stored, false)
+    await ok(repo, [
+      "grants",
+      "withdraw",
+      screenshotGrant.id,
+      "--purpose",
+      "evaluation",
+      "--by",
+      "github:ana-designer",
+    ])
+    const laterWithScreenshot = { ...report, reportId: "report-3" }
+    assert.match((await named.call("report_usage", laterWithScreenshot)).data, /^grant_inactive: /)
+    await ok(repo, [
+      "grants",
+      "withdraw",
+      sessionGrant.id,
+      "--purpose",
+      "review",
+      "--by",
+      "github:ana-designer",
+    ])
+    assert.match((await named.call("submit_session", conversation)).data, /^grant_inactive: /)
+
+    assert.equal(await named.close(), 0)
+    // The queued analysis receives only named grants and rechecks them before sending.
+    assert.deepEqual(named.analyses, [
+      [
+        "--grant",
+        sessionGrant.id,
+        "--grant",
+        screenshotGrant.id,
+        "--expected-origin",
+        "acme/checkout-prototypes",
+        "--wait",
+      ],
+    ])
+    const evidence = path.join(repo, ".replica", "learning", "evidence")
+    assert.equal(readdirSync(evidence).filter((name) => name.endsWith(".png")).length, 1)
+  })
+
+  it("refuses MCP guidance after the checkout origin changes", async () => {
+    const repo = checkout("mcp-origin-change")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    try {
+      execFileSync("git", [
+        "-C",
+        repo,
+        "remote",
+        "set-url",
+        "origin",
+        "https://github.com/acme/another-prototype.git",
+      ])
+      const guidance = await mcp.call("get_guidance", { task: "Build the form" })
+
+      assert.equal(guidance.error, true)
+      assert.match(guidance.data, /origin changed/i)
+      assert.equal(JSON.stringify(guidance).includes(proposal.content), false)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("limits MCP guidance and analysis to the named grants", async () => {
+    const repo = checkout("mcp-grant-allowlist")
+    const { grant: hubGrant, proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const sessionGrant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", sessionGrant.id])
+    try {
+      const guidance = await mcp.call("get_guidance", { task: "Build the form" })
+      assert.equal(guidance.error, undefined)
+      assert.equal(JSON.stringify(guidance.data).includes(proposal.content), false)
+      const submitted = await mcp.call("submit_session", {
+        sessionId: "grant-allowlist-session",
+        messages: [{ role: "user", text: "Keep the labels visible." }],
+      })
+      assert.equal(submitted.error, undefined)
+      assert.deepEqual(mcp.analyses[0].slice(0, 2), ["--grant", sessionGrant.id])
+      assert.equal(mcp.analyses[0].includes(hubGrant.id), false)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("withholds unaccepted learning text from MCP list and get results", async () => {
+    const repo = checkout("mcp-withheld-learning")
+    const { proposal } = await learnFromReviews(repo)
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    try {
+      const listed = await mcp.call("list_learnings")
+      const details = await mcp.call("get_learning", { id: proposal.id })
+      const item = listed.data.find(({ id }) => id === proposal.id)
+
+      assert.equal(listed.error, undefined)
+      assert.equal(details.error, undefined)
+      assert.equal(item.withheld, true)
+      assert.equal(details.data.withheld, true)
+      assert.equal("content" in details.data, false)
+      assert.equal(JSON.stringify([listed.data, details.data]).includes(proposal.content), false)
+      assert.match(details.data.decide.accept, /accept .*--digest .*--by github:YOUR_LOGIN/)
+      assert.match(details.data.decide.reject, /reject .*--digest .*--by github:YOUR_LOGIN/)
+      assert.match(details.data.decide.accept, /--expected-origin acme\/checkout-prototypes/)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("offers review commands when MCP elicitation is unavailable", async () => {
+    const repo = checkout("mcp-review-no-elicitation")
+    const { proposal } = await learnFromReviews(repo)
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    try {
+      const review = await mcp.call("review_learnings")
+      const pending = review.data.proposals.find(({ id }) => id === proposal.id)
+
+      assert.equal(review.error, undefined)
+      assert.equal(review.data.formAvailable, false)
+      assert.match(pending.accept, /accept .*--digest .*--by github:YOUR_LOGIN/)
+      assert.match(pending.reject, /reject .*--digest .*--by github:YOUR_LOGIN/)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("offers update commands when MCP elicitation is unavailable", async () => {
+    const repo = checkout("mcp-update-review-no-elicitation")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const environment = await resolveEnvironment({ cwd: repo, env: {} })
+    const { store } = await openLearningStore(environment, { clock: () => CLOCK })
+    let update
+    try {
+      const context = {
+        scope: environment.scope,
+        sourceRepository: environment.sourceRepository,
+        principal: { kind: "agent", id: "agent:copilot" },
+      }
+      const recalled = await store.recall(context)
+      const commitSha = "f".repeat(40)
+      await store.reportUsage(context, {
+        reportId: "review-update-commands",
+        guidanceIds: [recalled.guidanceId],
+        commitSha,
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      })
+      const [used] = (await store.usageForCommit(context, { commitSha }))[0].used
+      const score = await store.recordScore(context, {
+        usedLearningId: used.id,
+        operationId: "11111111-1111-4111-8111-111111111111",
+        efficiency: 2,
+        followed: "followed",
+        reasoning: "The label was still hard to find.",
+        issue: "Labels need a clearer position.",
+        inputs: ["build_diff"],
+        route: { kind: "fusion", fusionTier: "max" },
+      })
+      const secondScore = await store.recordScore(context, {
+        usedLearningId: used.id,
+        operationId: "22222222-2222-4222-8222-222222222222",
+        efficiency: 2,
+        followed: "followed",
+        reasoning: "The field label was still hard to find.",
+        issue: "Labels need a clearer position.",
+        inputs: ["build_diff"],
+        route: { kind: "fusion", fusionTier: "max" },
+      })
+      const { record } = await store.getMemory(context, proposal.id)
+      update = await store.proposeUpdate(context, {
+        memoryId: proposal.id,
+        versionDigest: record.digest,
+        issueKey: "label-position",
+        issue: "Labels need a clearer position.",
+        content: "Put a visible label above every field.",
+        reasoning: "Naming the position removes the guess.",
+        support: [score.id, secondScore.id],
+        route: { kind: "fusion", fusionTier: "max" },
+      })
+    } finally {
+      await store.close()
+    }
+
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+    try {
+      const review = await mcp.call("review_learnings")
+      const pending = review.data.updates.find(({ id }) => id === update.proposal.id)
+
+      assert.equal(review.error, undefined)
+      assert.equal(review.data.formAvailable, false)
+      assert.match(pending.inspect, new RegExp(`updates ${proposal.id}`))
+      assert.match(pending.apply, new RegExp(`apply-update ${update.proposal.id}`))
+      assert.match(pending.apply, /--operation-id OPERATION_ID/)
+      assert.match(pending.dismiss, new RegExp(`dismiss-update ${update.proposal.id}`))
+      assert.match(pending.dismiss, /--reason REASON/)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("rejects MCP when the configured provider is in-memory", async () => {
+    const repo = checkout("mcp-in-memory")
+    const configFile = path.join(repo, ".replica", "learning", "config.json")
+    const config = JSON.parse(readFileSync(configFile, "utf8"))
+    writeFileSync(configFile, JSON.stringify({ ...config, memory: { provider: "in-memory" } }))
+
+    await assert.rejects(connect(repo, ["--actor", "agent:copilot"]), /in-memory provider/i)
+  })
+
+  it("imports every note in a batch larger than 200 through MCP", async () => {
+    const repo = checkout("mcp-many-notes")
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", grant.id])
+    const notes = Array.from({ length: 201 }, (_, index) => {
+      const localId = `fix-all-note-${index}`
+      return {
+        localId,
+        revision: 1,
+        body: `Keep feedback note ${index}.`,
+        requestIds: [localId],
+        thread: { originalStatus: "open", messages: [] },
+        anchor: {
+          kind: "area",
+          route: { pathname: "/checkout", search: "", hash: "" },
+        },
+      }
+    })
+    try {
+      const submitted = await mcp.call("submit_session", {
+        sessionId: "fix-all-session",
+        messages: [{ role: "user", text: "Fix all selected notes." }],
+        pickAndPolishNotes: notes,
+      })
+      assert.equal(submitted.error, undefined)
+      const observations = (
+        await ok(repo, ["observations", "--purpose", "review", "--json"])
+      ).json()
+      const texts = observations.events
+        .map((event) => event.payload?.text)
+        .filter((text) => /^Keep feedback note \d+\.$/.test(text ?? ""))
+
+      assert.equal(texts.length, 201)
+      assert.equal(new Set(texts).size, 201)
+    } finally {
+      assert.equal(await mcp.close(), 0)
+    }
+  })
+
+  it("retries a report's analysis after failure but deduplicates active and successful runs", async () => {
+    const repo = checkout("mcp-analysis-retry")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "evaluation",
+      "--source",
+      "agent_session",
+      "--basis",
+      "The team agreed to evaluate commit changes using agent sessions.",
+      "--by",
+      "github:ana-designer",
+    ])
+    const analyses = []
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      startAnalysis: ({ args }) => {
+        const listeners = new Map()
+        const launcher = {
+          once(event, listener) {
+            listeners.set(event, listener)
+            return this
+          },
+        }
+        analyses.push({
+          args,
+          close(code, signal) {
+            listeners.get("close")?.(code, signal)
+          },
+        })
+        return launcher
+      },
+    })
+    const guidance = (await mcp.call("get_guidance", { task: "Build the form" })).data
+    const report = {
+      reportId: "retry-analysis",
+      guidanceIds: [guidance.guidanceId],
+      commitSha: "b".repeat(40),
+      used: guidance.learnings.map(({ deliveryId }) => ({ deliveryId })),
+    }
+
+    assert.equal((await mcp.call("report_usage", report)).data.stored, true)
+    assert.equal(analyses.length, 1)
+    assert.equal((await mcp.call("report_usage", report)).data.stored, false)
+    assert.equal(analyses.length, 1)
+
+    analyses[0].close(1)
+    await setTimeout(0)
+    assert.equal((await mcp.call("report_usage", report)).data.stored, false)
+    assert.equal(analyses.length, 2)
+    assert.equal((await mcp.call("report_usage", report)).data.stored, false)
+    assert.equal(analyses.length, 2)
+
+    analyses[1].close(0)
+    await setTimeout(0)
+    assert.equal((await mcp.call("report_usage", report)).data.stored, false)
+    assert.equal(analyses.length, 2)
+    assert.deepEqual(
+      analyses.map(({ args }) => args),
+      [
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "b".repeat(40), "--wait"],
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "b".repeat(40), "--wait"],
+      ],
+    )
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("uses the screenshot grant that covers the image date and current capture permission", async () => {
+    const repo = checkout("mcp-screenshot-grant-ranges")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const future = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "evaluation",
+        "--source",
+        "agent_screenshots",
+        "--evidence-from",
+        "2026-10-10T00:00:00Z",
+        "--basis",
+        "Screenshots taken on October 10 or later may be analyzed.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const mcp = await connect(repo, ["--actor", "agent:copilot"])
+
+    const futureOnly = (await mcp.call("get_guidance", { task: "Build the form" })).data
+    assert.equal(futureOnly.screenshotsAllowed, false)
+
+    const current = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "evaluation",
+        "--source",
+        "agent_screenshots",
+        "--evidence-until",
+        "2026-10-10T00:00:00Z",
+        "--basis",
+        "Screenshots taken before October 10 may be analyzed.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const guidance = (await mcp.call("get_guidance", { task: "Build the form" })).data
+    assert.equal(guidance.screenshotsAllowed, true)
+    const screenshot = {
+      data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64"),
+      route: "/checkout",
+      viewport: { width: 1280, height: 800 },
+      theme: "light",
+      capturedAt: "2026-10-11T12:00:00.000000Z",
+    }
+    const report = await mcp.call("report_usage", {
+      reportId: "screenshot-range",
+      guidanceIds: [guidance.guidanceId],
+      commitSha: "d".repeat(40),
+      used: [{ deliveryId: guidance.learnings[0].deliveryId, after: screenshot }],
+    })
+
+    assert.equal(report.data.stored, true, report.data)
+    const [stored] = (await ok(repo, ["usage", "--commit", "d".repeat(40), "--json"])).json()
+      .reports
+    assert.equal(stored.used[0].after.consentGrantId, future.id)
+    assert.notEqual(stored.used[0].after.consentGrantId, current.id)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("retries chat analysis when resubmitting a session that added no new messages", async () => {
+    const repo = checkout("mcp-chat-analysis-retry")
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "review",
+      "--source",
+      "agent_session",
+      "--basis",
+      "The team agreed to learn from agent sessions.",
+      "--by",
+      "github:ana-designer",
+      "--json",
+    ])
+    let starts = 0
+    const analyses = []
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      startAnalysis: ({ args }) => {
+        starts++
+        if (starts === 1) return undefined
+        const listeners = new Map()
+        const launcher = {
+          once(event, listener) {
+            listeners.set(event, listener)
+            return this
+          },
+        }
+        analyses.push({
+          args,
+          close(code) {
+            listeners.get("close")?.(code)
+          },
+        })
+        return launcher
+      },
+    })
+    const conversation = {
+      sessionId: "chat-retry",
+      messages: [{ role: "user", text: "Keep the labels visible." }],
+    }
+
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
+    assert.equal(starts, 1)
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
+    assert.equal(starts, 2)
+    assert.deepEqual(
+      analyses.map(({ args }) => args),
+      [["--expected-origin", "acme/checkout-prototypes", "--wait"]],
+    )
+    analyses[0].close(0)
+    await setTimeout(0)
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
+    assert.equal(starts, 2)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("starts another bounded chat analysis when work remains", async () => {
+    const repo = checkout("mcp-chat-analysis-follow-up")
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "review",
+      "--source",
+      "agent_session",
+      "--basis",
+      "The team agreed to learn from agent sessions.",
+      "--by",
+      "github:ana-designer",
+      "--json",
+    ])
+    const analyses = []
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      startAnalysis: ({ args }) => {
+        const listeners = new Map()
+        const launcher = {
+          once(event, listener) {
+            listeners.set(event, listener)
+            return this
+          },
+        }
+        analyses.push({
+          args,
+          close(code) {
+            listeners.get("close")?.(code)
+          },
+        })
+        return launcher
+      },
+    })
+    const conversation = {
+      sessionId: "chat-follow-up",
+      messages: [{ role: "user", text: "Keep the labels visible." }],
+    }
+
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
+    analyses[0].close(ANALYSIS_MORE_WORK_EXIT_CODE)
+    await setTimeout(0)
+    assert.deepEqual(
+      analyses.map(({ args }) => args),
+      [
+        ["--expected-origin", "acme/checkout-prototypes", "--wait"],
+        ["--expected-origin", "acme/checkout-prototypes", "--wait"],
+      ],
+    )
+    analyses[1].close(0)
+    await setTimeout(0)
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
+    assert.equal(analyses.length, 2)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("retries when a waiting analysis is deferred but the queued analysis fails", async () => {
+    const repo = checkout("mcp-analysis-waiting-retry")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "evaluation",
+      "--source",
+      "agent_session",
+      "--basis",
+      "The team agreed to evaluate commit changes using agent sessions.",
+      "--by",
+      "github:ana-designer",
+    ])
+    const analyses = []
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      startAnalysis: ({ args }) => {
+        const listeners = new Map()
+        const launcher = {
+          once(event, listener) {
+            listeners.set(event, listener)
+            return this
+          },
+        }
+        analyses.push({
+          args,
+          close(code, signal) {
+            listeners.get("close")?.(code, signal)
+          },
+        })
+        return launcher
+      },
+    })
+    const guidance = (await mcp.call("get_guidance", { task: "Build the form" })).data
+    const report = {
+      reportId: "waiting-analysis",
+      guidanceIds: [guidance.guidanceId],
+      commitSha: "c".repeat(40),
+      used: guidance.learnings.map(({ deliveryId }) => ({ deliveryId })),
+    }
+
+    assert.equal((await mcp.call("report_usage", report)).data.stored, true)
+    const queuedReport = { ...report, reportId: "waiting-analysis-queued" }
+    assert.equal((await mcp.call("report_usage", queuedReport)).data.stored, true)
+    assert.equal(analyses.length, 2)
+
+    analyses[1].close(ANALYSIS_DEFERRED_EXIT_CODE)
+    await setTimeout(0)
+    analyses[0].close(1)
+    await setTimeout(0)
+    assert.equal((await mcp.call("report_usage", queuedReport)).data.stored, false)
+    assert.equal(analyses.length, 3)
+    assert.deepEqual(
+      analyses.map(({ args }) => args),
+      [
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "c".repeat(40), "--wait"],
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "c".repeat(40), "--wait"],
+        ["--expected-origin", "acme/checkout-prototypes", "--commit", "c".repeat(40), "--wait"],
+      ],
+    )
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("refuses MCP writes when a learning store file is already tracked", async () => {
+    const repo = checkout("mcp-tracked-store")
+    const grant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const grantsFile = ".replica/learning/learning.sqlite"
+    execFileSync("git", ["-C", repo, "add", "-f", grantsFile])
+    const before = readdirSync(path.join(repo, ".replica", "learning")).sort()
+    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", grant.id])
+    const conversation = {
+      sessionId: "s-1",
+      messages: [{ role: "user", text: "Keep it local." }],
+    }
+    const submitted = await mcp.call("submit_session", conversation)
+    const report = await mcp.call("report_usage", {
+      reportId: "report-tracked",
+      guidanceIds: ["guidance_missing"],
+      commitSha: "a".repeat(40),
+      used: [],
+    })
+
+    assert.match(submitted.data, /Git already tracks files/)
+    assert.match(report.data, /Git already tracks files/)
+    assert.deepEqual(readdirSync(path.join(repo, ".replica", "learning")).sort(), before)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("moves to the next suggestion without asking for details when deciding later", async () => {
+    const repo = checkout("mcp-skip-suggestion")
+    const { run } = await learnFromReviews(repo, { team: false })
+    assert.ok(run.proposals.length > 1)
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [{ action: "accept", content: { decision: "skip" } }, { action: "cancel" }],
+    })
+
+    const result = await mcp.call("review_learnings")
+    assert.equal(result.error, undefined, result.data)
+    const review = result.data
+    assert.equal(review.skipped, 1)
+    assert.equal(review.stopped, true)
+    assert.equal(review.waitingForReview, run.proposals.length)
+    assert.match(mcp.forms[0].message, /Suggested learning 1 of/)
+    assert.equal(mcp.forms[0].requestedSchema.properties.content, undefined)
+    assert.equal(mcp.forms[0].requestedSchema.properties.login, undefined)
+    assert.match(mcp.forms[1].message, /Suggested learning 2 of/)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("asks the person, not the agent, to agree to learning and to decide on suggestions", async () => {
+    const repo = checkout("mcp-forms")
+    const { proposal } = await learnFromReviews(repo)
+    const wording = "Keep form field labels visible."
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [
+        { action: "accept", content: { allow: true, login: "ana-designer" } },
+        { action: "accept", content: { decision: "accept" } },
+        {
+          action: "accept",
+          content: { content: wording, login: "ana-designer" },
+        },
+      ],
+    })
+    assert.match(mcp.instructions, /review_learnings/)
+    assert.match(mcp.instructions, /submit_session or get_guidance returns waitingForReview/)
+    assert.match(mcp.instructions, /notes returned by improvement_results/)
+    assert.match(mcp.instructions, /After you finish each request, call submit_session/)
+    const conversation = {
+      sessionId: "s-1",
+      messages: [{ role: "user", text: "Keep the labels above the fields." }],
+    }
+    const submission = await mcp.call("submit_session", conversation)
+    assert.equal(submission.error, undefined)
+    assert.equal(submission.data.waitingForReview, 1)
+    assert.ok(!JSON.stringify(submission.data).includes(proposal.content))
+    assert.match(mcp.forms[0].message, /SQLite file .*learning\.sqlite/)
+    assert.match(mcp.forms[0].message, /Pick & Polish notes/)
+    assert.match(mcp.forms[0].message, /reads that commit's changes/)
+    assert.match(mcp.forms[0].message, /grants list/)
+    assert.match(mcp.forms[0].message, /grants withdraw CHAT_GRANT_ID --purpose review/)
+    assert.match(mcp.forms[0].message, /SCREENSHOT_GRANT_ID --purpose evaluation/)
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
+    const agreed = (await ok(repo, ["grants", "list", "--json"]))
+      .json()
+      .filter(({ grant }) => grant.sources.includes("agent_session"))
+    assert.deepEqual(
+      agreed.map(({ grant }) => grant.grantedBy.id),
+      ["github:ana-designer"],
+    )
+    assert.equal((await mcp.call("get_guidance", {})).data.waitingForReview, 1)
+
+    const review = (await mcp.call("review_learnings")).data
+    assert.equal(review.accepted, 1)
+    assert.equal(review.waitingForReview, 0)
+    // The agent got counts only; the learning's text went to the person in the form.
+    assert.ok(mcp.forms[1].message.includes(proposal.content))
+    assert.match(mcp.forms[1].message, new RegExp(`Learning ID: ${proposal.id}`))
+    assert.match(mcp.forms[1].message, /Support:/)
+    assert.match(mcp.forms[1].message, /Evidence:/)
+    assert.match(mcp.forms[1].message, new RegExp(`show ${proposal.id}`))
+    assert.equal(mcp.forms[2].requestedSchema.properties.reason, undefined)
+    assert.ok(!JSON.stringify(review).includes(proposal.content))
+    const [accepted] = (await ok(repo, ["memories", "--json"])).json()
+    assert.equal(accepted.record.state, "accepted")
+    assert.equal(accepted.record.accepted.by.id, "github:ana-designer")
+    assert.equal(accepted.record.content, wording)
+    assert.equal(await mcp.close(), 0)
+    assert.deepEqual(mcp.analyses, [["--expected-origin", "acme/checkout-prototypes", "--wait"]])
+  })
+
+  it("asks once per session when the person declines, even for overlapping requests", async () => {
+    const repo = checkout("mcp-declined")
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [{ action: "decline" }],
+    })
+    const conversation = {
+      sessionId: "s-1",
+      messages: [{ role: "user", text: "Hi." }],
+    }
+
+    const results = await Promise.all([
+      mcp.call("submit_session", conversation),
+      mcp.call("submit_session", conversation),
+    ])
+    const again = await mcp.call("submit_session", conversation)
+
+    assert.equal(mcp.forms.length, 1)
+    for (const result of [...results, again]) assert.match(result.data, /^grant_inactive: /)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("gives a person usable consent recovery when the client cannot show forms", async () => {
+    const repo = checkout("mcp-no-elicitation")
+    const conversation = {
+      sessionId: "s-1",
+      messages: [{ role: "user", text: "Hi." }],
+    }
+    const withoutForms = await connect(repo, ["--actor", "agent:copilot"])
+    const unavailable = await withoutForms.call("submit_session", conversation)
+    assert.equal(unavailable.error, true)
+    assert.match(unavailable.data, /client can't show the person a consent form/)
+    assert.match(unavailable.data, /grants add --purpose review --purpose instruction/)
+    assert.match(unavailable.data, /--source agent_session/)
+    assert.equal(await withoutForms.close(), 0)
+
+    const otherGrant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "evaluation",
+        "--basis",
+        "This grant does not cover chats.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const restricted = await connect(repo, ["--actor", "agent:copilot", "--grant", otherGrant.id])
+    const refused = await restricted.call("submit_session", conversation)
+    assert.equal(refused.error, true)
+    assert.match(refused.data, /grants list/)
+    assert.match(refused.data, /add --grant CHAT_GRANT_ID/)
+    assert.match(refused.data, /restart Copilot/)
+    assert.equal(await restricted.close(), 0)
+  })
+
+  it("retries consent after an invalid login instead of caching a decline", async () => {
+    const repo = checkout("mcp-invalid-consent-login")
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [
+        { action: "accept", content: { allow: true, login: "not a login" } },
+        { action: "accept", content: { allow: true, login: "ana-designer" } },
+      ],
+    })
+    const conversation = {
+      sessionId: "s-1",
+      messages: [{ role: "user", text: "Hi." }],
+    }
+
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
+    assert.equal(mcp.forms.length, 2)
+    assert.match(mcp.forms[1].message, /isn't a GitHub login/)
+    assert.equal((await mcp.call("submit_session", conversation)).error, undefined)
+    assert.equal(mcp.forms.length, 2)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("shows what a suggestion replaces and records only a valid login's decision", async () => {
+    const forms = []
+    const decisions = []
+    const answers = [
+      { action: "accept", content: { decision: "accept" } },
+      { action: "accept", content: { login: "  " } },
+      { action: "accept", content: { decision: "accept" } },
+      {
+        action: "accept",
+        content: { content: "Keep labels visible.", login: "jdoe_acme" },
+      },
+    ]
+    const proposal = {
+      id: "new",
+      content: "Keep labels visible.",
+      appliesTo: [{ kind: "component", ref: "Button ## Override" }],
+      contradictions: [
+        {
+          eventIds: ["event_disagree"],
+          episodeId: "episode_disagree",
+          source: { sessionId: "design-review" },
+        },
+      ],
+      proposal: {
+        lifecycle: { action: "supersede", targets: ["old-1", "old-2"] },
+      },
+    }
+    const result = await reviewWithPerson(
+      async (form) => {
+        forms.push(form)
+        return answers.shift()
+      },
+      {
+        repository: "acme/checkout-prototypes",
+        login: "ana-designer",
+        proposals: [proposal, { ...proposal, id: "other" }],
+        updates: [],
+        decide: async (choice) => {
+          decisions.push(choice)
+        },
+      },
+    )
+
+    assert.match(forms[0].message, /Accepting it replaces: old-1, old-2 \(supersede\)/)
+    assert.match(forms[0].message, /Applies to: component Button ## Override/)
+    assert.match(
+      forms[0].message,
+      /Contradicting evidence:\nevent_disagree in episode_disagree: session design-review/,
+    )
+    assert.equal(result.skipped, 1)
+    assert.deepEqual(decisions, [{ kind: "accept", id: "other", login: "jdoe_acme" }])
+  })
+
+  it("leaves a suggestion open when the person submits blank edited wording", async () => {
+    const repo = checkout("mcp-blank-edit")
+    const { proposal } = await learnFromReviews(repo)
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [
+        { action: "accept", content: { decision: "accept" } },
+        { action: "accept", content: { content: "  ", login: "ana-designer" } },
+      ],
+    })
+
+    const result = await mcp.call("review_learnings")
+    const [stillProposed] = (await ok(repo, ["memories", "--json"])).json()
+    assert.equal(result.data.accepted, 0)
+    assert.equal(result.data.skipped, 1)
+    assert.equal(result.data.waitingForReview, 1)
+    assert.equal(stillProposed.record.id, proposal.id)
+    assert.equal(stillProposed.record.state, "proposed")
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("asks for a reason only after Reject and leaves a canceled rejection undecided", async () => {
+    const repo = checkout("mcp-rejection-reason")
+    const { proposal } = await learnFromReviews(repo)
+    const reason = "This rule does not fit the prototype."
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [
+        { action: "accept", content: { decision: "reject" } },
+        { action: "cancel" },
+        { action: "accept", content: { decision: "reject" } },
+        { action: "accept", content: { reason, login: "ana-designer" } },
+      ],
+    })
+
+    const canceled = (await mcp.call("review_learnings")).data
+    assert.equal(canceled.rejected, 0)
+    assert.equal(canceled.stopped, true)
+    assert.equal(canceled.waitingForReview, 1)
+    assert.equal(mcp.forms[0].requestedSchema.properties.reason, undefined)
+    assert.ok(mcp.forms[1].requestedSchema.properties.reason)
+    assert.ok(mcp.forms[1].message.includes(proposal.content))
+
+    const review = (await mcp.call("review_learnings")).data
+    assert.equal(review.rejected, 1)
+    assert.equal(review.waitingForReview, 0)
+    const [rejected] = (await ok(repo, ["memories", "--json"])).json()
+    assert.equal(rejected.record.rejected.reason, reason)
+    assert.equal(rejected.record.rejected.by.id, "github:ana-designer")
+    assert.ok(!JSON.stringify(review).includes(reason))
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("skips an update without details and records the next decision's reason", async () => {
+    const forms = []
+    const decisions = []
+    const answers = [
+      { action: "accept", content: { decision: "skip" } },
+      { action: "accept", content: { decision: "dismiss" } },
+      {
+        action: "accept",
+        content: {
+          reason: "The current wording works.",
+          login: "ana-designer",
+        },
+      },
+    ]
+    const result = await reviewWithPerson(
+      async (form) => {
+        forms.push(form)
+        return answers.shift()
+      },
+      {
+        repository: "acme/checkout-prototypes",
+        proposals: [],
+        updates: [
+          {
+            id: "first",
+            issue: "First issue",
+            content: "First change",
+            current: { content: "First" },
+          },
+          {
+            id: "second",
+            issue: "Second issue",
+            content: "Second change",
+            current: { content: "Second" },
+          },
+        ],
+        decide: async (choice) => {
+          decisions.push(choice)
+        },
+      },
+    )
+
+    assert.equal(forms[0].requestedSchema.properties.reason, undefined)
+    assert.equal(forms[0].requestedSchema.properties.login, undefined)
+    assert.match(forms[1].message, /Suggested update 2 of 2/)
+    assert.equal(result.skipped, 1)
+    assert.equal(result.dismissed, 1)
+    assert.deepEqual(decisions, [
+      {
+        kind: "dismiss",
+        id: "second",
+        login: "ana-designer",
+        reason: "The current wording works.",
+      },
+    ])
+  })
+
   it("refuses an identity with control or invisible formatting characters", async () => {
     const repo = checkout("hidden-identity")
     const grant = ["grants", "add", "--purpose", "review", "--basis", "Test."]
@@ -1657,7 +3404,10 @@ describe("replica-learning CLI: guard rails", () => {
 
   it("loads provider modules only from inside the checkout, after following links", async () => {
     const repo = checkout("outside")
-    mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+    mkdirSync(path.join(repo, ".replica", "learning"), {
+      recursive: true,
+      mode: 0o700,
+    })
     writeFileSync(path.join(work, "outside.mjs"), "export function createMemoryProvider() {}\n")
     mkdirSync(path.join(repo, "providers"))
     symlinkSync(path.join(work, "outside.mjs"), path.join(repo, "providers", "linked.mjs"))
@@ -1683,7 +3433,10 @@ describe("replica-learning CLI: guard rails", () => {
     }
     writeFileSync(
       config,
-      JSON.stringify({ schemaVersion: "replica.learning-config/v1", surprise: true }),
+      JSON.stringify({
+        schemaVersion: "replica.learning-config/v1",
+        surprise: true,
+      }),
     )
     assert.match((await cli(repo, ["status"])).stderr, /unknown settings: surprise/)
   })
@@ -1735,7 +3488,10 @@ describe("replica-learning CLI: guard rails", () => {
     mkdirSync(path.join(repo, "providers"))
     for (const name of ["json-file-provider.mjs", "held-open-provider.mjs"])
       copyFileSync(path.join(here, "fixtures", name), path.join(repo, "providers", name))
-    mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+    mkdirSync(path.join(repo, ".replica", "learning"), {
+      recursive: true,
+      mode: 0o700,
+    })
     writeFileSync(
       path.join(repo, ".replica", "learning", "config.json"),
       JSON.stringify({
@@ -1769,5 +3525,260 @@ describe("replica-learning CLI: guard rails", () => {
     )
     assert.equal(result.status, 0)
     assert.match(result.stdout, /Usage: replica-learning <command>/)
+  })
+})
+
+describe("replica-learning CLI: local learning setup", () => {
+  it("shows the configured storage destination without exposing PostgreSQL credentials", () => {
+    const destination = learningStorageLocation({
+      config: { memory: { provider: "postgres" } },
+      dataDirectory: "/workspace/.replica/learning",
+      env: {
+        REPLICA_LEARNING_DATABASE_URL:
+          "postgresql://learning-user:private-password@learning.example:5432/replica?sslmode=require",
+      },
+    })
+
+    assert.equal(
+      destination,
+      "PostgreSQL database replica at learning.example:5432 (replica_learning schema)",
+    )
+    assert.doesNotMatch(destination, /learning-user|private-password/)
+    const customProvider = {
+      config: { memory: { provider: { module: "./tools/provider.mjs" } } },
+      dataDirectory: "/workspace/.replica/learning",
+    }
+    assert.equal(
+      learningStorageLocation(customProvider, {
+        name: "Remote learning",
+        storage: { kind: "remote", location: "the team's learning cluster" },
+        externalCalls: ["learning.example:443"],
+      }),
+      "Remote learning provider stores data at the team's learning cluster and sends data to learning.example:443",
+    )
+    assert.equal(learningStorageLocation(customProvider), undefined)
+  })
+
+  it("shows a custom provider's declared destination before asking to learn from chats", async () => {
+    const repo = checkout("custom-provider-consent")
+    const configPath = path.join(repo, ".replica", "learning", "config.json")
+    const config = JSON.parse(readFileSync(configPath, "utf8"))
+    mkdirSync(path.join(repo, "tools"))
+    const providerUrl = pathToFileURL(path.resolve(here, "../src/providers/in-memory.mjs")).href
+    writeFileSync(
+      path.join(repo, "tools", "provider.mjs"),
+      [
+        `import { createInMemoryProvider } from ${JSON.stringify(providerUrl)}`,
+        "const provider = createInMemoryProvider()",
+        "export function createMemoryProvider() {",
+        "  return {",
+        "    ...provider,",
+        "    manifest() {",
+        "      return {",
+        "        ...provider.manifest(),",
+        '        name: "Remote learning",',
+        '        storage: { kind: "remote", location: "the team learning cluster" },',
+        '        externalCalls: ["learning.example:443"],',
+        "      }",
+        "    },",
+        "  }",
+        "}",
+      ].join("\n"),
+    )
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...config,
+        githubRepository: { ...config.githubRepository, legacyConfirmed: true },
+        memory: { provider: { module: "./tools/provider.mjs" } },
+      }),
+    )
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [{ action: "accept", content: { allow: true, login: "ana-designer" } }],
+    })
+
+    const result = await mcp.call("submit_session", {
+      sessionId: "custom-provider-consent",
+      messages: [{ role: "user", text: "Keep the labels visible." }],
+    })
+
+    assert.equal(result.error, undefined, result.data)
+    assert.match(mcp.forms[0].message, /the team learning cluster/)
+    assert.match(mcp.forms[0].message, /learning\.example:443/)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("keeps chats out of Git and writes a private MCP config, even when run twice", async () => {
+    const repo = checkout("local-learning-setup")
+    writeFileSync(path.join(repo, ".gitignore"), "node_modules/")
+
+    await ok(repo, ["setup"])
+    const file = path.join(repo, ".replica", "learning-mcp.json")
+    chmodSync(file, 0o644)
+    const { stdout } = await ok(repo, ["setup", "--actor", "agent:claude"])
+
+    assert.equal(readFileSync(path.join(repo, ".gitignore"), "utf8"), "node_modules/\n.replica/\n")
+    assert.equal(statSync(file).mode & 0o777, 0o600)
+    const server = JSON.parse(readFileSync(file, "utf8")).mcpServers["replica-learning"]
+    assert.deepEqual(server.args.slice(1), ["mcp", "--actor", "agent:claude"])
+    assert.equal(server.cwd, realpathSync(repo))
+    assert.match(stdout, /copilot --additional-mcp-config @\.replica\/learning-mcp\.json/)
+  })
+
+  it("refuses to set up where chats could reach Git or a file outside the checkout", async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-not-checkout-"))
+    after(() => rmSync(outside, { recursive: true, force: true }))
+    const tracked = checkout("setup-tracked", { ignore: false })
+    mkdirSync(path.join(tracked, ".replica"))
+    writeFileSync(path.join(tracked, ".replica", "notes.txt"), "")
+    execFileSync("git", ["-C", tracked, "add", ".replica/notes.txt"])
+    const linked = checkout("setup-linked-gitignore", { ignore: false })
+    const target = path.join(outside, "elsewhere")
+    writeFileSync(target, "")
+    symlinkSync(target, path.join(linked, ".gitignore"))
+
+    const refusals = [
+      [outside, ["setup"], /is not a Git checkout/],
+      [linked, ["setup", "--actor", "copilot"], /--actor must look like agent:/],
+      [tracked, ["setup"], /Git already tracks files in \.replica\//],
+      [linked, ["setup"], /\.gitignore is not a plain file/],
+    ]
+    for (const [cwd, args, message] of refusals) {
+      const result = await cli(cwd, args)
+      assert.equal(result.code, 1, args.join(" "))
+      assert.match(result.stderr, message)
+    }
+    assert.equal(readFileSync(target, "utf8"), "")
+    await assert.rejects(
+      setupLocalLearning({ cwd: linked, sdkInstalled: async () => false }),
+      /needs @modelcontextprotocol\/sdk/,
+    )
+  })
+
+  it("refuses an MCP config link before changing its target", async () => {
+    const repo = checkout("setup-linked-config")
+    await ok(repo, ["setup"])
+    const target = path.join(work, "outside-mcp-config.json")
+    const original = "keep this file unchanged\n"
+    writeFileSync(target, original)
+    const config = path.join(repo, ".replica", "learning-mcp.json")
+    rmSync(config)
+    symlinkSync(target, config)
+
+    const result = await cli(repo, ["setup"])
+
+    assert.equal(result.code, 1)
+    assert.match(result.stderr, /learning-mcp\.json is not a plain file/)
+    assert.equal(readFileSync(target, "utf8"), original)
+  })
+
+  it("refuses a hard-linked MCP config before changing its target", async () => {
+    const repo = checkout("setup-hard-linked-config")
+    await ok(repo, ["setup"])
+    const target = path.join(work, "outside-mcp-hardlink.json")
+    const original = "keep this file unchanged\n"
+    writeFileSync(target, original)
+    const config = path.join(repo, ".replica", "learning-mcp.json")
+    rmSync(config)
+    linkSync(target, config)
+
+    const result = await cli(repo, ["setup"])
+
+    assert.equal(result.code, 1)
+    assert.match(result.stderr, /learning-mcp\.json is not a plain file/)
+    assert.equal(readFileSync(target, "utf8"), original)
+  })
+
+  it("gives a checkout with no GitHub repository a local ID that keeps its learnings", async () => {
+    const repo = checkout("no-github-remote", { remote: null })
+
+    await ok(repo, ["setup"])
+    const first = (await ok(repo, ["doctor", "--json"])).json()
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [{ action: "decline" }],
+    })
+    await mcp.call("submit_session", {
+      sessionId: "s-1",
+      messages: [{ role: "user", text: "Hi." }],
+    })
+    assert.equal(await mcp.close(), 0)
+    execFileSync("git", ["-C", repo, "remote", "add", "origin", REMOTE])
+    await ok(repo, ["setup"])
+    const second = (await ok(repo, ["doctor", "--json"])).json()
+
+    assert.equal(first.scope.host, "local")
+    assert.match(first.scope.repository, /^repositories\/[0-9a-f-]{36}$/)
+    assert.deepEqual(second.scope, first.scope)
+    assert.equal(first.provider.source, "built-in jsonl")
+    assert.match(mcp.forms[0].message, /for no-github-remote\?/)
+  })
+
+  it("keeps a local store that already holds SQLite data in SQLite", async () => {
+    const repo = checkout("local-learning-sqlite")
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "review",
+      "--basis",
+      "Tried learning before setup chose JSON Lines.",
+      "--by",
+      "github:ana-designer",
+    ])
+
+    await ok(repo, ["setup"])
+
+    const doctor = (await ok(repo, ["doctor", "--json"])).json()
+    assert.equal(doctor.provider.source, "built-in sqlite")
+  })
+})
+
+describe("recordActivity()", () => {
+  it("refuses an activity log that is a link to another file", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "replica-learning-activity-"))
+    after(() => rmSync(root, { recursive: true, force: true }))
+    const data = path.join(root, "data")
+    mkdirSync(data)
+    const target = path.join(root, "elsewhere.jsonl")
+    writeFileSync(target, "")
+    const run = {
+      startedAt: "2026-10-09T12:00:00.000000Z",
+      state: "succeeded",
+      commentsConsidered: 0,
+      commentsLabeled: 0,
+      suggestions: 0,
+    }
+
+    symlinkSync(target, path.join(data, "activity.jsonl"))
+    assert.throws(() => recordActivity(data, run))
+    rmSync(path.join(data, "activity.jsonl"))
+    linkSync(target, path.join(data, "activity.jsonl"))
+    assert.throws(() => recordActivity(data, run), /is not a private file/)
+
+    assert.equal(readFileSync(target, "utf8"), "")
+  })
+})
+
+describe("startAnalysis()", () => {
+  it("runs the analysis on its own and writes what happened to analysis.log", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "replica-learning-analysis-"))
+    after(() => rmSync(root, { recursive: true, force: true }))
+    const log = path.join(root, "data", "analysis.log")
+
+    const launcher = startAnalysis({
+      cwd: root,
+      env: process.env,
+      dataDirectory: path.join(root, "data"),
+      args: ["--repository", "octo/demo"],
+    })
+    const finished = new Promise((resolve, reject) => {
+      launcher.once("error", reject)
+      launcher.once("close", (code, signal) => resolve({ code, signal }))
+    })
+
+    const deadline = Date.now() + 10_000
+    while (!readFileSync(log, "utf8") && Date.now() < deadline) await setTimeout(50)
+    assert.match(readFileSync(log, "utf8"), /--repository needs --dir/)
+    assert.deepEqual(await finished, { code: 1, signal: null })
   })
 })

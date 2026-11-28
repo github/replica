@@ -997,6 +997,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
           if (!captured || !validMessageBody(result.message, "copilot"))
             fail("Invalid captured-note result.")
         }
+        const notes = []
         for (const result of input.results) {
           const note = record.notes.find((item) => item.localId === result.localId)
           const captured = batch.notes.find((item) => item.localId === result.localId)
@@ -1024,6 +1025,32 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
             if (note.sync === "synced") note.syncedRevision ??= note.revision
             note.revision++
             note.sync = "local"
+            notes.push({
+              localId: note.localId,
+              body: note.body,
+              anchor: {
+                route: { pathname: note.anchor.route.pathname },
+                ...(note.anchor.kind === "element"
+                  ? {
+                      tagName: note.anchor.tagName,
+                      accessibleName: note.anchor.accessibleName,
+                    }
+                  : {}),
+              },
+              thread: {
+                ...(note.thread.originalAuthor
+                  ? { originalAuthor: { login: note.thread.originalAuthor.login } }
+                  : {}),
+                messages: note.thread.messages.map((message) => ({
+                  id: message.id,
+                  role: message.role,
+                  body: message.body,
+                  ...(message.role === "author" && message.author
+                    ? { author: { login: message.author.login } }
+                    : {}),
+                })),
+              },
+            })
           }
         }
         batch.state = "completed"
@@ -1033,6 +1060,13 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
           batchId: batch.id,
           completed: true,
           noteCount: batch.notes.length,
+          contentTrust: {
+            source: "pick_and_polish_notes",
+            untrusted: true,
+            treatAs: "data",
+            appliesTo: "note bodies, anchors, and conversation messages",
+          },
+          notes,
         }
       })
     },

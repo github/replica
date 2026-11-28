@@ -18,6 +18,10 @@
       "types": "./conformance/index.d.mts",
       "import": "./conformance/index.mjs"
     },
+    "./mcp": {
+      "types": "./mcp.d.mts",
+      "import": "./src/mcp.mjs"
+    },
     "./contracts/v1/*": "./contracts/v1/*"
   },
   "scripts": {
@@ -34,6 +38,8 @@
   },
   "optionalDependencies": {
     "@github/copilot-sdk": "1.0.34",
-    "pg": "8.23.1"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "pg": "8.23.1",
+    "zod": "4.6.7"
   }
 }

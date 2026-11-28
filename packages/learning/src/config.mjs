@@ -475,7 +475,26 @@ export async function placementProblem(
     return environment.hosted
       ? `${target} is inside the checkout at ${checkout} but Git does not ignore it. Choose a directory Git ignores so review evidence is never committed.`
       : `${target} is inside the checkout but Git does not ignore it. Add .replica/ to .gitignore so review evidence is never committed.`
+  // Ignoring a path doesn't stop Git committing files it already tracks there.
+  const tracked = await tracksFilesIn(checkout, placement.relative)
+  if (tracked !== false)
+    return tracked
+      ? `Git already tracks files in ${target}. Run git rm -r --cached ${JSON.stringify(placement.relative)} and commit that, so review evidence is never committed.`
+      : `Git could not say whether it tracks files in ${target}.`
   return null
+}
+
+/** Whether Git tracks content under a path, or null when unsure. */
+export async function tracksFilesIn(root, relative) {
+  const target = relative.split(path.sep).join("/") || "."
+  try {
+    const { stdout } = await run("git", ["-C", root, "ls-files", "-z", "--", target], {
+      timeout: 10_000,
+    })
+    return stdout.length > 0
+  } catch {
+    return null
+  }
 }
 
 /**

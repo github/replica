@@ -1,3 +1,4 @@
+import { digestOf } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
 import { connectCopilot } from "./labelers/copilot.mjs"
 
@@ -137,8 +138,8 @@ export function updateAllowed({ support, successes, dismissedBuilds, content, cu
  * Returns insufficient_evidence when no issue has appeared in enough Builds yet, and
  * up_to_date when no score arrived since the last run that saved proposals for this version.
  * A run keeps all its proposals or none, so a failed run is drafted again in full. A host
- * runs it only after new scores arrive, since a run Copilot answers without a change is not
- * recorded.
+ * runs it only after new scores arrive. A successful no-change answer is recorded
+ * against the exact score set, while a failed draft remains eligible for retry.
  *
  * @param {object} store A learning store.
  * @param {object} context The store context, with the drafting agent as principal.
@@ -172,6 +173,11 @@ export async function proposeUpdates(store, context, { drafter, memoryId }) {
     return result("insufficient_evidence")
   const earlier = updates.filter((update) => update.version === record.version)
   const evidence = [...problems, ...successes]
+  const evidenceDigest = digestOf(
+    evidence
+      .map(({ id, digest }) => ({ id, digest }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  )
   const evidenceThrough = evidence.reduce(
     (last, outcome) => (outcome.scoredAt > last ? outcome.scoredAt : last),
     "",
@@ -183,6 +189,14 @@ export async function proposeUpdates(store, context, { drafter, memoryId }) {
     return seen > last ? seen : last
   }, "")
   if (evidence.every((outcome) => outcome.scoredAt <= lastSeen)) return result("up_to_date")
+  if (
+    await store.hasNoChangeUpdateAttempt(context, {
+      memoryId,
+      versionDigest: record.digest,
+      evidenceDigest,
+    })
+  )
+    return result("up_to_date")
   const known = new Map(
     earlier.flatMap((update) => (update.withheld ? [] : [[update.issueKey, update.issue]])),
   )
@@ -244,20 +258,32 @@ export async function proposeUpdates(store, context, { drafter, memoryId }) {
       route,
     })
   }
-  let proposals = []
-  if (drafts.length)
+  let proposals
+  if (!drafts.length) {
     try {
-      const saved = await store.proposeUpdates(context, {
+      await store.recordNoChangeUpdateAttempt(context, {
         memoryId,
         versionDigest: record.digest,
-        evidenceThrough,
-        updates: drafts,
+        evidenceDigest,
       })
-      proposals = saved.map((item) => ({ ...item.proposal, stored: item.stored }))
     } catch (error) {
-      // Copilot was already paid, so a failed save must still report what it cost.
       if (error instanceof LearningError) error.details = { ...error.details, usage }
       throw error
     }
+    return result("no_change", { route, usage })
+  }
+  try {
+    const saved = await store.proposeUpdates(context, {
+      memoryId,
+      versionDigest: record.digest,
+      evidenceThrough,
+      updates: drafts,
+    })
+    proposals = saved.map((item) => ({ ...item.proposal, stored: item.stored }))
+  } catch (error) {
+    // Copilot was already paid, so a failed save must still report what it cost.
+    if (error instanceof LearningError) error.details = { ...error.details, usage }
+    throw error
+  }
   return result(proposals.length ? "proposed" : "no_change", { proposals, route, usage })
 }
