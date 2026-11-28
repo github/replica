@@ -1591,6 +1591,7 @@ async function analyze(session) {
   const commitSha = session.values.commit
   if (commitSha !== undefined && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commitSha))
     throw new UsageError("Name the commit by its full SHA with --commit.")
+  if (!session.environment.scope) await open(session)
   const failed = []
   // Each step is the command a person would run, so it keeps all the same checks.
   async function step(name, arguments_) {
@@ -1652,7 +1653,7 @@ async function analyze(session) {
             operationIdFor(`analyze-score:${used.id}`),
             ...(diff ? ["--diff-file", diffFile] : []),
           ])
-          if (result?.stored) scored.add(used.memoryId)
+          if (result) scored.add(used.memoryId)
         }
       } finally {
         await rm(temporary, { recursive: true, force: true })
@@ -1668,6 +1669,7 @@ async function analyze(session) {
       proposals: consolidated?.changed?.length ?? 0,
       scored: scored.size,
       updates: updates.length,
+      moreWork: (labeled?.remaining ?? 0) > 0 || (consolidated?.overBudget ?? 0) > 0,
       failed,
     }
     localLearning.recordActivity(directory, {
@@ -1725,12 +1727,13 @@ async function analyze(session) {
     summary,
     [
       `Analysis from ${summary.startedAt}: labeled ${summary.labeled} comment(s), ${summary.proposals} suggested learning(s), scored ${summary.scored} learning(s), ${summary.updates} suggested update(s).`,
+      summary.moreWork ? "More work remains; this run reached its configured limit." : "",
       failed.length ? `These steps failed: ${failed.join(", ")}. Their errors are above.` : "",
     ]
       .filter(Boolean)
       .join("\n"),
   )
-  return failed.length ? 1 : 0
+  return failed.length ? 1 : summary.moreWork ? localLearning.ANALYSIS_MORE_WORK_EXIT_CODE : 0
 }
 
 /** The options that point another run of this CLI at the same store. */
@@ -2004,14 +2007,34 @@ async function serveMcp(session) {
   function startedWith(grant) {
     return !session.values.grant?.length || session.values.grant.includes(grant.id)
   }
-  // Of the grants this server may use, the one that allows screenshots now.
-  async function screenshotGrantId(store, ctx) {
+  // Choose only a grant whose evidence window covers every image in this request.
+  async function screenshotGrantId(
+    store,
+    ctx,
+    capturedAt = [timestampFromMilliseconds(session.clock())],
+  ) {
     return (await store.listGrants(ctx)).find(
       ({ grant, activePurposes }) =>
         startedWith(grant) &&
         grant.sources.includes("agent_screenshots") &&
-        activePurposes.includes("evaluation"),
+        activePurposes.includes("evaluation") &&
+        capturedAt.every(
+          (at) =>
+            (!grant.evidenceFrom || at >= grant.evidenceFrom) &&
+            (!grant.evidenceUntil || at < grant.evidenceUntil),
+        ),
     )?.grant.id
+  }
+  async function sessionEvaluationAllowed(store, ctx) {
+    const now = timestampFromMilliseconds(session.clock())
+    return (await store.listGrants(ctx)).some(
+      ({ grant, activePurposes }) =>
+        startedWith(grant) &&
+        grant.sources.includes("agent_session") &&
+        activePurposes.includes("evaluation") &&
+        (!grant.evidenceFrom || now >= grant.evidenceFrom) &&
+        (!grant.evidenceUntil || now < grant.evidenceUntil),
+    )
   }
   async function sessionGrants(store, ctx) {
     return (await store.listGrants(ctx)).filter(
@@ -2041,9 +2064,28 @@ async function serveMcp(session) {
   /** Asks the person to agree to learning from chats, and records their consent. */
   async function askToLearn() {
     if (!canAskPerson()) return []
+    const choice = session.environment.config.memory?.provider
+    let manifest
+    if (choice && typeof choice === "object" && typeof choice.module === "string") {
+      const { provider } = await openProvider(session.environment)
+      try {
+        manifest = provider.manifest()
+      } finally {
+        await provider.close?.()
+      }
+    }
+    const storageLocation = localLearning.learningStorageLocation(session.environment, manifest)
+    if (!storageLocation) {
+      const add = `${decisionCommandPrefix(session)} grants add --purpose review --purpose instruction --purpose evaluation --source agent_session --basis 'Agreed to learn from chats in this repository.' --by github:YOUR_LOGIN`
+      throw new LearningError(
+        "unsupported",
+        `The configured memory provider does not declare its storage destination. Review the provider, then run ${add} before sharing chats.`,
+      )
+    }
     const login = await localLearning.signedInLogin(session.env)
     const answer = await localLearning.askConsent(askPerson, {
       repository: repositoryName,
+      storageLocation,
       login,
       grantManagement: consentGrantCommands(session),
     })
@@ -2088,15 +2130,32 @@ async function serveMcp(session) {
   /** What a person has yet to decide: suggested learnings and suggested new wording. */
   async function waitingForReview(store) {
     const ctx = context(session, { kind: "system", id: "system:replica-learning-mcp" })
-    const items = await store.queryMemory(ctx, { purpose: "review" })
+    let items = await store.queryMemory(ctx, { purpose: "review" })
+    let accepted = items.filter(({ record }) => record.state === "accepted")
+    let updates = accepted.length
+      ? await store.updatesFor(ctx, { memoryIds: accepted.map(({ record }) => record.id) })
+      : []
+    const recovered = await localLearning.finishStoppedApplies(store, {
+      system: ctx,
+      as: (principal) => context(session, principal),
+      accepted,
+      updates,
+    })
+    if (recovered) {
+      items = await store.queryMemory(ctx, { purpose: "review" })
+      accepted = items.filter(({ record }) => record.state === "accepted")
+      updates = accepted.length
+        ? await store.updatesFor(ctx, { memoryIds: accepted.map(({ record }) => record.id) })
+        : []
+    }
     const usable = items.filter(
       ({ withheld, status }) => !withheld && !status.problems.length && !status.identityNeedsReview,
     )
-    const updates = []
-    for (const { record } of usable.filter(({ record }) => record.state === "accepted"))
-      for (const update of await store.updatesFor(ctx, { memoryId: record.id }))
-        if (update.state === "open" && !update.withheld)
-          updates.push({ ...update, current: { title: record.title, content: record.content } })
+    const currentById = new Map(
+      usable
+        .filter(({ record }) => record.state === "accepted")
+        .map(({ record }) => [record.id, record]),
+    )
     return {
       proposals: usable
         .filter(({ record }) => record.state === "proposed")
@@ -2104,13 +2163,24 @@ async function serveMcp(session) {
           ...record,
           evidenceCommand: `${decisionCommandPrefix(session)} show ${shellQuote(record.id)}`,
         })),
-      updates,
+      updates: updates
+        .filter(
+          (update) =>
+            update.state === "open" && !update.withheld && currentById.has(update.memoryId),
+        )
+        .map((update) => {
+          const record = currentById.get(update.memoryId)
+          return { ...update, current: { title: record.title, content: record.content } }
+        }),
     }
   }
   // Cache only successful runs; a distinct report advances that commit's generation.
   const analyzedCommits = new Map()
   const analysisGenerations = new Map()
   const activeAnalyses = new Map()
+  let requestedChatGeneration = 0
+  let completedChatGeneration = 0
+  let activeChatGeneration
   /** Starts the labeling, consolidating, and scoring a person would otherwise run. */
   function analyzeLater(commitSha, { force = false } = {}) {
     if (session.values.manual) return
@@ -2126,6 +2196,11 @@ async function serveMcp(session) {
       ) {
         return
       }
+    } else {
+      if (force) requestedChatGeneration++
+      else if (requestedChatGeneration === 0) requestedChatGeneration = 1
+      generation = requestedChatGeneration
+      if (completedChatGeneration >= generation || activeChatGeneration !== undefined) return
     }
     try {
       const started = session.startAnalysis({
@@ -2134,26 +2209,49 @@ async function serveMcp(session) {
         dataDirectory: session.environment.dataDirectory,
         args: [...storeArguments(session), ...(commitSha ? ["--commit", commitSha] : [])],
       })
-      if (!commitSha) return
-      if (!started || typeof started.once !== "function") {
-        analyzedCommits.set(commitSha, generation)
+      if (!started) {
+        session.stderr.write(
+          "replica-learning mcp: analysis did not start; a later submission can retry it.\n",
+        )
         return
       }
-      const active = activeAnalyses.get(commitSha) ?? new Set()
-      active.add(generation)
-      activeAnalyses.set(commitSha, active)
+      if (typeof started.once !== "function") {
+        if (commitSha) analyzedCommits.set(commitSha, generation)
+        else completedChatGeneration = Math.max(completedChatGeneration, generation)
+        return
+      }
+      const active = commitSha ? (activeAnalyses.get(commitSha) ?? new Set()) : undefined
+      if (active) {
+        active.add(generation)
+        activeAnalyses.set(commitSha, active)
+      } else activeChatGeneration = generation
       let finished = false
       function finish(code, detail) {
         if (finished) return
         finished = true
-        active.delete(generation)
-        if (active.size === 0) activeAnalyses.delete(commitSha)
-        if (code === 0 && (analysisGenerations.get(commitSha) ?? 0) === generation)
-          analyzedCommits.set(commitSha, generation)
-        else if (analyzedCommits.get(commitSha) === generation) analyzedCommits.delete(commitSha)
-        if (code !== 0 && code !== localLearning.ANALYSIS_DEFERRED_EXIT_CODE)
+        const moreWork = code === localLearning.ANALYSIS_MORE_WORK_EXIT_CODE
+        if (commitSha) {
+          active.delete(generation)
+          if (active.size === 0) activeAnalyses.delete(commitSha)
+          const currentGeneration = analysisGenerations.get(commitSha) ?? 0
+          if (code === 0 && currentGeneration === generation)
+            analyzedCommits.set(commitSha, generation)
+          else if (analyzedCommits.get(commitSha) === generation) analyzedCommits.delete(commitSha)
+          if (moreWork) analyzeLater(commitSha, { force: true })
+          else if (code === 0 && currentGeneration > generation) analyzeLater(commitSha)
+        } else {
+          activeChatGeneration = undefined
+          if (code === 0) completedChatGeneration = Math.max(completedChatGeneration, generation)
+          if (moreWork) requestedChatGeneration = Math.max(requestedChatGeneration, generation + 1)
+          if (
+            requestedChatGeneration > completedChatGeneration &&
+            (code === 0 || moreWork || requestedChatGeneration > generation)
+          )
+            analyzeLater()
+        }
+        if (code !== 0 && code !== localLearning.ANALYSIS_DEFERRED_EXIT_CODE && !moreWork)
           session.stderr.write(
-            `replica-learning mcp: analysis did not complete successfully (${detail}); a later report can retry it.\n`,
+            `replica-learning mcp: analysis did not complete successfully (${detail}); a later submission can retry it.\n`,
           )
       }
       started.once("error", (error) => finish(undefined, error.message))
@@ -2186,8 +2284,11 @@ async function serveMcp(session) {
         }),
       reportUsage: async (report) => {
         const hasShots = report.used?.some?.((item) => item?.before || item?.after)
+        const screenshotTimes = (report.used ?? []).flatMap((item) =>
+          [item.before, item.after].filter(Boolean).map(({ capturedAt }) => capturedAt),
+        )
         const screenshotGrant = hasShots
-          ? await withStore((store, ctx) => screenshotGrantId(store, ctx))
+          ? await withStore((store, ctx) => screenshotGrantId(store, ctx, screenshotTimes))
           : undefined
         // Screenshots are kept only while someone allows Copilot to see them.
         if (hasShots && !screenshotGrant)
@@ -2203,8 +2304,13 @@ async function serveMcp(session) {
             ...(screenshotGrant ? { consentGrantId: screenshotGrant } : {}),
           }),
         )
-        // The running analysis may have read this commit's reports already.
-        analyzeLater(report.commitSha, { force: result.stored })
+        const mayEvaluateCommit = await withStore((store, ctx) =>
+          sessionEvaluationAllowed(store, ctx),
+        )
+        if (mayEvaluateCommit) {
+          // The running analysis may have read this commit's reports already.
+          analyzeLater(report.commitSha, { force: result.stored })
+        }
         return result
       },
       submitSession: async (input) => {
@@ -2221,8 +2327,9 @@ async function serveMcp(session) {
         const waitingCount = await withStore(
           async (store) => Object.values(await waitingForReview(store)).flat().length,
         )
-        // A resubmitted conversation with nothing new has nothing new to learn from.
-        if (result.addedEpisodes || result.addedEvents) analyzeLater()
+        analyzeLater(undefined, {
+          force: Boolean(result.addedEpisodes || result.addedEvents),
+        })
         return { ...result, waitingForReview: waitingCount }
       },
       // Agents read with the instruction purpose, so they see only what recall gives.
@@ -2266,12 +2373,6 @@ async function serveMcp(session) {
             "unsupported",
             "This client cannot show the person a form. get_learning gives the commands they can run instead.",
           )
-        await withStore((store) =>
-          localLearning.finishStoppedApplies(store, {
-            system: context(session, { kind: "system", id: "system:replica-learning-mcp" }),
-            as: (principal) => context(session, principal),
-          }),
-        )
         const waiting = await withStore((store) => waitingForReview(store))
         const digests = new Map(waiting.proposals.map((record) => [record.id, record.reviewDigest]))
         const counts = await localLearning.reviewWithPerson(askPerson, {

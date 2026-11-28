@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { closeSync, constants, fstatSync, mkdirSync, openSync, writeSync } from "node:fs"
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, writeSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -14,7 +14,13 @@ const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,98}[A-Za-z0-9])?$/
 export const FORM_TIMEOUT_MS = 30 * 60 * 1000
 // EX_TEMPFAIL distinguishes a deferred run from a completed analysis.
 export const ANALYSIS_DEFERRED_EXIT_CODE = 75
-const DONE = { accept: "accepted", reject: "rejected", apply: "applied", dismiss: "dismissed" }
+export const ANALYSIS_MORE_WORK_EXIT_CODE = 74
+const DONE = {
+  accept: "accepted",
+  reject: "rejected",
+  apply: "applied",
+  dismiss: "dismissed",
+}
 // The detached launcher preserves the analysis and relays its completion status.
 const LAUNCH = `const [command, ...rest] = process.argv.slice(1)
 const child = require("node:child_process")
@@ -75,22 +81,75 @@ export function recordActivity(dataDirectory, run) {
   }
 }
 
+/** Describes the configured destination before asking a person to share chats. */
+export function learningStorageLocation(environment, manifest) {
+  const choice = environment.config.memory?.provider ?? "sqlite"
+  if (choice === "postgres") {
+    try {
+      const url = new URL(environment.env.REPLICA_LEARNING_DATABASE_URL)
+      const host = decodeURIComponent(url.hostname)
+      const endpoint = host.startsWith("/")
+        ? `Unix socket ${host}`
+        : `${host}${url.port ? `:${url.port}` : ""}`
+      const database = decodeURIComponent(url.pathname.slice(1)) || "unnamed database"
+      return `PostgreSQL database ${database} at ${endpoint} (replica_learning schema)`
+    } catch {
+      return "the configured PostgreSQL database (replica_learning schema)"
+    }
+  }
+  if (choice === "jsonl")
+    return `JSON Lines files under ${path.join(environment.dataDirectory, "v1")}`
+  if (choice === "in-memory") return "an in-memory store that is cleared when the MCP server stops"
+  if (choice === "sqlite" || choice?.builtin === "sqlite") {
+    const file = choice === "sqlite" ? "learning.sqlite" : choice.file
+    return `SQLite file ${path.join(environment.dataDirectory, file)}`
+  }
+  if (typeof choice?.module === "string" && manifest?.storage?.location) {
+    const externalCalls = manifest.externalCalls ?? []
+    return `${manifest.name} provider stores data at ${manifest.storage.location}${
+      externalCalls.length ? ` and sends data to ${externalCalls.join(", ")}` : ""
+    }`
+  }
+  return undefined
+}
+
 /** Opens a data directory file for appending, refusing one that isn't ours alone. */
 function openPrivateAppend(dataDirectory, name) {
   mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
-  // A cloned repository could commit a link here, so the file must be our own.
-  const file = openSync(
-    path.join(dataDirectory, name),
-    constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | NO_FOLLOW,
-    0o600,
-  )
-  const stats = fstatSync(file)
-  const owner = process.getuid?.()
-  if (!stats.isFile() || stats.nlink !== 1 || (owner !== undefined && stats.uid !== owner)) {
-    closeSync(file)
-    throw new Error(`${path.join(dataDirectory, name)} is not a private file.`)
+  const filePath = path.join(dataDirectory, name)
+  function notPrivate() {
+    return new Error(`${filePath} is not a private file.`)
   }
-  return file
+  const before = lstatSync(filePath, { throwIfNoEntry: false })
+  if (before && (!before.isFile() || before.nlink !== 1)) throw notPrivate()
+  let file
+  try {
+    file = openSync(
+      filePath,
+      constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | NO_FOLLOW,
+      0o600,
+    )
+    const [entry, stats] = [lstatSync(filePath), fstatSync(file)]
+    const owner = process.getuid?.()
+    function sameFile(left, right) {
+      return left.ino === right.ino && left.dev === right.dev
+    }
+    if (
+      !entry.isFile() ||
+      !stats.isFile() ||
+      entry.nlink !== 1 ||
+      stats.nlink !== 1 ||
+      !sameFile(entry, stats) ||
+      (before && !sameFile(before, entry)) ||
+      (owner !== undefined && stats.uid !== owner)
+    )
+      throw notPrivate()
+    return file
+  } catch (error) {
+    if (file !== undefined) closeSync(file)
+    if (error?.code === "ELOOP" || error?.code === "EISDIR") throw notPrivate()
+    throw error
+  }
 }
 
 /** The GitHub CLI's signed-in login, to fill in a form for the person. */
@@ -115,15 +174,27 @@ export async function signedInLogin(env) {
  * remembers a no for the rest of the session.
  *
  * @param {(params: object) => Promise<{ action: string, content?: object }>} elicit
- * @param {{ repository: string, login?: string, grantManagement?: string[] }} details
+ * @param {{
+ *   repository: string, storageLocation: string, login?: string,
+ *   grantManagement?: string[],
+ * }} details
  */
-export async function askConsent(elicit, { repository, login, grantManagement = [] }) {
+export async function askConsent(
+  elicit,
+  { repository, storageLocation, login, grantManagement = [] },
+) {
   let problem = ""
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const answer = await elicit(consentForm(repository, login, problem, grantManagement))
+    const answer = await elicit(
+      consentForm(repository, storageLocation, login, problem, grantManagement),
+    )
     if (answer.action !== "accept" || answer.content?.allow !== true) return null
     const person = loginOf(answer.content.login)
-    if (person) return { login: person, screenshots: answer.content.screenshots === true }
+    if (person)
+      return {
+        login: person,
+        screenshots: answer.content.screenshots === true,
+      }
     problem = `"${String(answer.content.login ?? "").slice(0, 100)}" isn't a GitHub login. Enter it as it appears on github.com, such as ana-designer.\n\n`
   }
   throw new LearningError(
@@ -132,12 +203,12 @@ export async function askConsent(elicit, { repository, login, grantManagement = 
   )
 }
 
-function consentForm(repository, login, problem, grantManagement) {
+function consentForm(repository, storageLocation, login, problem, grantManagement) {
   return {
     message: [
       `${problem}Learn from your feedback in Copilot chats for ${repository}?`,
       "",
-      "Each chat's messages are kept on this machine in .replica/learning. So are the Pick & Polish notes you ask Copilot to fix, with their follow-ups and Copilot's replies. In the background, Copilot looks for feedback that repeats across chats and suggests it as a learning. When the agent reports which learnings a commit used, Copilot also reads that commit's changes to score them. That uses your Copilot sign-in and counts toward your Copilot usage.",
+      `Each chat's messages are kept in ${storageLocation}. So are the Pick & Polish notes you ask Copilot to fix, with their follow-ups and Copilot's replies. In the background, Copilot looks for feedback that repeats across chats and suggests it as a learning. When the agent reports which learnings a commit used, Copilot also reads that commit's changes to score them. That uses your Copilot sign-in and counts toward your Copilot usage.`,
       "",
       "Only learnings you accept reach an agent.",
       ...grantManagement,
@@ -145,7 +216,11 @@ function consentForm(repository, login, problem, grantManagement) {
     requestedSchema: {
       type: "object",
       properties: {
-        allow: { type: "boolean", title: "Learn from my chats in this repository", default: true },
+        allow: {
+          type: "boolean",
+          title: "Learn from my chats in this repository",
+          default: true,
+        },
         screenshots: {
           type: "boolean",
           title: "Also let Copilot look at before and after screenshots when it scores a learning",
@@ -174,6 +249,7 @@ function consentForm(repository, login, problem, grantManagement) {
  *   login?: string,
  *   proposals: Array<{
  *     id: string, title?: string, content: string, themeKey?: string,
+ *     appliesTo?: Array<{ kind: string, ref: string }>,
  *     proposal?: {
  *       lifecycle?: { action: string, targets?: string[] },
  *       rationale?: {
@@ -186,6 +262,13 @@ function consentForm(repository, login, problem, grantManagement) {
  *       distinctReviewers: number, distinctBuilds: number,
  *     },
  *     evidence?: Array<{
+ *       eventIds: string[], episodeId: string,
+ *       source?: {
+ *         sessionId?: string, prototypeId?: string,
+ *         buildNumber?: number, commentId?: string,
+ *       },
+ *     }>,
+ *     contradictions?: Array<{
  *       eventIds: string[], episodeId: string,
  *       source?: {
  *         sessionId?: string, prototypeId?: string,
@@ -207,14 +290,18 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
       const lifecycle = proposal.proposal?.lifecycle
       const rationale = proposal.proposal?.rationale
       const support = proposal.support
-      const evidence = (proposal.evidence ?? []).map((reference) => {
-        const source = reference.source ?? {}
-        const where =
-          source.sessionId === undefined
-            ? `prototype ${source.prototypeId ?? "?"} Build ${source.buildNumber ?? "?"} comment ${source.commentId ?? "?"}`
-            : `session ${source.sessionId}`
-        return `${reference.eventIds.join(", ")} in ${reference.episodeId}: ${where}`
-      })
+      function references(references) {
+        return references.map((reference) => {
+          const source = reference.source ?? {}
+          const where =
+            source.sessionId === undefined
+              ? `prototype ${source.prototypeId ?? "?"} Build ${source.buildNumber ?? "?"} comment ${source.commentId ?? "?"}`
+              : `session ${source.sessionId}`
+          return `${reference.eventIds.join(", ")} in ${reference.episodeId}: ${where}`
+        })
+      }
+      const evidence = references(proposal.evidence ?? [])
+      const contradictions = references(proposal.contradictions ?? [])
       return {
         id: proposal.id,
         heading: "Suggested learning",
@@ -223,6 +310,12 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
           ...(proposal.title ? [proposal.title, ""] : []),
           proposal.content,
           ...(proposal.themeKey ? ["", `Theme: ${proposal.themeKey}`] : []),
+          ...(proposal.appliesTo?.length
+            ? [
+                "",
+                `Applies to: ${proposal.appliesTo.map(({ kind, ref }) => `${kind} ${ref}`).join("; ")}`,
+              ]
+            : []),
           ...(support
             ? [
                 "",
@@ -236,6 +329,7 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
             ? [`How we would know it is wrong: ${rationale.falsification}`]
             : []),
           ...(evidence.length ? ["", "Evidence:", ...evidence] : []),
+          ...(contradictions.length ? ["", "Contradicting evidence:", ...contradictions] : []),
           ...(proposal.evidenceCommand
             ? ["", "Look up the full evidence before deciding:", proposal.evidenceCommand]
             : []),
@@ -271,7 +365,13 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
       ],
     })),
   ]
-  const counts = { accepted: 0, rejected: 0, applied: 0, dismissed: 0, skipped: 0 }
+  const counts = {
+    accepted: 0,
+    rejected: 0,
+    applied: 0,
+    dismissed: 0,
+    skipped: 0,
+  }
   let reviewer = login
   for (const [index, item] of items.entries()) {
     const answer = await elicit({
@@ -409,14 +509,28 @@ export function applyOperationId(proposalId) {
  * @param {object} store
  * @param {{ system: object, as: (principal: object) => object }} contexts
  */
-export async function finishStoppedApplies(store, { system, as }) {
-  const accepted = await store.queryMemory(system, { states: ["accepted"], purpose: "review" })
-  for (const { record } of accepted) {
-    const stopped = (await store.updatesFor(system, { memoryId: record.id })).filter(
-      (update) => update.state === "stale" && !update.decision,
+export async function finishStoppedApplies(store, { system, as, accepted, updates } = {}) {
+  const acceptedItems =
+    accepted ??
+    (await store.queryMemory(system, {
+      states: ["accepted"],
+      purpose: "review",
+    }))
+  if (!acceptedItems.length) return false
+  const proposals =
+    updates ??
+    (await store.updatesFor(system, {
+      memoryIds: acceptedItems.map(({ record }) => record.id),
+    }))
+  let finished = false
+  for (const { record } of acceptedItems) {
+    const stopped = proposals.filter(
+      (update) => update.memoryId === record.id && update.state === "stale" && !update.decision,
     )
     if (!stopped.length) continue
-    const { versions } = await store.getMemory(system, record.id, { history: true })
+    const { versions } = await store.getMemory(system, record.id, {
+      history: true,
+    })
     for (const update of stopped) {
       const operationId = applyOperationId(update.id)
       const saved = versions.find((version) => version.accepted?.operationId === operationId)
@@ -425,6 +539,8 @@ export async function finishStoppedApplies(store, { system, as }) {
         reason: saved.accepted.note,
         operationId,
       })
+      finished = true
     }
   }
+  return finished
 }

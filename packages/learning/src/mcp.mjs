@@ -6,12 +6,12 @@ import { LearningError } from "./errors.mjs"
 export { LearningError }
 
 const SUBMIT_AT_END =
-  "When the session ends, call submit_session with the conversation so reviewers' feedback can become new learnings. If you retrieved Pick & Polish notes with the Replica canvas's improvement_batch, also pass its notes unchanged as pickAndPolishNotes, since the person's notes are not in the conversation itself."
+  "When the session ends, call submit_session with the conversation so reviewers' feedback can become new learnings. If you completed a Pick & Polish batch, also pass the notes returned by improvement_results unchanged as pickAndPolishNotes. Those notes include the confirmed Copilot replies; do not send the earlier immutable batch notes instead."
 
 // A person working alone rarely ends a chat on purpose, so a local server asks for the
 // conversation after every request instead. A resent session stores only what's new.
 const SUBMIT_EACH_REQUEST =
-  "After you finish each request, call submit_session with the whole conversation so far, using the same sessionId each time, so feedback can become new learnings. Do not wait for the session to end. If you retrieved Pick & Polish notes with the Replica canvas's improvement_batch during the request, also pass its notes unchanged as pickAndPolishNotes, since the person's notes are not in the conversation itself."
+  "After you finish each request, call submit_session with the whole conversation so far, using the same sessionId each time, so feedback can become new learnings. Do not wait for the session to end. If you completed a Pick & Polish batch, also pass the notes returned by improvement_results unchanged as pickAndPolishNotes. Those notes include the confirmed Copilot replies; do not send the earlier immutable batch notes instead."
 
 function instructionsFor(submitEachRequest) {
   return `This server holds the learnings a team accepted from past reviews of its prototypes.
@@ -215,7 +215,7 @@ export function createLearningMcpServer(
           .array(pickAndPolishNote)
           .optional()
           .describe(
-            "The notes array from the Replica canvas's improvement_batch, unchanged, when you worked on Pick & Polish notes. Each note is stored once and resending it adds only new replies.",
+            "The notes array returned by improvement_results after you complete a Pick & Polish batch, unchanged. It includes the confirmed Copilot replies. Each note is stored once and resending it adds only new replies.",
           ),
       },
       annotations: { idempotentHint: true },

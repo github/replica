@@ -2102,86 +2102,127 @@ class LearningStore {
     const candidates = [context.scope, ...legacyScopes].map((scope) =>
       sessionEpisodeId(scope, session.sessionId),
     )
-    const [stored] = await this.#read("episodes", context, { ids: candidates })
-    const episodeId = stored?.id ?? candidates[0]
-    const episodes = stored
-      ? []
-      : [
-          sealEpisode(
-            sessionEpisode({
-              session,
-              scope: context.scope,
-              grantIds,
-              principal: context.principal,
-              importedAt: now,
-            }),
-          ),
-        ]
-    const existing = await this.#read("events", context, { episodeIds: [episodeId] })
-    const events = sessionEvents({
-      session,
-      scope: context.scope,
-      episodeId,
-      principal: context.principal,
-      existing,
-      now,
-    }).map(sealEvent)
-    // Each Pick & Polish note is its own episode, found the same way after a migration.
-    for (const note of session.notes) {
-      const noteCandidates = [context.scope, ...legacyScopes].map((scope) =>
-        noteEpisodeId(scope, note.localId),
-      )
-      const [storedNote] = await this.#read("episodes", context, { ids: noteCandidates })
-      const noteId = storedNote?.id ?? noteCandidates[0]
-      if (!storedNote)
-        episodes.push(
-          sealEpisode(
-            noteEpisode({
-              note,
-              session,
-              scope: context.scope,
-              grantIds,
-              principal: context.principal,
-              importedAt: now,
-            }),
-          ),
+    const prepare = async () => {
+      const [stored] = await this.#read("episodes", context, { ids: candidates })
+      const episodeId = stored?.id ?? candidates[0]
+      const episodes = stored
+        ? []
+        : [
+            sealEpisode(
+              sessionEpisode({
+                session,
+                scope: context.scope,
+                grantIds,
+                principal: context.principal,
+                importedAt: now,
+              }),
+            ),
+          ]
+      const existing = await this.#read("events", context, { episodeIds: [episodeId] })
+      const events = sessionEvents({
+        session,
+        scope: context.scope,
+        episodeId,
+        principal: context.principal,
+        existing,
+        now,
+      }).map(sealEvent)
+      // Each Pick & Polish note is its own episode, found the same way after a migration.
+      for (const note of session.notes) {
+        const noteCandidates = [context.scope, ...legacyScopes].map((scope) =>
+          noteEpisodeId(scope, note.localId),
         )
-      const noteExisting = storedNote
-        ? await this.#read("events", context, { episodeIds: [noteId] })
-        : []
-      events.push(
-        ...noteEvents({
-          note,
-          session,
-          scope: context.scope,
-          episodeId: noteId,
-          principal: context.principal,
-          existing: noteExisting,
-          now,
-        }).map(sealEvent),
-      )
+        const [storedNote] = await this.#read("episodes", context, { ids: noteCandidates })
+        const noteId = storedNote?.id ?? noteCandidates[0]
+        if (!storedNote)
+          episodes.push(
+            sealEpisode(
+              noteEpisode({
+                note,
+                session,
+                scope: context.scope,
+                grantIds,
+                principal: context.principal,
+                importedAt: now,
+              }),
+            ),
+          )
+        const noteExisting = storedNote
+          ? await this.#read("events", context, { episodeIds: [noteId] })
+          : []
+        events.push(
+          ...noteEvents({
+            note,
+            session,
+            scope: context.scope,
+            episodeId: noteId,
+            principal: context.principal,
+            existing: noteExisting,
+            now,
+          }).map(sealEvent),
+        )
+      }
+      for (const episode of episodes) assertValid("episode", episode)
+      for (const event of events) assertValid("event", event)
+      return { episodeId, episodes, events }
     }
-    for (const episode of episodes) assertValid("episode", episode)
-    for (const event of events) assertValid("event", event)
-    if (episodes.length || events.length)
-      await this.#provider.appendBatch(
-        { episodes, events },
+    const append = async (prepared) => {
+      if (!prepared.episodes.length && !prepared.events.length) return { episodes: 0, events: 0 }
+      const result = await this.#provider.appendBatch(
+        { episodes: prepared.episodes, events: prepared.events },
         {
           audit: this.#auditEntries(context, "observation.append", [
-            ...episodes.map((episode) => ({
+            ...prepared.episodes.map((episode) => ({
               kind: "episode",
               id: episode.id,
               digest: episode.digest,
             })),
-            ...events.map((event) => ({ kind: "event", id: event.id, digest: event.digest })),
+            ...prepared.events.map((event) => ({
+              kind: "event",
+              id: event.id,
+              digest: event.digest,
+            })),
           ]),
         },
       )
+      return {
+        episodes: result.episodes?.appended ?? prepared.episodes.length,
+        events: result.events?.appended ?? prepared.events.length,
+      }
+    }
+    let prepared = await prepare()
+    let added
+    try {
+      added = await append(prepared)
+    } catch (error) {
+      if (error?.code !== "conflict") throw error
+      if (prepared.events.length) {
+        const current = await this.#read("events", context, {
+          episodeIds: [...new Set(prepared.events.map((event) => event.episodeId))],
+        })
+        const byId = new Map(current.map((event) => [event.id, event]))
+        for (const proposed of prepared.events) {
+          const storedEvent = byId.get(proposed.id)
+          if (
+            storedEvent &&
+            (storedEvent.payload === undefined ||
+              storedEvent.type !== proposed.type ||
+              storedEvent.actor.id !== proposed.actor.id ||
+              storedEvent.supersedes !== proposed.supersedes ||
+              canonicalJson(storedEvent.payload) !== canonicalJson(proposed.payload) ||
+              current.some((event) => event.supersedes === proposed.id))
+          )
+            throw error
+        }
+      }
+      prepared = await prepare()
+      added = await append(prepared)
+    }
     return {
-      episodeId,
+      episodeId: prepared.episodeId,
       sessionId: session.sessionId,
-      addedEpisodes: episodes.length,
-      addedEvents: events.length,
+      addedEpisodes: added.episodes,
+      addedEvents: added.events,
       skippedMessages: session.skipped,
     }
   }
@@ -3639,8 +3680,8 @@ class LearningStore {
    * purpose. Retiring or superseding keeps the content, so the version must also predate the
    * delivery, or a later version would be named for text the agent got earlier.
    */
-  async #deliveredVersions(context, purpose) {
-    const view = await this.#statuses(context, purpose)
+  async #deliveredVersions(context, purpose, view) {
+    view ??= await this.#statuses(context, purpose)
     const items = new Map(view.items.map((item) => [item.id, item]))
     return (memoryId, { contentDigest, deliveredAt }) => {
       const item = items.get(memoryId)
@@ -3798,10 +3839,16 @@ class LearningStore {
     assertContext(context)
     if (typeof memoryId !== "string" || !RECORD_ID.test(memoryId))
       throw new LearningError("invalid_input", "Name the learning with its memory ID.")
-    const scores = (await this.#read("scores", context)).filter(
-      (record) => record.memoryId === memoryId,
+    return (await this.#outcomesFor(context, [memoryId])).get(memoryId)
+  }
+
+  async #outcomesFor(context, memoryIds, reviewView) {
+    const selected = new Set(memoryIds)
+    const outcomes = new Map(memoryIds.map((id) => [id, []]))
+    const scores = (await this.#read("scores", context)).filter((record) =>
+      selected.has(record.memoryId),
     )
-    if (!scores.length) return []
+    if (!scores.length) return outcomes
     const used = new Map(
       (
         await this.#read("usedLearnings", context, {
@@ -3828,41 +3875,38 @@ class LearningStore {
         .filter((record) => reports.has(record.usageReportId))
         .map((record) => [record.id, record]),
     )
-    const delivered = await this.#deliveredVersions(context, "review")
+    const delivered = await this.#deliveredVersions(context, "review", reviewView)
     function screenshot(id) {
       const record = shots.get(id)
       if (!record) return undefined
       const { sha256, route, consentGrantId } = record
       return { sha256, route, ...(consentGrantId ? { consentGrantId } : {}) }
     }
-    return scores
-      .sort((a, b) => a.scoredAt.localeCompare(b.scoredAt))
-      .flatMap((score) => {
-        const record = used.get(score.usedLearningId)
-        const report = reports.get(score.usageReportId)
-        const delivery = record && deliveries.get(record.deliveryId)
-        const match = delivery && delivered(memoryId, delivery)
-        if (!report || !match?.allowed) return []
-        const before = screenshot(record.beforeScreenshotId)
-        const after = screenshot(record.afterScreenshotId)
-        return [
-          {
-            id: score.id,
-            usedLearningId: score.usedLearningId,
-            version: match.version.version,
-            commitSha: report.commitSha,
-            ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
-            efficiency: score.efficiency,
-            followed: score.followed,
-            reasoning: score.reasoning,
-            ...(score.issue ? { issue: score.issue } : {}),
-            inputs: score.inputs,
-            scoredAt: score.scoredAt,
-            ...(before ? { before } : {}),
-            ...(after ? { after } : {}),
-          },
-        ]
+    for (const score of scores.sort((a, b) => a.scoredAt.localeCompare(b.scoredAt))) {
+      const record = used.get(score.usedLearningId)
+      const report = reports.get(score.usageReportId)
+      const delivery = record && deliveries.get(record.deliveryId)
+      const match = delivery && delivered(score.memoryId, delivery)
+      if (!report || !match?.allowed) continue
+      const before = screenshot(record.beforeScreenshotId)
+      const after = screenshot(record.afterScreenshotId)
+      outcomes.get(score.memoryId)?.push({
+        id: score.id,
+        usedLearningId: score.usedLearningId,
+        version: match.version.version,
+        commitSha: report.commitSha,
+        ...(report.prototypeId ? { prototypeId: report.prototypeId } : {}),
+        efficiency: score.efficiency,
+        followed: score.followed,
+        reasoning: score.reasoning,
+        ...(score.issue ? { issue: score.issue } : {}),
+        inputs: score.inputs,
+        scoredAt: score.scoredAt,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
       })
+    }
+    return outcomes
   }
 
   /**
@@ -4022,78 +4066,111 @@ class LearningStore {
   }
 
   /**
-   * One learning's update proposals, oldest first, each with its state. A proposal is open
-   * until a person applies or dismisses it. It goes stale when the learning's wording
+   * Update proposals for one or more learnings, oldest first, each with its state. A proposal
+   * is open until a person applies or dismisses it. It goes stale when the learning's wording
    * changes, when a score it relied on can no longer be shown, or when a newer proposal for
    * the same issue replaces it, so a person only ever sees one open proposal per issue.
    */
-  async updatesFor(context, { memoryId } = {}) {
+  async updatesFor(context, { memoryId, memoryIds } = {}) {
     assertContext(context)
-    if (typeof memoryId !== "string" || !RECORD_ID.test(memoryId))
-      throw new LearningError("invalid_input", "Name the learning with its memory ID.")
-    const proposals = (await this.#read("updateProposals", context)).filter(
-      (record) => record.memoryId === memoryId,
+    if (memoryId !== undefined && memoryIds !== undefined)
+      throw new LearningError("invalid_input", "Name a learning once.")
+    const selectedIds = memoryId === undefined ? memoryIds : [memoryId]
+    if (
+      !Array.isArray(selectedIds) ||
+      !selectedIds.length ||
+      selectedIds.some((id) => typeof id !== "string" || !RECORD_ID.test(id))
+    )
+      throw new LearningError("invalid_input", "Name one or more learnings with their memory IDs.")
+    const ids = [...new Set(selectedIds)]
+    const selected = new Set(ids)
+    const proposals = (await this.#read("updateProposals", context)).filter((record) =>
+      selected.has(record.memoryId),
     )
     if (!proposals.length) return []
     const decisions = new Map(
       (await this.#read("updateDecisions", context))
-        .filter((record) => record.memoryId === memoryId)
+        .filter((record) => selected.has(record.memoryId))
         .map((record) => [record.proposalId, record]),
     )
-    const entry = (await this.#memories(context, [memoryId])).get(memoryId)
-    const current = entry && !entry.problems.length ? entry.record : null
-    const shown = new Set((await this.outcomesFor(context, { memoryId })).map((item) => item.id))
-    const updatable = await this.#updatable(context, memoryId)
-    const sorted = proposals.sort((a, b) => a.proposedAt.localeCompare(b.proposedAt))
-    return sorted.map((proposal, index) => {
-      const decision = decisions.get(proposal.id)
-      const replaced = sorted
-        .slice(index + 1)
-        .some(
-          (later) =>
-            later.versionDigest === proposal.versionDigest && later.issueKey === proposal.issueKey,
-        )
-      // Wording drawn from scores that may no longer be read is withheld, like the scores.
-      const withheld = !proposal.support.every((id) => shown.has(id))
-      const state = decision
-        ? decision.decision
-        : current?.state !== "accepted" ||
-            current.digest !== proposal.versionDigest ||
-            withheld ||
-            replaced ||
-            !updatable
-          ? "stale"
-          : "open"
-      return {
-        id: proposal.id,
-        memoryId,
-        version: proposal.version,
-        issueKey: proposal.issueKey,
-        ...(withheld
-          ? { withheld: true }
-          : {
-              issue: proposal.issue,
-              ...(proposal.title !== undefined ? { title: proposal.title } : {}),
-              content: proposal.content,
-              reasoning: proposal.reasoning,
-            }),
-        support: proposal.support,
-        counter: proposal.counter,
-        proposedAt: proposal.proposedAt,
-        state,
-        ...(decision
-          ? {
-              decision: {
-                reason: decision.reason,
-                decidedBy: decision.decidedBy,
-                decidedAt: decision.decidedAt,
-                ...(decision.appliedVersion ? { appliedVersion: decision.appliedVersion } : {}),
-                ...(decision.operationId ? { operationId: decision.operationId } : {}),
-              },
-            }
-          : {}),
-      }
-    })
+    const [memories, reviewView, instructionView] = await Promise.all([
+      this.#memories(context, ids),
+      this.#statuses(context, "review"),
+      this.#statuses(context, "instruction"),
+    ])
+    const shownByMemory = await this.#outcomesFor(context, ids, reviewView)
+    const updatable = new Map(
+      instructionView.items.map((item) => [
+        item.id,
+        !item.status.superseded && !item.status.conflicts.length,
+      ]),
+    )
+    const byMemory = new Map()
+    for (const proposal of proposals) {
+      const group = byMemory.get(proposal.memoryId) ?? []
+      group.push(proposal)
+      byMemory.set(proposal.memoryId, group)
+    }
+    const updates = []
+    for (const [id, group] of byMemory) {
+      const entry = memories.get(id)
+      const current = entry && !entry.problems.length ? entry.record : null
+      const shown = new Set((shownByMemory.get(id) ?? []).map((item) => item.id))
+      const sorted = group.sort((a, b) => a.proposedAt.localeCompare(b.proposedAt))
+      updates.push(
+        ...sorted.map((proposal, index) => {
+          const decision = decisions.get(proposal.id)
+          const replaced = sorted
+            .slice(index + 1)
+            .some(
+              (later) =>
+                later.versionDigest === proposal.versionDigest &&
+                later.issueKey === proposal.issueKey,
+            )
+          // Wording drawn from scores that may no longer be read is withheld, like the scores.
+          const withheld = !proposal.support.every((supportId) => shown.has(supportId))
+          const state = decision
+            ? decision.decision
+            : current?.state !== "accepted" ||
+                current.digest !== proposal.versionDigest ||
+                withheld ||
+                replaced ||
+                !updatable.get(id)
+              ? "stale"
+              : "open"
+          return {
+            id: proposal.id,
+            memoryId: id,
+            version: proposal.version,
+            issueKey: proposal.issueKey,
+            ...(withheld
+              ? { withheld: true }
+              : {
+                  issue: proposal.issue,
+                  ...(proposal.title !== undefined ? { title: proposal.title } : {}),
+                  content: proposal.content,
+                  reasoning: proposal.reasoning,
+                }),
+            support: proposal.support,
+            counter: proposal.counter,
+            proposedAt: proposal.proposedAt,
+            state,
+            ...(decision
+              ? {
+                  decision: {
+                    reason: decision.reason,
+                    decidedBy: decision.decidedBy,
+                    decidedAt: decision.decidedAt,
+                    ...(decision.appliedVersion ? { appliedVersion: decision.appliedVersion } : {}),
+                    ...(decision.operationId ? { operationId: decision.operationId } : {}),
+                  },
+                }
+              : {}),
+          }
+        }),
+      )
+    }
+    return updates.sort((left, right) => left.proposedAt.localeCompare(right.proposedAt))
   }
 
   /**

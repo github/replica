@@ -123,6 +123,13 @@ describe("interrupted learning applies", () => {
     const interrupted = await store.updatesFor(DESIGNER, { memoryId: proposal.id })
     assert.equal(interrupted[0].state, "stale")
     assert.equal(interrupted[0].decision, undefined)
+    const bulk = await store.updatesFor(SYSTEM, {
+      memoryIds: [proposal.id, "mem_missing0000"],
+    })
+    assert.deepEqual(
+      bulk.map(({ id }) => id),
+      [interrupted[0].id],
+    )
 
     await finishStoppedApplies(store, {
       system: SYSTEM,
