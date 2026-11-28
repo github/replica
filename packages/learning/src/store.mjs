@@ -284,6 +284,16 @@ function targetOf(event) {
  */
 const JUDGMENTS = new Set(["annotation", "no_annotation"])
 
+/** A labeler's most recent judgment of a feedback event, which replaces its earlier ones. */
+function latestJudgment(events, targetId, principalId) {
+  return events
+    .filter(
+      (event) =>
+        JUDGMENTS.has(event.type) && targetOf(event) === targetId && event.actor.id === principalId,
+    )
+    .at(-1)
+}
+
 const DELETED_AT_SOURCE = "The comment was deleted at its source."
 
 function assertDeletionReason(reason) {
@@ -2226,7 +2236,7 @@ class LearningStore {
    * Label feedback events, review comments or a person's messages to an agent, with a theme,
    * signal, and stance. A label is an annotation event in the target's episode. Labeling the
    * same target the same way again adds nothing; a different label from the same labeler
-   * supersedes the earlier one.
+   * supersedes its earlier judgment, whether that was a label or nothing to label.
    *
    * @param {object} context the principal is the labeler, usually an agent
    * @param {Array<{ target: { eventId?: string, commentId?: number }, theme: { key: string, statement: string }, signal: string, observation: string, stance: string, proposedKind?: string, trace?: object, note?: string }>} labels
@@ -2259,14 +2269,7 @@ class LearningStore {
         ...(label.trace ? { trace: label.trace } : {}),
         ...(label.note ? { note: label.note } : {}),
       }
-      const previous = [...events, ...created]
-        .filter(
-          (event) =>
-            event.type === "annotation" &&
-            targetOf(event) === target.id &&
-            event.actor.id === context.principal.id,
-        )
-        .at(-1)
+      const previous = latestJudgment([...events, ...created], target.id, context.principal.id)
       const event = sealEvent({
         schemaVersion: SCHEMA_VERSIONS.event,
         id: derivedId("ev", {
@@ -2304,7 +2307,9 @@ class LearningStore {
   /**
    * Records that the caller read these feedback events and found nothing to label, so a labeler
    * is not asked about them again. Each one must be a live comment or message version. A comment the
-   * caller already marked is skipped. Returns the no_annotation events it created.
+   * caller already marked is skipped. When the caller labeled it before, this supersedes that
+   * label, so a labeler that changes its mind stops the old theme counting. Returns the
+   * no_annotation events it created.
    *
    * @param {object} context
    * @param {string[]} eventIds
@@ -2325,29 +2330,27 @@ class LearningStore {
         )
         .map((event) => [event.id, event]),
     )
-    const marked = new Set(
-      events
-        .filter(
-          (event) => event.type === "no_annotation" && event.actor.id === context.principal.id,
-        )
-        .map(targetOf),
-    )
     const created = []
     for (const [index, eventId] of eventIds.entries()) {
       const target = comments.get(eventId)
       if (!target)
         throw new LearningError("not_found", `Item ${index + 1}: no live comment event ${eventId}.`)
-      if (marked.has(target.id)) continue
-      marked.add(target.id)
+      const previous = latestJudgment([...events, ...created], target.id, context.principal.id)
+      if (previous?.type === "no_annotation") continue
       const event = sealEvent({
         schemaVersion: SCHEMA_VERSIONS.event,
-        id: derivedId("ev", { noAnnotationOf: target.id, by: context.principal.id }),
+        id: derivedId("ev", {
+          noAnnotationOf: target.id,
+          by: context.principal.id,
+          ...(previous ? { after: previous.id } : {}),
+        }),
         episodeId: target.episodeId,
         scope: context.scope,
         type: "no_annotation",
         at: this.#now(),
         actor: context.principal,
         parentEventId: target.id,
+        ...(previous ? { supersedes: previous.id } : {}),
         payload: { target: { eventId: target.id } },
       })
       assertValid("event", event)
@@ -3873,24 +3876,32 @@ class LearningStore {
    * one and that every score belongs to it. The ID comes from the version, issue, and scores,
    * so a retry with the same evidence keeps the first proposal instead of a second one.
    */
-  async proposeUpdate(
-    context,
-    {
+  async proposeUpdate(context, { memoryId, versionDigest, evidenceThrough, ...update } = {}) {
+    const [result] = await this.proposeUpdates(context, {
       memoryId,
       versionDigest,
-      issueKey,
-      issue,
-      title,
-      content,
-      reasoning,
-      support,
-      counter = [],
-      route,
-    } = {},
-  ) {
+      evidenceThrough,
+      updates: [update],
+    })
+    return result
+  }
+
+  /**
+   * Keep every proposal one drafting run made, or none of them, so a run that fails partway
+   * is drafted again in full. evidenceThrough is the newest score time the run read; a later
+   * run uses it to tell which scores it has not seen. Each update is checked as
+   * proposeUpdate describes.
+   *
+   * @param {object} context
+   * @param {{ memoryId: string, versionDigest: string, evidenceThrough?: string, updates: Array<{ issueKey: string, issue: string, title?: string, content: string, reasoning: string, support: string[], counter?: string[], route: object }> }} input
+   */
+  async proposeUpdates(context, { memoryId, versionDigest, evidenceThrough, updates } = {}) {
     assertContext(context)
-    if (!Array.isArray(support) || !Array.isArray(counter))
-      throw new LearningError("invalid_input", "List the supporting and opposing score IDs.")
+    if (!Array.isArray(updates) || !updates.length)
+      throw new LearningError("invalid_input", "Pass at least one update.")
+    for (const { support, counter = [] } of updates)
+      if (!Array.isArray(support) || !Array.isArray(counter))
+        throw new LearningError("invalid_input", "List the supporting and opposing score IDs.")
     const entry = (await this.#memories(context, [memoryId])).get(memoryId)
     if (!entry) throw new LearningError("not_found", `No memory ${memoryId} in this scope.`)
     const latest = entry.record
@@ -3899,13 +3910,6 @@ class LearningStore {
         "stale_review",
         `Memory ${memoryId} is no longer at the version this update would replace.`,
       )
-    const id = derivedId("update", {
-      memoryId,
-      versionDigest,
-      issueKey,
-      support: [...support].sort(),
-      counter: [...counter].sort(),
-    })
     if (!(await this.#updatable(context, memoryId)))
       throw new LearningError(
         "invalid_transition",
@@ -3916,53 +3920,89 @@ class LearningStore {
         .filter((outcome) => outcome.version === latest.version)
         .map((outcome) => outcome.id),
     )
-    if (
-      new Set([...support, ...counter]).size !== support.length + counter.length ||
-      [...support, ...counter].some((scoreId) => !current.has(scoreId))
+    const now = this.#now()
+    const proposals = updates.map(
+      ({ issueKey, issue, title, content, reasoning, support, counter = [], route }) => {
+        if (
+          new Set([...support, ...counter]).size !== support.length + counter.length ||
+          [...support, ...counter].some((scoreId) => !current.has(scoreId))
+        )
+          throw new LearningError(
+            "invalid_input",
+            "Every score must be a different score of this learning's current version.",
+          )
+        const proposal = sealRecord({
+          schemaVersion: SCHEMA_VERSIONS.updateProposal,
+          id: derivedId("update", {
+            memoryId,
+            versionDigest,
+            issueKey,
+            support: [...support].sort(),
+            counter: [...counter].sort(),
+          }),
+          scope: context.scope,
+          memoryId,
+          version: latest.version,
+          versionDigest,
+          issueKey,
+          issue,
+          ...(title !== undefined ? { title } : {}),
+          content,
+          reasoning,
+          support,
+          counter,
+          route,
+          proposedBy: context.principal,
+          proposedAt: now,
+          ...(evidenceThrough !== undefined ? { evidenceThrough } : {}),
+        })
+        assertValid("updateProposal", proposal)
+        return proposal
+      },
     )
-      throw new LearningError(
-        "invalid_input",
-        "Every score must be a different score of this learning's current version.",
+    // Two updates with the same issue and scores share an ID; the first one is kept.
+    const first = new Map()
+    for (const proposal of proposals) if (!first.has(proposal.id)) first.set(proposal.id, proposal)
+    // Read after the scores are checked, so a retry cannot read wording its evidence no
+    // longer allows. A run with the same evidence that stored first keeps its wording.
+    const ids = [...first.keys()]
+    const kept = async () =>
+      new Map(
+        (await this.#read("updateProposals", context, { ids })).map((record) => [
+          record.id,
+          record,
+        ]),
       )
-    // Checked after the scores, so a retry cannot read wording its evidence no longer allows.
-    const [existing] = await this.#read("updateProposals", context, { ids: [id] })
-    if (existing) return { id, stored: false, proposal: existing }
-    const proposal = sealRecord({
-      schemaVersion: SCHEMA_VERSIONS.updateProposal,
-      id,
-      scope: context.scope,
-      memoryId,
-      version: latest.version,
-      versionDigest,
-      issueKey,
-      issue,
-      ...(title !== undefined ? { title } : {}),
-      content,
-      reasoning,
-      support,
-      counter,
-      route,
-      proposedBy: context.principal,
-      proposedAt: this.#now(),
-    })
-    assertValid("updateProposal", proposal)
-    try {
-      const result = await this.#provider.appendBatch(
-        { updateProposals: [proposal] },
-        {
-          audit: this.#auditEntries(context, "update.propose", [
-            { kind: "update_proposal", id, digest: proposal.digest },
-          ]),
-        },
-      )
-      return { id, stored: result.updateProposals.appended === 1, proposal }
-    } catch (error) {
-      // A run with the same evidence stored first; its wording is the one kept.
-      if (error?.code !== "conflict") throw error
-      const [winner] = await this.#read("updateProposals", context, { ids: [id] })
-      if (!winner) throw error
-      return { id, stored: false, proposal: winner }
+    let existing = await kept()
+    for (let attempt = 0; ; attempt++) {
+      const fresh = [...first.values()].filter((proposal) => !existing.has(proposal.id))
+      if (!fresh.length) break
+      try {
+        await this.#provider.appendBatch(
+          { updateProposals: fresh },
+          {
+            audit: this.#auditEntries(
+              context,
+              "update.propose",
+              fresh.map((proposal) => ({
+                kind: "update_proposal",
+                id: proposal.id,
+                digest: proposal.digest,
+              })),
+            ),
+          },
+        )
+        break
+      } catch (error) {
+        if (error?.code !== "conflict" || attempt) throw error
+        existing = await kept()
+        if (!fresh.some((proposal) => existing.has(proposal.id))) throw error
+      }
     }
+    return proposals.map((proposal) => {
+      const winner = existing.get(proposal.id) ?? first.get(proposal.id)
+      return { id: proposal.id, stored: winner === proposal, proposal: winner }
+    })
   }
 
   /**

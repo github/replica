@@ -264,13 +264,17 @@ export function sessionEvents({ session, scope, episodeId, principal, existing, 
       actor,
       { text: message.text, sequence: message.sequence },
       (latest) => {
-        if (latest.type !== type || latest.payload.text !== message.text) return false
-        if (latest.actor.id !== actor.id || (message.at && message.at !== latest.at))
+        // Check who sent it before the text, so an edit cannot also change its author or time.
+        if (
+          latest.type !== type ||
+          latest.actor.id !== actor.id ||
+          (message.at && message.at !== latest.at)
+        )
           throw new LearningError(
             "conflict",
             `Message ${message.sequence} of session ${session.sessionId} was first sent by another author or at another time. Send it as it was first sent.`,
           )
-        return true
+        return latest.payload.text === message.text
       },
     )
   }

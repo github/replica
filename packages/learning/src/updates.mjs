@@ -92,9 +92,10 @@ export function updateEvidence(outcomes, version) {
   const latest = new Map()
   for (const outcome of [...outcomes].sort((a, b) => a.scoredAt.localeCompare(b.scoredAt)))
     if (outcome.version === version) latest.set(outcome.usedLearningId, outcome)
-  const eligible = [...latest.values()].filter((outcome) =>
-    outcome.inputs.some((input) => INDEPENDENT_INPUTS.includes(input)),
-  )
+  // A rescored use keeps its first place in the map, so sort again to keep the newest last.
+  const eligible = [...latest.values()]
+    .filter((outcome) => outcome.inputs.some((input) => INDEPENDENT_INPUTS.includes(input)))
+    .sort((a, b) => a.scoredAt.localeCompare(b.scoredAt))
   return {
     problems: eligible.filter(
       (outcome) => outcome.followed === "followed" && outcome.efficiency <= 2 && outcome.issue,
@@ -134,8 +135,9 @@ export function updateAllowed({ support, successes, dismissedBuilds, content, cu
  * and it is asked only when enough new evidence exists, so a quiet learning costs nothing.
  *
  * Returns insufficient_evidence when no issue has appeared in enough Builds yet, and
- * up_to_date when no score arrived since the last proposal for this version. A host runs
- * it only after new scores arrive, since a run Copilot answers without a change is not
+ * up_to_date when no score arrived since the last run that saved proposals for this version.
+ * A run keeps all its proposals or none, so a failed run is drafted again in full. A host
+ * runs it only after new scores arrive, since a run Copilot answers without a change is not
  * recorded.
  *
  * @param {object} store A learning store.
@@ -169,13 +171,18 @@ export async function proposeUpdates(store, context, { drafter, memoryId }) {
   if (new Set(problems.map((outcome) => outcome.commitSha)).size < MIN_UPDATE_EPISODES)
     return result("insufficient_evidence")
   const earlier = updates.filter((update) => update.version === record.version)
-  // A run that saved a proposal saw every score up to then, even ones it left out.
-  const lastProposed = earlier.reduce(
-    (last, update) => (update.proposedAt > last ? update.proposedAt : last),
+  const evidence = [...problems, ...successes]
+  const evidenceThrough = evidence.reduce(
+    (last, outcome) => (outcome.scoredAt > last ? outcome.scoredAt : last),
     "",
   )
-  if ([...problems, ...successes].every((outcome) => outcome.scoredAt <= lastProposed))
-    return result("up_to_date")
+  // A run that saved proposals read every score up to its evidenceThrough, even ones it
+  // left out. Proposals saved before that field existed fall back to their save time.
+  const lastSeen = earlier.reduce((last, update) => {
+    const seen = update.evidenceThrough ?? update.proposedAt
+    return seen > last ? seen : last
+  }, "")
+  if (evidence.every((outcome) => outcome.scoredAt <= lastSeen)) return result("up_to_date")
   const known = new Map(
     earlier.flatMap((update) => (update.withheld ? [] : [[update.issueKey, update.issue]])),
   )
@@ -202,49 +209,55 @@ export async function proposeUpdates(store, context, { drafter, memoryId }) {
   if (!Array.isArray(answer?.groups))
     throw new LearningError("unavailable", "Copilot answered without issue groups.", { usage })
   const byId = new Map(shown.map((outcome) => [outcome.id, outcome]))
-  const proposals = []
-  try {
-    for (const group of answer.groups) {
-      const issueKey = typeof group?.issueKey === "string" ? group.issueKey.trim() : ""
-      const issue = typeof group?.issue === "string" ? group.issue.trim() : ""
-      const reasoning = typeof group?.reasoning === "string" ? group.reasoning.trim() : ""
-      const content = typeof group?.content === "string" ? group.content.trim() : ""
-      const title = typeof group?.title === "string" ? group.title.trim() : ""
-      const support = [...new Set(Array.isArray(group?.scoreIds) ? group.scoreIds : [])].flatMap(
-        (id) => (byId.has(id) ? [byId.get(id)] : []),
-      )
-      if (!ISSUE_KEY.test(issueKey) || issueKey.length > 128 || !issue || !reasoning) continue
-      const dismissedAt = earlier
-        .filter((update) => update.issueKey === issueKey && update.state === "dismissed")
-        .map((update) => update.decision.decidedAt)
-        .reduce((last, at) => (at > last ? at : last), "")
-      const dismissedBuilds = dismissedAt
-        ? new Set(
-            outcomes
-              .filter((outcome) => outcome.scoredAt <= dismissedAt)
-              .map((outcome) => outcome.commitSha),
-          )
-        : undefined
-      if (!updateAllowed({ support, successes, dismissedBuilds, content, current: record.content }))
-        continue
-      const stored = await store.proposeUpdate(context, {
+  const drafts = []
+  for (const group of answer.groups) {
+    const issueKey = typeof group?.issueKey === "string" ? group.issueKey.trim() : ""
+    const issue = typeof group?.issue === "string" ? group.issue.trim() : ""
+    const reasoning = typeof group?.reasoning === "string" ? group.reasoning.trim() : ""
+    const content = typeof group?.content === "string" ? group.content.trim() : ""
+    const title = typeof group?.title === "string" ? group.title.trim() : ""
+    const support = [...new Set(Array.isArray(group?.scoreIds) ? group.scoreIds : [])].flatMap(
+      (id) => (byId.has(id) ? [byId.get(id)] : []),
+    )
+    if (!ISSUE_KEY.test(issueKey) || issueKey.length > 128 || !issue || !reasoning) continue
+    const dismissedAt = earlier
+      .filter((update) => update.issueKey === issueKey && update.state === "dismissed")
+      .map((update) => update.decision.decidedAt)
+      .reduce((last, at) => (at > last ? at : last), "")
+    const dismissedBuilds = dismissedAt
+      ? new Set(
+          outcomes
+            .filter((outcome) => outcome.scoredAt <= dismissedAt)
+            .map((outcome) => outcome.commitSha),
+        )
+      : undefined
+    if (!updateAllowed({ support, successes, dismissedBuilds, content, current: record.content }))
+      continue
+    drafts.push({
+      issueKey,
+      issue: issue.slice(0, 500),
+      ...(title && title !== record.title ? { title: title.slice(0, 120) } : {}),
+      content: content.slice(0, 4000),
+      reasoning: reasoning.slice(0, 4000),
+      support: support.map((outcome) => outcome.id),
+      counter: newest(successes).map((outcome) => outcome.id),
+      route,
+    })
+  }
+  let proposals = []
+  if (drafts.length)
+    try {
+      const saved = await store.proposeUpdates(context, {
         memoryId,
         versionDigest: record.digest,
-        issueKey,
-        issue: issue.slice(0, 500),
-        ...(title && title !== record.title ? { title: title.slice(0, 120) } : {}),
-        content: content.slice(0, 4000),
-        reasoning: reasoning.slice(0, 4000),
-        support: support.map((outcome) => outcome.id),
-        counter: newest(successes).map((outcome) => outcome.id),
-        route,
+        evidenceThrough,
+        updates: drafts,
       })
-      proposals.push({ ...stored.proposal, stored: stored.stored })
+      proposals = saved.map((item) => ({ ...item.proposal, stored: item.stored }))
+    } catch (error) {
+      // Copilot was already paid, so a failed save must still report what it cost.
+      if (error instanceof LearningError) error.details = { ...error.details, usage }
+      throw error
     }
-  } catch (error) {
-    // Copilot was already paid, so a failed save must still report what it cost.
-    if (error instanceof LearningError) error.details = { ...error.details, usage }
-    throw error
-  }
   return result(proposals.length ? "proposed" : "no_change", { proposals, route, usage })
 }

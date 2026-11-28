@@ -1672,6 +1672,19 @@ export function memoryProviderConformance({ name, createProvider }) {
       }
       const operationId = "55555555-5555-4555-8555-555555555555"
 
+      // One bad update keeps the whole run out, so the first one below is still new.
+      const { memoryId, versionDigest, ...draft } = update
+      await assert.rejects(
+        store.proposeUpdates(agent(), {
+          memoryId,
+          versionDigest,
+          updates: [
+            draft,
+            { ...draft, issueKey: "label-contrast", support: [scores[0].id, scores[0].id] },
+          ],
+        }),
+        { code: "invalid_input" },
+      )
       const first = await store.proposeUpdate(agent(), update)
       const again = await store.proposeUpdate(agent(), { ...update, content: "Other wording." })
       const other = await store.proposeUpdate(agent(), { ...update, issueKey: "label-contrast" })

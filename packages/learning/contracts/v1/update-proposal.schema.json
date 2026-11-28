@@ -94,6 +94,10 @@
     "proposedAt": {
       "$ref": "common.schema.json#/$defs/timestamp"
     },
+    "evidenceThrough": {
+      "description": "The newest score time the drafting run read, so a later run drafts again only when a newer score arrives.",
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
     "digest": {
       "$ref": "common.schema.json#/$defs/digest"
     }

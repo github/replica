@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process"
 import {
   copyFileSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -1552,6 +1553,19 @@ describe("replica-learning CLI: guard rails", () => {
       "agent:copilot",
     ])
     assert.match(outside.stderr, /must be a path inside the report's directory/)
+    linkSync(path.join(repo, "after.png"), path.join(repo, "reports", "linked.png"))
+    writeFileSync(
+      path.join(repo, "reports", "linked.json"),
+      readFileSync(path.join(repo, "report.json"), "utf8").replace("after.png", "linked.png"),
+    )
+    const linked = await cli(repo, [
+      "report-usage",
+      "reports/linked.json",
+      "--actor",
+      "agent:copilot",
+    ])
+    assert.match(linked.stderr, /must not be a hard link/)
+    rmSync(path.join(repo, "reports", "linked.png"))
     const args = ["report-usage", "report.json", "--actor", "agent:copilot", "--json"]
     assert.equal((await ok(repo, args)).json().stored, true)
     assert.equal((await ok(repo, args)).json().stored, false)

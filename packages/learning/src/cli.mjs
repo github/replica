@@ -1863,6 +1863,9 @@ async function screenshotFile(directory, { file, ...rest }, remaining) {
   try {
     const info = await handle.stat()
     if (!info.isFile()) throw new LearningError("invalid_input", `${file} must be a regular file.`)
+    // A hard link can give a file outside the directory a second name inside it.
+    if (info.nlink > 1)
+      throw new LearningError("invalid_input", `${file} must not be a hard link to another file.`)
     if (info.size > MAX_SCREENSHOT_BYTES)
       throw new LearningError("invalid_input", `${file} is larger than 10 MB.`)
     if (info.size > remaining)

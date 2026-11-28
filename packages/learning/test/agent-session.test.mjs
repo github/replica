@@ -106,6 +106,53 @@ describe("agent sessions", () => {
     assert.equal(outcome.supersedes, before.events[2].id)
   })
 
+  it("refuses a resent message that changes its author or time, even with new text", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review"],
+      sources: ["agent_session"],
+      basis: "The team agreed to learn from agent sessions.",
+    })
+    await store.importAgentSession(
+      COPILOT,
+      {
+        sessionId: "session-one",
+        messages: [
+          { role: "user", text: "Make the buttons bigger.", at: "2026-10-05T12:00:00Z" },
+          { role: "agent", text: "Done." },
+        ],
+      },
+      { grantIds: [grant.id] },
+    )
+
+    for (const messages of [
+      [
+        { role: "user", text: "Make the buttons much bigger.", at: "2026-10-06T12:00:00Z" },
+        { role: "agent", text: "Done." },
+      ],
+      [
+        { role: "user", text: "Make the buttons bigger.", at: "2026-10-05T12:00:00Z" },
+        { role: "user", text: "Done, I made them myself." },
+      ],
+    ])
+      await assert.rejects(
+        store.importAgentSession(
+          COPILOT,
+          { sessionId: "session-one", messages },
+          { grantIds: [grant.id] },
+        ),
+        { code: "conflict" },
+      )
+    const { events } = await store.queryObservations(designer(), { purpose: "review" })
+    assert.deepEqual(
+      events.map((event) => event.payload.text),
+      ["Make the buttons bigger.", "Done."],
+    )
+  })
+
   it("removes every version of a session message and keeps it out when the session is sent again", async () => {
     const provider = createInMemoryProvider()
     const store = await createLearningStore({

@@ -414,7 +414,21 @@ export interface UpdateProposalRecord {
   route: ScoreRoute
   proposedBy: Actor
   proposedAt: Timestamp
+  /** The newest score time the drafting run read. */
+  evidenceThrough?: Timestamp
   digest: Digest
+}
+
+/** Suggested wording for one issue, before the store keeps it as a proposal. */
+export interface UpdateDraft {
+  issueKey: string
+  issue: string
+  title?: string
+  content: string
+  reasoning: string
+  support: string[]
+  counter?: string[]
+  route: ScoreRoute
 }
 
 /** A person's decision on one update proposal. */
@@ -1314,16 +1328,19 @@ export interface LearningStore {
     input: {
       memoryId: string
       versionDigest: Digest
-      issueKey: string
-      issue: string
-      title?: string
-      content: string
-      reasoning: string
-      support: string[]
-      counter?: string[]
-      route: ScoreRoute
-    },
+      evidenceThrough?: Timestamp
+    } & UpdateDraft,
   ): Promise<{ id: string; stored: boolean; proposal: UpdateProposalRecord }>
+  /** Keep every proposal one drafting run made, or none of them. */
+  proposeUpdates(
+    context: LearningContext,
+    input: {
+      memoryId: string
+      versionDigest: Digest
+      evidenceThrough?: Timestamp
+      updates: UpdateDraft[]
+    },
+  ): Promise<Array<{ id: string; stored: boolean; proposal: UpdateProposalRecord }>>
   /** One learning's update proposals, oldest first, each with its state. */
   updatesFor(context: LearningContext, request: { memoryId: string }): Promise<LearningUpdate[]>
   /**

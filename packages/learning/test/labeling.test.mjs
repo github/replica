@@ -5,6 +5,7 @@ import path from "node:path"
 import { describe, it } from "node:test"
 import { pathToFileURL } from "node:url"
 import { designer, weekOneLog, weekTwoLog } from "../conformance/index.mjs"
+import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
 import { labelComments } from "../src/labeling.mjs"
 import { LearningError } from "../src/errors.mjs"
 import { createInMemoryProvider } from "../src/providers/in-memory.mjs"
@@ -686,6 +687,29 @@ describe("labelComments()", () => {
     )
     assert.equal(latest.length, previous.length)
     assert.ok(latest.every((event) => event.payload.signal === "usability"))
+  })
+
+  it("stops proposing a theme once a reassessment finds nothing to label, until it is labeled again", async () => {
+    const store = await storeWith()
+    const window = { from: "2026-10-01T00:00:00.000000Z", to: "2026-10-09T12:00:00.000000Z" }
+    async function proposedThemes() {
+      const run = await store.consolidate(COPILOT, {
+        consolidator: createRecurrenceConsolidator(),
+        window,
+        dryRun: true,
+      })
+      return run.proposals.map((proposal) => proposal.themeKey)
+    }
+    await labelComments(store, COPILOT, { labeler: fakeLabeler() })
+    assert.deepEqual(await proposedThemes(), ["visible-form-labels"])
+
+    const nothing = fakeLabeler()
+    nothing.label = async () => ({ labels: [] })
+    await labelComments(store, COPILOT, { labeler: nothing, relabel: true })
+    assert.deepEqual(await proposedThemes(), [])
+
+    await labelComments(store, COPILOT, { labeler: fakeLabeler(), relabel: true })
+    assert.deepEqual(await proposedThemes(), ["visible-form-labels"])
   })
 
   it("stops at the limit and says how many comments wait", async () => {
