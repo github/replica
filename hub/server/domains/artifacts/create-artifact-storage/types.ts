@@ -22,6 +22,6 @@ export type ArtifactDeleteResult = {
 export interface ArtifactStorage {
   isReady(): Promise<boolean>
   read(key: string): Promise<ArtifactReadResult>
-  write(key: string, bytes: Uint8Array): Promise<ArtifactWriteResult>
+  write(key: string, bytes: Uint8Array, mode?: "verify-existing"): Promise<ArtifactWriteResult>
   delete(key: string): Promise<ArtifactDeleteResult>
 }

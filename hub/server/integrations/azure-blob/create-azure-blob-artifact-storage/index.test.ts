@@ -94,19 +94,59 @@ describe("createAzureBlobArtifactStorage()", () => {
     expect(mocks.credential).toHaveBeenCalledExactlyOnceWith({ clientId })
   })
 
-  it("returns explicit missing and immutable-write conflict results", async () => {
+  it("returns explicit missing results", async () => {
     const storage = createAzureBlobArtifactStorage(
       { accountUrl: "https://example.blob.core.windows.net", container: "artifacts" },
       3,
     )
     mocks.download.mockRejectedValue({ details: { errorCode: "BlobNotFound" } })
     mocks.delete.mockRejectedValue({ details: { errorCode: "BlobNotFound" } })
-    mocks.uploadData.mockRejectedValue({ details: { errorCode: "ConditionNotMet" } })
-
     expect(await storage.read("key")).toEqual({ status: "not-found" })
     expect(await storage.delete("key")).toEqual({ status: "not-found" })
-    expect(await storage.write("key", Uint8Array.of(1))).toEqual({ status: "already-exists" })
     expect(mocks.credential).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it.each([
+    [409, "BlobAlreadyExists"],
+    [412, "ConditionNotMet"],
+  ] as const)("reports the normal %i %s conflict", async (statusCode, errorCode) => {
+    const storage = createAzureBlobArtifactStorage(
+      { accountUrl: "https://example.blob.core.windows.net", container: "artifacts" },
+      3,
+    )
+    mocks.uploadData.mockRejectedValue({ statusCode, details: { errorCode } })
+
+    expect(await storage.write("key", Uint8Array.of(1))).toEqual({ status: "already-exists" })
+    expect(await storage.write("key", Uint8Array.of(1), "verify-existing")).toEqual({
+      status: "already-exists",
+    })
+  })
+
+  it.each([
+    {
+      condition: "the caller did not opt in",
+      mode: undefined,
+      error: { statusCode: 403, details: { errorCode: "UnauthorizedBlobOverwrite" } },
+    },
+    {
+      condition: "the overwrite error has the wrong HTTP status",
+      mode: "verify-existing",
+      error: { statusCode: 409, details: { errorCode: "UnauthorizedBlobOverwrite" } },
+    },
+    {
+      condition: "the overwrite code appears only in the transport field",
+      mode: "verify-existing",
+      error: { statusCode: 403, code: "UnauthorizedBlobOverwrite" },
+    },
+  ] as const)("reports unavailable when $condition", async ({ mode, error }) => {
+    const storage = createAzureBlobArtifactStorage(
+      { accountUrl: "https://example.blob.core.windows.net", container: "artifacts" },
+      3,
+    )
+    mocks.uploadData.mockRejectedValue(error)
+
+    expect(await storage.write("key", Uint8Array.of(1), mode)).toEqual({ status: "unavailable" })
+    expect(mocks.download).not.toHaveBeenCalled()
   })
 
   it("maps provider failures without leaking SDK errors or treating a missing container as missing bytes", async () => {

@@ -7,6 +7,7 @@ import { privatePreviewAddress } from "../../../utils/private-preview-address/in
 import { BuildPackageError } from "../../build-artifacts/errors.ts"
 import { extractScreenshotPackage } from "../../build-artifacts/extract-screenshot-package/index.ts"
 import { publishGitHubBuildPreview } from "../../private-preview/publish-github-build-preview/index.ts"
+import { automaticPrototypeBranchPrefix } from "../../prototypes/constants.ts"
 import { registerImportedPrototype } from "../../prototypes/register-imported-prototype/index.ts"
 import type {
   GitHubWorkflowArtifact,
@@ -100,7 +101,8 @@ export async function importGitHubWorkflowRun(
   const completed = run.status === "completed"
   const completedAt = completed ? run.updatedAt : null
   const previewAddress =
-    dependencies.privatePreviewWriter?.repositoryId === String(job.githubRepositoryId)
+    dependencies.privatePreviewWriter?.repositoryId === String(job.githubRepositoryId) &&
+    run.headBranch.startsWith(automaticPrototypeBranchPrefix)
       ? privatePreviewAddress(String(job.githubRepositoryId), String(buildRun.runId))
       : null
 

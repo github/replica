@@ -38,12 +38,12 @@ export async function createArtifactStorage(
       if (typeof key !== "string" || !keyPattern.test(key)) return { status: "invalid-key" }
       return adapter.read(key)
     },
-    async write(key, bytes) {
+    async write(key, bytes, mode) {
       if (typeof key !== "string" || !keyPattern.test(key)) return { status: "invalid-key" }
       if (!(bytes instanceof Uint8Array) || bytes.byteLength > artifactMaxBytes) {
         return { status: "too-large" }
       }
-      return adapter.write(key, Uint8Array.from(bytes))
+      return adapter.write(key, Uint8Array.from(bytes), mode)
     },
     async delete(key) {
       if (typeof key !== "string" || !keyPattern.test(key)) return { status: "invalid-key" }

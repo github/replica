@@ -15,7 +15,7 @@ const environment = {
 describe("readPrivatePreviewWriterSettings()", () => {
   it("keeps the exact GitHub repository ID and uses the runtime identity for the dedicated container", () => {
     expect(readPrivatePreviewWriterSettings(environment)).toEqual({
-      repositoryId: "9007199254740993",
+      repositoryIds: ["9007199254740993"],
       storage: {
         provider: "azure-blob",
         accountUrl: "https://previewtest.blob.core.windows.net",
@@ -23,6 +23,15 @@ describe("readPrivatePreviewWriterSettings()", () => {
         managedIdentityClientId: environment.AZURE_CLIENT_ID,
       },
     })
+  })
+
+  it("enables each listed repository", () => {
+    expect(
+      readPrivatePreviewWriterSettings({
+        ...environment,
+        HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID: "901,9007199254740993",
+      })?.repositoryIds,
+    ).toEqual(["901", "9007199254740993"])
   })
 
   it("does not need usable storage settings when publishing is disabled", () => {
@@ -47,6 +56,14 @@ describe("readPrivatePreviewWriterSettings()", () => {
     {
       condition: "a noncanonical repository ID",
       overrides: { HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID: "02001" },
+    },
+    {
+      condition: "an empty repository entry",
+      overrides: { HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID: "901," },
+    },
+    {
+      condition: "a repeated repository ID",
+      overrides: { HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID: "901,901" },
     },
     { condition: "no destination", overrides: { HUB_PRIVATE_PREVIEW_WRITE_CONTAINER: undefined } },
     {

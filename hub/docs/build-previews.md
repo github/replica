@@ -25,11 +25,29 @@ Each Build has its own mount path, `/previews/github/<githubRepositoryId>/<ownin
 
 Use the compiled `npm run start:preview-reader` command in a separate service. For local reader checks, use `npm run dev:preview-reader` and a dedicated read-only filesystem directory. The reader does not load a Hub `.env`, initialize Prisma, or use a database, GitHub App, or Hub session signing credentials. For Azure, set the reader's `AZURE_STORAGE_ACCOUNT` and `AZURE_STORAGE_CONTAINER` to the same destination as the [import worker](artifact-storage.md#private-preview-output). Give the reader's separate managed identity one `Storage Blob Data Reader` assignment on that container, conditioned to deny blob listing, and never access to the ordinary artifacts container. The reader reads each published Build by the opaque key Hub returns, so it never needs to list or write blobs.
 
-The standalone link and Hub authorization require a ready publication record for the exact Build. A compatible marker alone does not make a Build ready. The writer is independently opt-in and does not backfill; publish a fresh compatible Build after enabling it. The migration leaves previous Builds, ordinary previews, screenshots, and reviews unchanged. Keep the account and dedicated container fixed when using existing publication records: moving the reader does not move the published bytes.
+The standalone link and Hub authorization require a ready publication record for the exact Build. A compatible marker alone does not make a Build ready. The writer is independently opt-in and does not backfill automatically. See [Make Builds playable](#make-builds-playable) to publish new Builds or prepare a retained one. The migration leaves previous Builds, ordinary previews, screenshots, and reviews unchanged. Keep the account and dedicated container fixed when using existing publication records: moving the reader does not move the published bytes.
 
 Run the reader on a different hostname on the same site as Hub. For example, Hub at `replica.example.com` can use `preview.replica.example.com` with a fixed custom hostname and managed certificate, or two generated Container Apps hostnames can be used. Hub refuses to start with the same hostname or another site, using the full Public Suffix List as browsers do. Wildcard DNS and certificates are not needed. Both services accept requests only on their configured external HTTPS host. A deployment that terminates TLS at a proxy must prevent direct access to either listening port and overwrite forwarded headers at the controlled ingress. Only then configure its exact hop count. The reader's direct health probe can use TCP; its `/health` HTTP endpoint requires the same trusted HTTPS ingress as other routes.
 
 When upgrading an installation that already ran the initial private preview migration, coordinate the forward migration with the Hub API upgrade. It preserves access rows and renames their table. The previous Hub API cannot serve private previews against the updated table.
+
+### Make Builds playable
+
+A Build plays in the private service only after the writer copies its served `dist/` files into the dedicated private container and marks it ready. Two paths do this. Both reuse the [import worker's writer](artifact-storage.md#private-preview-output) and never contact GitHub, rebuild, or change the ordinary Build, its artifacts, screenshots, or reviews.
+
+**New Builds.** Enable each repository on the import worker with `HUB_PRIVATE_PREVIEW_WRITE_ENABLED=true`, `HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID` set to one or more comma-separated numeric GitHub repository IDs, and `HUB_PRIVATE_PREVIEW_WRITE_CONTAINER=private-preview-artifacts`. After an ordinary import, a compatible Build on a `proto/*` branch of an enabled repository is published. Other branches, the default branch, local repositories, and repositories not in the list import normally and are not published. Publishing a site from the same repository, such as a separate Azure deployment, is unaffected.
+
+**Retained Builds.** An operator can prepare one already-imported Build whose publication was never set. It is not automatic. Confirm the Build's numeric repository ID, owning workflow run ID, Build UUID, and retained `sha256:` dist digest from the Build's database record, then run from `hub/` in the importer's runtime environment:
+
+```sh
+npm run --silent private-preview:replay -- \
+  --repository-id GITHUB_NUMERIC_REPOSITORY_ID --run-id OWNING_RUN_ID \
+  --build-id BUILD_UUID --prepare-dist-digest sha256:RETAINED_DIST_DIGEST
+```
+
+In a built image, use `npm run --silent start:private-preview:replay --` with the same arguments. The writer must be enabled for that repository. The Build must be successful, on a `proto/*` branch, the only Build for that owning run, and record the given digest. Before changing anything, the writer reads every retained file from ordinary storage, checks each size, the base-path marker for that exact repository and run, and the complete dist digest. Only then does it mark the Build pending and copy files. Each copy is a create-only write; an existing object is accepted only when its bytes match, and is never overwritten. The Build becomes ready only after every served file is written or verified. Run the command once per Build.
+
+The command writes one `ready` JSON line to stdout on success. A nonzero exit means it skipped the Build; its warning names the stage and reason described in [replay](artifact-storage.md#replay-a-pending-private-preview). A digest, marker, run, or Build mismatch changes nothing. A copy failure after preparation leaves the Build pending and unplayable; fix the cause and rerun the same command. Rerunning for a ready Build makes no storage calls and reports `ready` again.
 
 ### Authorization and isolation
 

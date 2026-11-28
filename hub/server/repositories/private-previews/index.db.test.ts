@@ -282,6 +282,39 @@ describe("findPrivatePreviewTarget()", () => {
     })
   })
 
+  it("selects an unpublished Build only with its recorded digest and branch prefix", async () => {
+    const repositoryId = 451n
+    const runId = 452n
+    const distDigest = `sha256:${"a".repeat(64)}`
+    const repository = await prisma.repository.create({
+      data: {
+        defaultBranch: "main",
+        nameWithOwner: "example/synthetic",
+        githubRepositoryId: repositoryId,
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        repositoryId: repository.id,
+        branchName: "proto/retained",
+        builds: { create: { ...workflowBuild(runId), privatePreviewState: null, distDigest } },
+      },
+      select: { builds: { select: { id: true } } },
+    })
+    const address = privatePreviewAddress(String(repositoryId), String(runId))!
+
+    await expect(
+      findPrivatePreviewTarget(prisma, address, null, { distDigest, branchPrefix: "proto/" }),
+    ).resolves.toMatchObject({ buildId: prototype.builds[0]!.id })
+    await expect(find(repositoryId, runId)).resolves.toBeNull()
+    for (const filter of [
+      { distDigest: `sha256:${"b".repeat(64)}` },
+      { distDigest, branchPrefix: "prototype/" },
+    ]) {
+      await expect(findPrivatePreviewTarget(prisma, address, null, filter)).resolves.toBeNull()
+    }
+  })
+
   it("does not choose between multiple Builds with the same repository and owning run", async () => {
     const repositoryId = 501n
     const runId = 502n

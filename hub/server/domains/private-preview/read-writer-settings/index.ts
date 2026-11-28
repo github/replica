@@ -7,11 +7,11 @@ export function readPrivatePreviewWriterSettings(
   environment: Readonly<Record<string, string | undefined>>,
 ) {
   const enabled = environment.HUB_PRIVATE_PREVIEW_WRITE_ENABLED
-  const repositoryId = environment.HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID
+  const repositories = environment.HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID
   const container = environment.HUB_PRIVATE_PREVIEW_WRITE_CONTAINER
   if (
     enabled === "false" ||
-    (enabled === undefined && repositoryId === undefined && container === undefined)
+    (enabled === undefined && repositories === undefined && container === undefined)
   ) {
     return undefined
   }
@@ -20,9 +20,14 @@ export function readPrivatePreviewWriterSettings(
       "Set HUB_PRIVATE_PREVIEW_WRITE_ENABLED to true or false.",
     )
   }
-  if (!repositoryId || !privatePreviewAddress(repositoryId, "1")) {
+  const repositoryIds = repositories?.split(",") ?? []
+  if (
+    repositoryIds.length === 0 ||
+    new Set(repositoryIds).size !== repositoryIds.length ||
+    repositoryIds.some((repositoryId) => !privatePreviewAddress(repositoryId, "1"))
+  ) {
     throw new PrivatePreviewWriterConfigurationError(
-      "HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID must be a numeric GitHub repository ID.",
+      "HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID must list distinct numeric GitHub repository IDs, separated by commas.",
     )
   }
   try {
@@ -32,7 +37,7 @@ export function readPrivatePreviewWriterSettings(
         ...environment,
         AZURE_STORAGE_CONTAINER: container,
       })
-      return { repositoryId, storage }
+      return { repositoryIds, storage }
     }
   } catch {
     throw new PrivatePreviewWriterConfigurationError(
