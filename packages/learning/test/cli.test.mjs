@@ -8,14 +8,17 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { Readable } from "node:stream"
+import { PassThrough, Readable } from "node:stream"
 import { after, describe, it } from "node:test"
+import { setTimeout } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import {
   REMOTE,
@@ -26,6 +29,7 @@ import {
 } from "../conformance/fixtures.mjs"
 import { main } from "../src/cli.mjs"
 import { sealMemory } from "../src/records.mjs"
+import { reviewWithPerson, startAnalysis } from "../src/local-learning.mjs"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-cli-"))
@@ -126,6 +130,88 @@ async function learnFromReviews(repo, { team = true } = {}) {
     await ok(repo, ["consolidate", ...WINDOW, "--actor", "agent:copilot", "--json"])
   ).json()
   return { grant, imported, run, proposal: run.proposals[0] }
+}
+
+/**
+ * Starts the MCP server in a checkout and talks to it as an agent's client would. The
+ * client answers each form the server shows with the next of formAnswers, as a person
+ * would, and records the forms it was shown. Analysis is recorded instead of started.
+ */
+async function connect(repo, args, { formAnswers } = {}) {
+  const stdin = new PassThrough()
+  const replies = new Map()
+  const forms = []
+  const analyses = []
+  let errors = ""
+  let pending = ""
+  let waiting
+  function send(message) {
+    stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`)
+  }
+  const stdout = {
+    write(text) {
+      pending += text
+      for (let end; (end = pending.indexOf("\n")) >= 0; pending = pending.slice(end + 1)) {
+        const message = JSON.parse(pending.slice(0, end))
+        if (message.method === "elicitation/create") {
+          forms.push(message.params)
+          send({ id: message.id, result: formAnswers.shift() })
+          continue
+        }
+        replies.set(message.id, message)
+        waiting?.()
+      }
+      return true
+    },
+  }
+  const served = main(["mcp", ...args], {
+    cwd: repo,
+    env: {},
+    stdin,
+    stdout,
+    stderr: { write: (text) => (errors += text) },
+    clock: () => CLOCK,
+    startAnalysis: (options) => analyses.push(options.args),
+  })
+  // Fail instead of waiting forever when the server stops early, such as when the
+  // optional MCP SDK is not installed.
+  const stopped = served.then((code) => {
+    throw new Error(`The MCP server stopped with exit code ${code}: ${errors}`)
+  })
+  stopped.catch(() => {})
+  let next = 0
+  async function request(method, params) {
+    const id = ++next
+    send({ id, method, params })
+    while (!replies.has(id)) {
+      await Promise.race([new Promise((resolve) => (waiting = resolve)), stopped])
+    }
+    return replies.get(id).result
+  }
+  async function call(name, input = {}) {
+    const result = await request("tools/call", { name, arguments: input })
+    return {
+      error: result.isError,
+      data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text),
+    }
+  }
+  const initialized = await request("initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: formAnswers ? { elicitation: {} } : {},
+    clientInfo: { name: "test", version: "1" },
+  })
+  send({ method: "notifications/initialized" })
+  return {
+    call,
+    request,
+    forms,
+    analyses,
+    instructions: initialized.instructions,
+    close() {
+      stdin.end()
+      return served
+    },
+  }
 }
 
 describe("replica-learning CLI: the first learning milestone", () => {
@@ -497,7 +583,7 @@ describe("replica-learning CLI: labeling with a labeler", () => {
     assert.equal(run.proposals[0].themeKey, "visible-form-labels")
   })
 
-  it("labels and suggests learnings in one step and finds nothing new the second time", async () => {
+  it("labels and suggests learnings in one step, records each run, and finds nothing new the second time", async () => {
     const repo = configured("analyze")
     const grant = (
       await ok(repo, [
@@ -523,6 +609,21 @@ describe("replica-learning CLI: labeling with a labeler", () => {
     const second = (await ok(repo, ["analyze", "--json"])).json()
     assert.equal(second.labeled, 0)
     assert.equal(second.proposals, 0)
+    const activity = readFileSync(path.join(repo, ".replica", "learning", "activity.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    assert.deepEqual(
+      activity.map(({ state, commentsLabeled, suggestions }) => ({
+        state,
+        commentsLabeled,
+        suggestions,
+      })),
+      [
+        { state: "succeeded", commentsLabeled: first.labeled, suggestions: 1 },
+        { state: "succeeded", commentsLabeled: 0, suggestions: 0 },
+      ],
+    )
   })
 
   it("prints what labeling cost", async () => {
@@ -1615,6 +1716,256 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal((await ok(repo, ["verify", "--json"])).json().ok, true)
   })
 
+  it("serves guidance to an agent over MCP and records what it used", async () => {
+    const repo = checkout("mcp")
+    const { proposal } = await learnFromReviews(repo)
+    await ok(repo, [
+      "accept",
+      proposal.id,
+      "--digest",
+      proposal.reviewDigest,
+      "--by",
+      "github:ana-designer",
+    ])
+    const sessionGrant = (
+      await ok(repo, [
+        "grants",
+        "add",
+        "--purpose",
+        "review",
+        "--source",
+        "agent_session",
+        "--basis",
+        "The team agreed to learn from agent sessions.",
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    writeFileSync(
+      path.join(repo, "after.png"),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]),
+    )
+    const mcp = await connect(repo, ["--actor", "agent:copilot", "--grant", sessionGrant.id])
+    const { call } = mcp
+
+    const guidance = (await call("get_guidance", { task: "Build the form" })).data
+    const [memory] = guidance.learnings
+    assert.deepEqual(Object.keys(memory), ["id", "deliveryId"])
+    assert.equal(memory.id, proposal.id)
+    const [listed] = (await call("list_learnings", {})).data
+    assert.ok(guidance.text.includes(listed.content))
+    const report = {
+      reportId: "report-1",
+      guidanceIds: [guidance.guidanceId],
+      commitSha: "a".repeat(40),
+      used: [
+        {
+          deliveryId: memory.deliveryId,
+          after: {
+            file: "after.png",
+            route: "/checkout",
+            viewport: { width: 1280, height: 800 },
+            theme: "light",
+            capturedAt: "2026-10-09T12:00:00.000000Z",
+          },
+        },
+      ],
+    }
+    assert.equal((await call("report_usage", report)).data.stored, true)
+    const conversation = {
+      sessionId: "s-1",
+      messages: [
+        { role: "user", text: "Fix all my notes." },
+        { role: "tool", text: "" },
+        { role: "agent", text: "Moved the labels." },
+      ],
+      pickAndPolishNotes: [
+        {
+          localId: "note-1",
+          revision: 1,
+          body: "Keep the labels above the fields.",
+          requestIds: ["note-1"],
+          thread: { originalStatus: "open", messages: [] },
+          anchor: { kind: "area", route: { pathname: "/checkout", search: "", hash: "" } },
+        },
+      ],
+    }
+    assert.equal((await call("submit_session", conversation)).error, undefined)
+    const stored = (await ok(repo, ["observations", "--purpose", "review", "--json"])).json()
+    assert.ok(
+      stored.events.some((event) => event.payload?.text === "Keep the labels above the fields."),
+    )
+    await ok(repo, [
+      "grants",
+      "withdraw",
+      sessionGrant.id,
+      "--purpose",
+      "review",
+      "--by",
+      "github:ana-designer",
+    ])
+    assert.match((await call("submit_session", conversation)).data, /^grant_inactive: /)
+
+    assert.equal(await mcp.close(), 0)
+    // Each stored report and session starts the analysis a person would otherwise run.
+    assert.deepEqual(mcp.analyses, [["--commit", "a".repeat(40)], []])
+    const evidence = path.join(repo, ".replica", "learning", "evidence")
+    assert.equal(readdirSync(evidence).filter((name) => name.endsWith(".png")).length, 1)
+  })
+
+  it("moves to the next suggestion without asking for details when deciding later", async () => {
+    const repo = checkout("mcp-skip-suggestion")
+    const { run } = await learnFromReviews(repo, { team: false })
+    assert.ok(run.proposals.length > 1)
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [{ action: "accept", content: { decision: "skip" } }, { action: "cancel" }],
+    })
+
+    const result = await mcp.call("review_learnings")
+    assert.equal(result.error, undefined, result.data)
+    const review = result.data
+    assert.equal(review.skipped, 1)
+    assert.equal(review.stopped, true)
+    assert.equal(review.waitingForReview, run.proposals.length)
+    assert.match(mcp.forms[0].message, /Suggested learning 1 of/)
+    assert.equal(mcp.forms[0].requestedSchema.properties.content, undefined)
+    assert.equal(mcp.forms[0].requestedSchema.properties.login, undefined)
+    assert.match(mcp.forms[1].message, /Suggested learning 2 of/)
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("asks the person, not the agent, to agree to learning and to decide on suggestions", async () => {
+    const repo = checkout("mcp-forms")
+    const { proposal } = await learnFromReviews(repo)
+    const wording = "Keep form field labels visible."
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [
+        { action: "accept", content: { allow: true, login: "ana-designer" } },
+        { action: "accept", content: { decision: "accept" } },
+        { action: "accept", content: { content: wording, login: "ana-designer" } },
+      ],
+    })
+    assert.match(mcp.instructions, /review_learnings/)
+    assert.match(mcp.instructions, /submit_session or get_guidance returns waitingForReview/)
+    assert.match(mcp.instructions, /After you finish each request, call submit_session/)
+    const conversation = {
+      sessionId: "s-1",
+      messages: [{ role: "user", text: "Keep the labels above the fields." }],
+    }
+    const submission = await mcp.call("submit_session", conversation)
+    assert.equal(submission.error, undefined)
+    assert.equal(submission.data.waitingForReview, 1)
+    assert.ok(!JSON.stringify(submission.data).includes(proposal.content))
+    const agreed = (await ok(repo, ["grants", "list", "--json"]))
+      .json()
+      .filter(({ grant }) => grant.sources.includes("agent_session"))
+    assert.deepEqual(
+      agreed.map(({ grant }) => grant.grantedBy.id),
+      ["github:ana-designer"],
+    )
+    assert.equal((await mcp.call("get_guidance", {})).data.waitingForReview, 1)
+
+    const review = (await mcp.call("review_learnings")).data
+    assert.equal(review.accepted, 1)
+    assert.equal(review.waitingForReview, 0)
+    // The agent got counts only; the learning's text went to the person in the form.
+    assert.ok(mcp.forms[1].message.includes(proposal.content))
+    assert.equal(mcp.forms[2].requestedSchema.properties.reason, undefined)
+    assert.ok(!JSON.stringify(review).includes(proposal.content))
+    const [accepted] = (await ok(repo, ["memories", "--json"])).json()
+    assert.equal(accepted.record.state, "accepted")
+    assert.equal(accepted.record.accepted.by.id, "github:ana-designer")
+    assert.equal(accepted.record.content, wording)
+    assert.equal(await mcp.close(), 0)
+    assert.deepEqual(mcp.analyses, [[]])
+  })
+
+  it("asks for a reason only after Reject and leaves a canceled rejection undecided", async () => {
+    const repo = checkout("mcp-rejection-reason")
+    const { proposal } = await learnFromReviews(repo)
+    const reason = "This rule does not fit the prototype."
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [
+        { action: "accept", content: { decision: "reject" } },
+        { action: "cancel" },
+        { action: "accept", content: { decision: "reject" } },
+        { action: "accept", content: { reason, login: "ana-designer" } },
+      ],
+    })
+
+    const canceled = (await mcp.call("review_learnings")).data
+    assert.equal(canceled.rejected, 0)
+    assert.equal(canceled.stopped, true)
+    assert.equal(canceled.waitingForReview, 1)
+    assert.equal(mcp.forms[0].requestedSchema.properties.reason, undefined)
+    assert.ok(mcp.forms[1].requestedSchema.properties.reason)
+    assert.ok(mcp.forms[1].message.includes(proposal.content))
+
+    const review = (await mcp.call("review_learnings")).data
+    assert.equal(review.rejected, 1)
+    assert.equal(review.waitingForReview, 0)
+    const [rejected] = (await ok(repo, ["memories", "--json"])).json()
+    assert.equal(rejected.record.rejected.reason, reason)
+    assert.equal(rejected.record.rejected.by.id, "github:ana-designer")
+    assert.ok(!JSON.stringify(review).includes(reason))
+    assert.equal(await mcp.close(), 0)
+  })
+
+  it("skips an update without details and records the next decision's reason", async () => {
+    const forms = []
+    const decisions = []
+    const answers = [
+      { action: "accept", content: { decision: "skip" } },
+      { action: "accept", content: { decision: "dismiss" } },
+      {
+        action: "accept",
+        content: { reason: "The current wording works.", login: "ana-designer" },
+      },
+    ]
+    const result = await reviewWithPerson(
+      async (form) => {
+        forms.push(form)
+        return answers.shift()
+      },
+      {
+        repository: "acme/checkout-prototypes",
+        proposals: [],
+        updates: [
+          {
+            id: "first",
+            issue: "First issue",
+            content: "First change",
+            current: { content: "First" },
+          },
+          {
+            id: "second",
+            issue: "Second issue",
+            content: "Second change",
+            current: { content: "Second" },
+          },
+        ],
+        decide: async (choice) => {
+          decisions.push(choice)
+        },
+      },
+    )
+
+    assert.equal(forms[0].requestedSchema.properties.reason, undefined)
+    assert.equal(forms[0].requestedSchema.properties.login, undefined)
+    assert.match(forms[1].message, /Suggested update 2 of 2/)
+    assert.equal(result.skipped, 1)
+    assert.equal(result.dismissed, 1)
+    assert.deepEqual(decisions, [
+      {
+        kind: "dismiss",
+        id: "second",
+        login: "ana-designer",
+        reason: "The current wording works.",
+      },
+    ])
+  })
+
   it("refuses an identity with control or invisible formatting characters", async () => {
     const repo = checkout("hidden-identity")
     const grant = ["grants", "add", "--purpose", "review", "--basis", "Test."]
@@ -1769,5 +2120,85 @@ describe("replica-learning CLI: guard rails", () => {
     )
     assert.equal(result.status, 0)
     assert.match(result.stdout, /Usage: replica-learning <command>/)
+  })
+})
+
+describe("replica-learning CLI: local learning setup", () => {
+  it("keeps chats out of Git and writes a private MCP config, even when run twice", async () => {
+    const repo = checkout("local-learning-setup")
+    writeFileSync(path.join(repo, ".gitignore"), "node_modules/")
+
+    await ok(repo, ["setup"])
+    const { stdout } = await ok(repo, ["setup", "--actor", "agent:claude"])
+
+    assert.equal(readFileSync(path.join(repo, ".gitignore"), "utf8"), "node_modules/\n.replica/\n")
+    const file = path.join(repo, ".replica", "learning-mcp.json")
+    assert.equal(statSync(file).mode & 0o777, 0o600)
+    const server = JSON.parse(readFileSync(file, "utf8")).mcpServers["replica-learning"]
+    assert.deepEqual(server.args.slice(1), ["mcp", "--actor", "agent:claude"])
+    assert.equal(server.cwd, realpathSync(repo))
+    assert.match(stdout, /--additional-mcp-config @\.replica\/learning-mcp\.json/)
+  })
+
+  it("gives a checkout with no GitHub repository a local ID that keeps its learnings", async () => {
+    const repo = checkout("no-github-remote", { remote: null })
+
+    await ok(repo, ["setup"])
+    const first = (await ok(repo, ["doctor", "--json"])).json()
+    const mcp = await connect(repo, ["--actor", "agent:copilot"], {
+      formAnswers: [{ action: "decline" }],
+    })
+    await mcp.call("submit_session", {
+      sessionId: "s-1",
+      messages: [{ role: "user", text: "Hi." }],
+    })
+    assert.equal(await mcp.close(), 0)
+    execFileSync("git", ["-C", repo, "remote", "add", "origin", REMOTE])
+    await ok(repo, ["setup"])
+    const second = (await ok(repo, ["doctor", "--json"])).json()
+
+    assert.equal(first.scope.host, "local")
+    assert.match(first.scope.repository, /^repositories\/[0-9a-f-]{36}$/)
+    assert.deepEqual(second.scope, first.scope)
+    assert.equal(first.provider.source, "built-in jsonl")
+    assert.match(mcp.forms[0].message, /for no-github-remote\?/)
+  })
+
+  it("keeps a local store that already holds SQLite data in SQLite", async () => {
+    const repo = checkout("local-learning-sqlite")
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "review",
+      "--basis",
+      "Tried learning before setup chose JSON Lines.",
+      "--by",
+      "github:ana-designer",
+    ])
+
+    await ok(repo, ["setup"])
+
+    const doctor = (await ok(repo, ["doctor", "--json"])).json()
+    assert.equal(doctor.provider.source, "built-in sqlite")
+  })
+})
+
+describe("startAnalysis()", () => {
+  it("runs the analysis on its own and writes what happened to analysis.log", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "replica-learning-analysis-"))
+    after(() => rmSync(root, { recursive: true, force: true }))
+    const log = path.join(root, "data", "analysis.log")
+
+    startAnalysis({
+      cwd: root,
+      env: process.env,
+      dataDirectory: path.join(root, "data"),
+      args: ["--repository", "octo/demo"],
+    })
+
+    const deadline = Date.now() + 10_000
+    while (!readFileSync(log, "utf8") && Date.now() < deadline) await setTimeout(50)
+    assert.match(readFileSync(log, "utf8"), /--repository needs --dir/)
   })
 })

@@ -16,6 +16,19 @@ The package turns feedback into guidance that a person approved. The feedback ca
 
 Nothing is accepted automatically. Nothing is published or used for training without a grant for that purpose. No model weights change.
 
+## Try it
+
+The quickest way to try learning is local learning mode: connect it to a prototype you're working on and give feedback in chat as usual. You can ask your agent to do this, or run it yourself:
+
+```sh
+cd <replica-checkout>/packages/learning
+npm ci
+cd <prototype-checkout>
+node <replica-checkout>/packages/learning/bin/replica-learning.mjs setup
+```
+
+Then start Copilot CLI with the command `setup` prints. [Connect an agent](#connect-an-agent) explains what happens next.
+
 ## Run it yourself
 
 To run the commands in a prototype checkout, which keeps its data under `.replica/learning/`, use Node:
@@ -51,7 +64,8 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `delete <memory-id> --reason <text>` | Removes a learning for good: every version, the records of its deliveries and use, their screenshots, and its suggested updates. A learning that is part of a replacement, or that a stored proposal would replace, cannot be deleted; retire it instead |
 | `expire-guidance [--days <n>]` | Removes guidance records older than `--days`, 365 by default, that no usage report names |
 | `delete-repository --confirm <owner/name>` | Removes every record this repository's store holds, including its audit trail. Naming the repository again guards against deleting the wrong store. Screenshot images that another repository sharing the data directory still uses are kept. Copies outside the store, such as exports, are not touched |
-| `analyze [--commit <sha>]` | Does what Hub's daily learning job does for one checkout: `label` new comments, then `consolidate` the last 90 days. With `--commit`, it also scores each learning an agent reported using in that commit and runs `propose-update` for them. It uses Hub's caps, keeps going when a step fails, and lets only one run work at a time |
+| `analyze [--commit <sha>]` | Does what Hub's daily learning job does for one checkout: `label` new comments, then `consolidate` the last 90 days. With `--commit`, it also scores each learning an agent reported using in that commit and runs `propose-update` for them. It uses Hub's caps, keeps going when a step fails, and lets only one run work at a time. `mcp` starts it for you |
+| `mcp` | Serves the learning tools to a coding agent over standard input and output, as [Connect an agent](#connect-an-agent) describes |
 | `export --purpose <p>` | Writes a bundle of what that purpose may use; `--learnings-only` leaves out episodes and their comments, and `--preview` prepares a temporary copy without recording an export or export audit |
 | `decision models` | Lists the base models suggested for a decision model, with their sizes and licenses |
 | `decision questions --by github:<login>` | Prints the questions a decision model answers about a screenshot and whether training consent is recorded. `--preview` shows the named person the questions without recording a use |
@@ -100,6 +114,65 @@ To report use, run recall once with `--json` and keep its output. `guidanceId` n
 ```
 
 `observations --purpose review --event <id> --event <id> --json` reads only the named events and their containing episodes. Pass at most 100 IDs per call, batching larger evidence lists instead of exporting the whole store. Missing IDs and events that consent, retraction, or redaction withholds are omitted, with no unrelated events or episodes returned. Other observation filters intersect the selection. In the API, `queryObservations(context, { purpose: "review", eventIds: [] })` returns empty `episodes` and `events`; omitting `eventIds`, or all CLI `--event` flags, preserves the unfiltered behavior.
+
+## Connect an agent
+
+`replica-learning mcp` lets a coding agent ask for guidance and report back on its own, without a person running `recall` and `report-usage`. It speaks [MCP](https://modelcontextprotocol.io) over standard input and output, so it opens no network port and needs no Replica sign-in. Run `npm ci` in `packages/learning` first, because the MCP SDK is an optional dependency.
+
+The quickest way to try it, or to let your agent set it up, is to run `setup` in the prototype checkout:
+
+```sh
+node <replica-checkout>/packages/learning/bin/replica-learning.mjs setup
+```
+
+It adds `.replica/` to `.gitignore` when Git doesn't already ignore it. It then writes a private MCP config to `.replica/learning-mcp.json` with this machine's paths, and prints the command that starts Copilot CLI with it: `copilot --allow-all-mcp-server-instructions --additional-mcp-config @.replica/learning-mcp.json`. Running it again is safe. Pass `--actor agent:<name>` to name a different agent.
+
+The checkout doesn't need a GitHub repository. Without a GitHub `origin`, setup saves a random local ID in `.replica/learning/config.json`, and learnings stay with that ID even if you add a GitHub `origin` later. Setup also gives a new store JSON Lines storage, so a Hub running in a local container can share it. A store that already holds SQLite data keeps SQLite.
+
+To set it up by hand instead, save this as `replica-learning-mcp.json`, using your own paths:
+
+```json
+{
+  "mcpServers": {
+    "replica-learning": {
+      "type": "local",
+      "command": "node",
+      "args": ["<replica-checkout>/packages/learning/bin/replica-learning.mjs", "mcp", "--actor", "agent:copilot-cli"],
+      "cwd": "<prototype-checkout>"
+    }
+  }
+}
+```
+
+Learning keeps your chats in `.replica/`, and it refuses to save them while Git would commit them. Prototypes made from the Replica starter already ignore `.replica/`. In other repositories, add it to `.gitignore`.
+
+Then start Copilot CLI in the prototype checkout with `copilot --allow-all-mcp-server-instructions --additional-mcp-config @replica-learning-mcp.json`. The first flag lets the agent see when to call each tool. To keep the server for every session, add the same entry to the repository's `.mcp.json` or your `~/.copilot/mcp-config.json`.
+
+After that, you don't run any `replica-learning` commands. You prototype and give feedback in the chat as usual:
+
+1. The agent submits the conversation after each request you make, so you never need to end a session. The first time it does, Copilot CLI shows you a form asking whether this repository may learn from your chats. Your answer is recorded as your consent with your GitHub login. The agent never sees or fills in the form.
+   Pick & Polish notes from the Replica canvas count too. When you choose Fix all, the agent reads your notes through the canvas and passes them along with the conversation. Each note is kept with its follow-ups and Copilot's replies, like a review thread in Hub.
+2. After each submitted session and each usage report, the server starts `analyze` in the background. It finds the feedback in your chats and suggests it as a learning, using your Copilot sign-in and usage. Working alone, one chat is enough; Hub waits until feedback repeats in two threads. Its output goes to `.replica/learning/analysis.log`, and a summary of each run goes to `.replica/learning/activity.jsonl`.
+3. When `submit_session` or `get_guidance` reports that suggestions are waiting, the agent tells you how many and asks whether you want to review them. It offers again only if the waiting count increases. Copilot CLI then shows you each suggestion in a form, where you accept it, edit it, reject it, or leave it for later.
+4. Accepted learnings reach the agent through `get_guidance` for later requests.
+
+Choose Decide later to move straight to the next suggestion. To accept, you can edit the wording and confirm your GitHub login. To reject, give a reason and confirm your login. Closing the follow-up form leaves the suggestion undecided. Suggested updates also ask for a reason when you decide.
+
+Consent and decisions use [MCP elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation), so they need a client that can show forms. Without one, `submit_session` refuses until a person adds a grant with `grants add`, and `get_learning` gives the commands a person runs instead. Start the server with `--grant <grant-id>` to use only those grants, or with `--manual` to run `analyze` yourself.
+
+The agent gets these tools:
+
+| Tool | What it does |
+| --- | --- |
+| `get_guidance` | Returns the framed text `recall` gives for a task, with a `guidanceId` and each learning's `id` and `deliveryId` |
+| `report_usage` | Records which delivered learnings a commit applied, like `report-usage`. A screenshot names a PNG file inside the directory the server runs in, or carries base64 `data` |
+| `submit_session` | Stores the session's user and agent messages and its outcome, like `import agent-session`, including its position rules and optional Pick & Polish notes. The local server asks the agent to send the whole conversation again after each request, and only new or changed messages are stored. It also reports how many suggestions wait for a decision. The local server uses the active grants for `agent_session`, asks the person when there are none, and refuses when they decline |
+| `list_learnings`, `get_learning` | Read learnings for the instruction purpose, so the agent sees only the text recall could give it. Other learnings show only their state. For a proposed learning, `get_learning` gives the exact `accept` and `reject` commands for a person to run in the same store |
+| `review_learnings` | Shows the person each suggested learning and suggested update in a form and records what they decide. The agent gets only the counts. `submit_session` and `get_guidance` report how many wait so the agent knows when to offer it |
+
+The server tells the agent when to call each tool. Errors that aren't learning refusals reach the agent as a generic message, and their cause is written to the server's standard error. Copilot CLI passes a server's instructions to the model only when the server is allowlisted or you start it with `--allow-all-mcp-server-instructions`, so the tool descriptions repeat what matters. The agent acts as `--actor`, `agent:mcp` by default. It can never accept, reject, edit, or delete a learning, or agree to learning for anyone.
+
+Hosts such as Hub can serve the same tools by importing `createLearningMcpServer` from `@github/replica-learning/mcp` and passing their own backend. The tools and their wording then stay the same everywhere. `review_learnings` is served only when the backend has `reviewLearnings`, because a host like Hub has people decide on its own pages. The module also exports `LearningError`; throw it from the backend to give the agent a code and message.
 
 ## Rules
 

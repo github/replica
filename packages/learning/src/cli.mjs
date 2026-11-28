@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream, existsSync } from "node:fs"
 import {
   mkdir,
@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
 import { decodeUtf8, parseJson } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
@@ -29,6 +30,7 @@ import {
   resolveEnvironment,
 } from "./config.mjs"
 import { labelComments, labelingError } from "./labeling.mjs"
+import { setupLocalLearning } from "./setup.mjs"
 import { migratePostgres } from "./providers/postgres-database.mjs"
 import { FEEDBACK_TYPES, feedbackText, PRODUCER } from "./records.mjs"
 import { NO_FOLLOW } from "./providers/files.mjs"
@@ -40,6 +42,7 @@ import {
 } from "./screenshots.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
+import * as localLearning from "./local-learning.mjs"
 import { createCopilotDrafter, proposeUpdates } from "./updates.mjs"
 import { parseTimeOption, timestampFromMilliseconds } from "./time.mjs"
 import decisionModelCatalog from "./decision/models.json" with { type: "json" }
@@ -50,6 +53,11 @@ import { writeDecisionTaskset } from "./decision/taskset.mjs"
 const USAGE = `replica-learning: capture review evidence, propose learnings, and recall the accepted ones.
 
 Usage: replica-learning <command> [options]
+
+Set up
+  setup [--actor <agent:name>]    Set up local learning mode in this prototype checkout:
+                                  keep .replica/ out of Git and write a private MCP
+                                  config there, then print how to start Copilot CLI
 
 Inspect
   status                          Counts and anything that needs attention
@@ -111,7 +119,7 @@ Capture and propose
                                   stores (default 10); unchanged ones do not count
   analyze [--commit <sha>]        Label, then consolidate the last 90 days; with
                                   --commit, also score the learnings an agent used
-                                  in it and suggest new wording
+                                  in it and suggest new wording; mcp starts this
 
 Review (a person decides; --by github:<login>)
   accept <memory-id> --digest <sha256:...> --by <id> [--content-file <file>] [--note <text>]
@@ -160,6 +168,14 @@ Use
                                   scored uses keep showing the same issue; Copilot
                                   drafts it only when the evidence is enough
   export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
+  mcp [--actor <agent:name>] [--grant <grant-id>]... [--manual]
+                                  Serve the learning tools to a coding agent over
+                                  standard input and output. It asks the person in a
+                                  form to agree to learning and to decide on
+                                  suggestions, and runs analyze in the background;
+                                  --grant limits it to those grants, and --manual
+                                  leaves analyze to you. Screenshots must sit in
+                                  this directory
 
 Decision model
   decision models                 Base models suggested for checking screenshots
@@ -239,6 +255,7 @@ const OPTIONS = {
   screenshots: { type: "string" },
   days: { type: "string" },
   confirm: { type: "string" },
+  manual: { type: "boolean" },
 }
 
 class UsageError extends Error {}
@@ -258,6 +275,7 @@ export async function main(
     stderr = process.stderr,
     stdin = process.stdin,
     clock = Date.now,
+    startAnalysis = localLearning.startAnalysis,
   } = {},
 ) {
   let parsed
@@ -370,7 +388,9 @@ export async function main(
           "expire-guidance",
           "delete-repository",
           "export",
+          "mcp",
           "verify",
+          "setup",
         ].includes(positionals[0]) ||
         (positionals[0] === "grants" &&
           ["list", "withdrawals", "add", "withdraw"].includes(positionals[1])) ||
@@ -390,6 +410,7 @@ export async function main(
       stdout,
       stderr,
       opened,
+      startAnalysis,
     }
     return (await run(session)) ?? 0
   } catch (error) {
@@ -499,6 +520,10 @@ async function run(session) {
       return deleteRepository(session)
     case "export":
       return exportRecords(session)
+    case "setup":
+      return setup(session)
+    case "mcp":
+      return serveMcp(session)
     case "verify":
       return verify(session)
     case "decision":
@@ -669,6 +694,21 @@ async function readJsonFile(session, file) {
 function quoted(text, limit = 120) {
   if (text === null || text === undefined) return "(deleted)"
   return JSON.stringify(text.length > limit ? `${text.slice(0, limit - 1)}…` : text)
+}
+
+async function setup(session) {
+  if (session.positionals.length !== 1)
+    throw new UsageError("Use setup without additional arguments.")
+  const result = await setupLocalLearning({ cwd: session.cwd, actor: session.values.actor })
+  session.out(
+    result,
+    [
+      `Local learning mode is set up in ${result.root}.`,
+      ...result.steps.map((step) => `- ${step}`),
+      "Next, quit Copilot CLI and start it again in that folder with:",
+      `  ${result.command}`,
+    ].join("\n"),
+  )
 }
 
 async function status(session) {
@@ -1562,6 +1602,7 @@ async function analyze(session) {
       stdout: { write: (text) => ((output += text), true) },
       stderr: session.stderr,
       clock: session.clock,
+      startAnalysis: session.startAnalysis,
     })
     if (code !== 0) failed.push(name)
     try {
@@ -1632,6 +1673,13 @@ async function analyze(session) {
       updates: updates.length,
       failed,
     }
+    localLearning.recordActivity(directory, {
+      startedAt,
+      state: failed.length ? "failed" : "succeeded",
+      commentsConsidered: labeled?.considered ?? 0,
+      commentsLabeled: result.labeled,
+      suggestions: result.proposals,
+    })
     return result
   })
   session.out(
@@ -1878,6 +1926,278 @@ async function screenshotFile(directory, { file, ...rest }, remaining) {
   } finally {
     await handle.close()
   }
+}
+
+/**
+ * mcp: serves the shared learning tools over standard input and output until the client
+ * hangs up. Each call opens the store and closes it again, like a separate command, so
+ * nothing stays locked between calls.
+ */
+async function serveMcp(session) {
+  if (session.positionals.length !== 1) throw new UsageError("Use mcp without arguments.")
+  const principal =
+    session.values.actor === undefined ? { kind: "agent", id: "agent:mcp" } : actor(session)
+  if (principal.kind !== "agent") throw new UsageError("Name the agent with --actor agent:<name>.")
+  let mcp
+  let stdio
+  try {
+    mcp = await import("./mcp.mjs")
+    stdio = await import("@modelcontextprotocol/sdk/server/stdio.js")
+  } catch (error) {
+    if (error?.code === "ERR_MODULE_NOT_FOUND")
+      throw new LearningError(
+        "unsupported",
+        "The MCP server needs @modelcontextprotocol/sdk. Run npm ci in packages/learning.",
+      )
+    throw error
+  }
+  async function withStore(call) {
+    const { store } = await open(session)
+    try {
+      return await call(store, context(session, principal))
+    } finally {
+      session.opened.splice(session.opened.indexOf(store), 1)
+      await store.close()
+    }
+  }
+  // Without --grant, any consent a person recorded in this store counts, so the server
+  // works without anyone naming grant IDs.
+  function startedWith(grant) {
+    return !session.values.grant?.length || session.values.grant.includes(grant.id)
+  }
+  // Of the grants this server may use, the one that allows screenshots now.
+  async function screenshotGrantId(store, ctx) {
+    return (await store.listGrants(ctx)).find(
+      ({ grant, activePurposes }) =>
+        startedWith(grant) &&
+        grant.sources.includes("agent_screenshots") &&
+        activePurposes.includes("evaluation"),
+    )?.grant.id
+  }
+  async function sessionGrants(store, ctx) {
+    return (await store.listGrants(ctx)).filter(
+      ({ grant, activePurposes }) =>
+        startedWith(grant) &&
+        grant.sources.includes("agent_session") &&
+        activePurposes.includes("review"),
+    )
+  }
+  // A checkout without a GitHub repository is named by its folder in forms.
+  const checkout = session.environment.checkout
+  const repositoryName =
+    session.environment.sourceRepository ?? (checkout ? path.basename(checkout) : "this repository")
+  function canAskPerson() {
+    return Boolean(server.server.getClientCapabilities()?.elicitation)
+  }
+  function askPerson(params) {
+    return server.server.elicitInput(params, { timeout: localLearning.FORM_TIMEOUT_MS })
+  }
+  // The login a form suggests: whoever agreed to learning here, or the GitHub CLI's.
+  async function suggestedLogin() {
+    const agreed = await withStore(async (store, ctx) =>
+      (await sessionGrants(store, ctx)).map(({ grant }) => grant.grantedBy.id).at(-1),
+    )
+    return agreed?.replace(/^github:/, "") ?? (await localLearning.signedInLogin(session.env))
+  }
+  /** Asks the person to agree to learning from chats, and records their consent. */
+  async function agreeToLearn() {
+    if (!canAskPerson()) return []
+    const answer = await localLearning.askConsent(askPerson, {
+      repository: repositoryName,
+      login: await localLearning.signedInLogin(session.env),
+    })
+    if (!answer) return []
+    return withStore(async (store) => {
+      const ctx = context(session, { kind: "human", id: `github:${answer.login}`, asserted: true })
+      const grant = await store.addGrant(ctx, {
+        purposes: ["review", "instruction", "evaluation"],
+        sources: ["agent_session"],
+        basis: "Agreed in Copilot to learn from chats in this repository.",
+      })
+      if (answer.screenshots)
+        await store.addGrant(ctx, {
+          purposes: ["evaluation"],
+          sources: ["agent_screenshots"],
+          basis: "Agreed in Copilot to let Copilot see screenshots when it scores a learning.",
+        })
+      return [grant.id]
+    })
+  }
+  /** What a person has yet to decide: suggested learnings and suggested new wording. */
+  async function waitingForReview(store) {
+    const ctx = context(session, { kind: "system", id: "system:replica-learning-mcp" })
+    const items = await store.queryMemory(ctx, { purpose: "review" })
+    const usable = items.filter(
+      ({ withheld, status }) => !withheld && !status.problems.length && !status.identityNeedsReview,
+    )
+    const updates = []
+    for (const { record } of usable.filter(({ record }) => record.state === "accepted"))
+      for (const update of await store.updatesFor(ctx, { memoryId: record.id }))
+        if (update.state === "open" && !update.withheld)
+          updates.push({ ...update, current: { title: record.title, content: record.content } })
+    return {
+      proposals: usable
+        .filter(({ record }) => record.state === "proposed")
+        .map(({ record }) => record),
+      updates,
+    }
+  }
+  /** Starts the labeling, consolidating, and scoring a person would otherwise run. */
+  function analyzeLater(commitSha) {
+    if (session.values.manual) return
+    try {
+      session.startAnalysis({
+        cwd: session.cwd,
+        env: session.env,
+        dataDirectory: session.environment.dataDirectory,
+        args: [...storeArguments(session), ...(commitSha ? ["--commit", commitSha] : [])],
+      })
+    } catch (error) {
+      session.stderr.write(`replica-learning mcp: analysis did not start: ${error.message}\n`)
+    }
+  }
+  const server = mcp.createLearningMcpServer(
+    {
+      getGuidance: ({ task, limit, session: agentSession }) =>
+        withStore(async (store, ctx) => {
+          const result = await store.recall(ctx, {
+            task,
+            limit: limit ?? 20,
+            budgetChars: 6000,
+            session: agentSession,
+          })
+          // Only the framed text was recorded as delivered, so raw learnings stay out.
+          return {
+            guidanceId: result.guidanceId,
+            text: result.text,
+            learnings: result.memories.map(({ id, deliveryId }) => ({ id, deliveryId })),
+            screenshotsAllowed: Boolean(await screenshotGrantId(store, ctx)),
+            // A count only, so the agent can offer a review without seeing what waits.
+            waitingForReview: Object.values(await waitingForReview(store)).flat().length,
+          }
+        }),
+      reportUsage: async (report) => {
+        const used = await readReportScreenshots(session.cwd, report.used)
+        const result = await withStore(async (store, ctx) => {
+          const hasShots = used?.some?.((item) => item?.before || item?.after)
+          const screenshotGrant = hasShots ? await screenshotGrantId(store, ctx) : undefined
+          return store.reportUsage(ctx, {
+            ...report,
+            used,
+            ...(screenshotGrant ? { consentGrantId: screenshotGrant } : {}),
+          })
+        })
+        if (result.stored) analyzeLater(report.commitSha)
+        return result
+      },
+      submitSession: async (input) => {
+        let grantIds =
+          session.values.grant ??
+          (await withStore(async (store, ctx) =>
+            (await sessionGrants(store, ctx)).map(({ grant }) => grant.id),
+          ))
+        if (!grantIds.length) grantIds = await agreeToLearn()
+        if (!grantIds.length)
+          throw new LearningError(
+            "grant_inactive",
+            "No one has agreed to learn from sessions here. Ask the person to agree in the form this tool shows, or to start the server with --grant.",
+          )
+        const result = await withStore((store, ctx) =>
+          store.importAgentSession(ctx, input, { grantIds }),
+        )
+        const waitingCount = await withStore(
+          async (store) => Object.values(await waitingForReview(store)).flat().length,
+        )
+        analyzeLater()
+        return { ...result, waitingForReview: waitingCount }
+      },
+      // Agents read with the instruction purpose, so they see only what recall gives.
+      listLearnings: ({ state }) =>
+        withStore((store, ctx) =>
+          store.queryMemory(ctx, { states: state, purpose: "instruction" }),
+        ),
+      getLearning: ({ id }) =>
+        withStore(async (store, ctx) => {
+          const item = await store.getMemory(ctx, id, { purpose: "instruction" })
+          const { record } = item
+          if (record.state === "accepted" && !item.withheld && item.status.recallEligible)
+            return item
+          // A learning no one accepted is not guidance, so its text stays with people.
+          const summary = { id: record.id, state: record.state, withheld: true }
+          if (record.state !== "proposed") return summary
+          // There is no sign-in here, so a person runs the decision themselves.
+          const command = decisionCommandPrefix(session)
+          return {
+            ...summary,
+            decide: {
+              note: canAskPerson()
+                ? "Only a person can decide. Call review_learnings so they can decide in a form, or ask them to run one of these with their GitHub login."
+                : "Only a person can decide. Ask them to run one of these with their GitHub login.",
+              accept: `${command} accept ${record.id} --digest ${record.reviewDigest} --by github:<login>`,
+              reject: `${command} reject ${record.id} --digest ${record.reviewDigest} --by github:<login> --reason <text>`,
+            },
+          }
+        }),
+      reviewLearnings: async () => {
+        if (!canAskPerson())
+          throw new LearningError(
+            "unsupported",
+            "This client cannot show the person a form. get_learning gives the commands they can run instead.",
+          )
+        const waiting = await withStore((store) => waitingForReview(store))
+        const digests = new Map(waiting.proposals.map((record) => [record.id, record.reviewDigest]))
+        const counts = await localLearning.reviewWithPerson(askPerson, {
+          repository: repositoryName,
+          login: await suggestedLogin(),
+          ...waiting,
+          decide: ({ kind, id, login, content, reason }) =>
+            withStore(async (store) => {
+              const ctx = context(session, { kind: "human", id: `github:${login}`, asserted: true })
+              // The digest is what the person saw, so a later change is refused.
+              const expectedDigest = digests.get(id)
+              if (kind === "accept") await store.acceptMemory(ctx, id, { expectedDigest, content })
+              if (kind === "reject") await store.rejectMemory(ctx, id, { expectedDigest, reason })
+              if (kind === "apply")
+                await store.applyUpdate(ctx, id, { reason, operationId: randomUUID() })
+              if (kind === "dismiss")
+                await store.dismissUpdate(ctx, id, { reason, operationId: randomUUID() })
+            }),
+        })
+        const left = await withStore((store) => waitingForReview(store))
+        return { ...counts, waitingForReview: Object.values(left).flat().length }
+      },
+    },
+    {
+      submitEachRequest: true,
+      onError: (error) =>
+        session.stderr.write(`replica-learning mcp: ${error?.stack ?? String(error)}\n`),
+    },
+  )
+  const transport = new stdio.StdioServerTransport(session.stdin, session.stdout)
+  const closed = new Promise((resolve) => {
+    server.server.onclose = resolve
+  })
+  await server.connect(transport)
+  function hangUp() {
+    server.close()
+  }
+  session.stdin.once("end", hangUp)
+  session.stdin.once("close", hangUp)
+  await closed
+}
+
+/** The start of a decision command that opens the same store this server opened. */
+function decisionCommandPrefix(session) {
+  const script = fileURLToPath(new URL("../bin/replica-learning.mjs", import.meta.url))
+  const parts = ["cd", shellQuote(session.cwd), "&&", "node", shellQuote(script)]
+  for (const name of ["dir", "repository", "legacy-repository"])
+    if (session.values[name] !== undefined)
+      parts.push(`--${name}`, shellQuote(session.values[name]))
+  return parts.join(" ")
+}
+
+function shellQuote(value) {
+  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`
 }
 
 async function deleteMemory(session) {

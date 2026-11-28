@@ -27,6 +27,7 @@ Commits and pull requests follow the [contribution conventions](../CONTRIBUTING.
 - [Build action setup](../CONTRIBUTING.md#replica-build-action) covers the shared action.
 - [Controls documentation](../hub/docs/prototype-controls.md) covers the shared engine and definition schema owned by Hub.
 - [Prototype canvas](../hub/docs/prototype-canvas.md) covers the Copilot plugin and injected Controls integration.
+- [Replica learning](../packages/learning/README.md) covers trying it on a prototype without Hub, the command, and bringing your own provider. [ADR 0001](adr/0001-learning-extension-architecture.md) explains its design.
 - [Train a decision model](decision-model.md) covers the host-neutral taskset, environment, trainer, and evaluation flow.
 
 Keep project-specific behavior and commands in those guides. The starter is copied into independent repositories, so its instructions must work without this monorepo's root documentation.
