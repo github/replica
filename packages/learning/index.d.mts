@@ -1296,7 +1296,11 @@ export interface LearningStore {
       after?: { sha256: string; route: string; consentGrantId?: string }
     }>
   >
-  /** The score already kept for one scoring attempt, or null when it has none. */
+  /**
+   * The score already kept for one scoring attempt, or null when it has none.
+   * Fails with unavailable once the evidence behind the version the agent
+   * received no longer permits review, the same rule outcomesFor uses.
+   */
   scoreFor(
     context: LearningContext,
     request: { usedLearningId: string; operationId: string },
@@ -1434,9 +1438,14 @@ export declare class ProviderConflictError extends LearningError {}
 export interface ScreenshotStore {
   /** True when the host keeps the bytes, so screenshots need a consent grant. */
   requiresGrant?: boolean
-  put(bytes: Uint8Array): Promise<Digest>
+  /** Keeps the bytes for the repository with this scope. */
+  put(bytes: Uint8Array, scope: Scope): Promise<Digest>
   read(digest: Digest): Promise<Uint8Array | null>
-  remove(digest: Digest): Promise<void>
+  /**
+   * Releases the bytes for one repository, named by its scope and any it used before a
+   * migration. They are removed once no other repository keeps them.
+   */
+  remove(digest: Digest, scopes: Scope[]): Promise<void>
 }
 
 export declare function createLearningStore(options: {

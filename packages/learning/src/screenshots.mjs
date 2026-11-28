@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto"
 import { constants, lstatSync, mkdirSync } from "node:fs"
-import { open, rename, rm } from "node:fs/promises"
+import { open, readdir, rename, rm } from "node:fs/promises"
 import path from "node:path"
+import { canonicalJson } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
 import { NO_FOLLOW, assertOwnPath, openError } from "./providers/files.mjs"
 
@@ -31,6 +32,9 @@ export function assertScreenshot(bytes) {
  * Keep screenshot bytes on this machine, named by their SHA-256, in a private directory. The
  * learning records hold only the digest, so the same image is stored once, a deleted record
  * can take its image with it, and a damaged file is found when it is read.
+ * Repositories can share one directory, so each one that stores an image leaves
+ * an empty marker beside it, and the image goes only when no other repository's
+ * marker is left.
  *
  * @param {string} directory where the images live, such as <data directory>/evidence
  */
@@ -41,6 +45,11 @@ export function createScreenshotStore(directory) {
     if (!DIGEST.test(digest ?? ""))
       throw new LearningError("invalid_input", "A screenshot is named by its sha256 digest.")
     return path.join(root, `${digest.slice("sha256:".length)}.png`)
+  }
+
+  function markerFor(digest, scope) {
+    const owner = createHash("sha256").update(canonicalJson(scope)).digest("hex").slice(0, 32)
+    return path.join(root, `${digest.slice("sha256:".length)}.${owner}.owner`)
   }
 
   function ensureRoot() {
@@ -73,11 +82,20 @@ export function createScreenshotStore(directory) {
   }
 
   return {
-    /** Store the bytes, once per digest, and return the digest. */
-    async put(bytes) {
+    /** Keep the bytes for a repository, once per digest, and return the digest. */
+    async put(bytes, scope) {
       assertScreenshot(bytes)
       const digest = screenshotDigest(bytes)
       ensureRoot()
+      // The marker comes first, so a removal that starts after it keeps the image.
+      const marker = markerFor(digest, scope)
+      try {
+        await (
+          await open(marker, constants.O_WRONLY | constants.O_CREAT | NO_FOLLOW, 0o600)
+        ).close()
+      } catch (error) {
+        throw openError(root, marker, error)
+      }
       const target = fileFor(digest)
       const existing = lstatSync(target, { throwIfNoEntry: false })
       if (existing) {
@@ -112,9 +130,26 @@ export function createScreenshotStore(directory) {
 
     read,
 
-    /** Remove the bytes for a digest; a digest with no file is already removed. */
-    async remove(digest) {
+    /**
+     * Drop the markers of these scopes, which belong to one repository, and
+     * remove the bytes when no other repository marks them. A digest with no
+     * file is already removed.
+     */
+    async remove(digest, scopes) {
       const target = fileFor(digest)
+      for (const scope of scopes) {
+        const marker = markerFor(digest, scope)
+        const kind = lstatSync(marker, { throwIfNoEntry: false })
+        if (!kind) continue
+        assertOwnPath(root, marker, kind)
+        await rm(marker)
+      }
+      const prefix = `${digest.slice("sha256:".length)}.`
+      const names = await readdir(root).catch((error) => {
+        if (error.code === "ENOENT") return []
+        throw error
+      })
+      if (names.some((name) => name.startsWith(prefix) && name.endsWith(".owner"))) return
       const existing = lstatSync(target, { throwIfNoEntry: false })
       if (!existing) return
       assertOwnPath(root, target, existing)

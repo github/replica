@@ -3542,7 +3542,7 @@ class LearningStore {
       return record
     })
     // The images go first, so a stored record never names an image that is missing.
-    for (const shot of shots) await this.#screenshots.put(shot.bytes)
+    for (const shot of shots) await this.#screenshots.put(shot.bytes, context.scope)
     const subjects = [
       { kind: "usage_report", id, digest: report.digest },
       ...usedLearnings.map((record) => ({
@@ -3663,23 +3663,11 @@ class LearningStore {
     assertContext(context)
     if (typeof usedLearningId !== "string" || !RECORD_ID.test(usedLearningId))
       throw new LearningError("invalid_input", "Name the used learning to evaluate.")
-    const [used] = await this.#read("usedLearnings", context, { ids: [usedLearningId] })
-    if (!used)
-      throw new LearningError("not_found", `No used learning ${usedLearningId} in this repository.`)
-    const [report] = await this.#read("usageReports", context, { ids: [used.usageReportId] })
-    const [delivery] = await this.#read("deliveries", context, { ids: [used.deliveryId] })
-    if (!report || !delivery)
-      throw new LearningError("not_found", `Used learning ${usedLearningId} lost its report.`)
-    const delivered = (await this.#deliveredVersions(context, "evaluation"))(
-      used.memoryId,
-      delivery,
+    const { used, report, delivery, version } = await this.#permittedUse(
+      context,
+      usedLearningId,
+      "evaluation",
     )
-    if (!delivered?.allowed)
-      throw new LearningError(
-        "unavailable",
-        `The evidence behind used learning ${usedLearningId} no longer allows evaluation.`,
-      )
-    const { version } = delivered
     const ids = [used.beforeScreenshotId, used.afterScreenshotId].filter(Boolean)
     const screenshots = []
     for (const shot of ids.length ? await this.#read("screenshots", context, { ids }) : []) {
@@ -3710,6 +3698,28 @@ class LearningStore {
       },
       screenshots,
     }
+  }
+
+  /**
+   * A used learning with its report, delivery, and the version the agent
+   * received, while that version's evidence still allows the purpose. Otherwise
+   * it fails with unavailable.
+   */
+  async #permittedUse(context, usedLearningId, purpose) {
+    const [used] = await this.#read("usedLearnings", context, { ids: [usedLearningId] })
+    if (!used)
+      throw new LearningError("not_found", `No used learning ${usedLearningId} in this repository.`)
+    const [report] = await this.#read("usageReports", context, { ids: [used.usageReportId] })
+    const [delivery] = await this.#read("deliveries", context, { ids: [used.deliveryId] })
+    if (!report || !delivery)
+      throw new LearningError("not_found", `Used learning ${usedLearningId} lost its report.`)
+    const delivered = (await this.#deliveredVersions(context, purpose))(used.memoryId, delivery)
+    if (!delivered?.allowed)
+      throw new LearningError(
+        "unavailable",
+        `The evidence behind used learning ${usedLearningId} no longer allows ${purpose}.`,
+      )
+    return { used, report, delivery, version: delivered.version }
   }
 
   /**
@@ -3858,6 +3868,9 @@ class LearningStore {
   /**
    * The score already kept for one scoring attempt, or null. A host checks this before asking
    * Copilot, so retrying a finished attempt spends nothing.
+   *
+   * It fails with unavailable once the evidence behind the version the agent
+   * received no longer permits review.
    */
   async scoreFor(context, { usedLearningId, operationId } = {}) {
     assertContext(context)
@@ -3867,7 +3880,10 @@ class LearningStore {
       throw new LearningError("invalid_input", "Name the scoring attempt with a UUID operation ID.")
     const id = derivedId("score", { usedLearningId, operationId })
     const [stored] = await this.#read("scores", context, { ids: [id] })
-    return stored ?? null
+    if (!stored) return null
+    // A score's reasoning retells the evidence, so it follows outcomesFor's rule.
+    await this.#permittedUse(context, usedLearningId, "review")
+    return stored
   }
 
   /**
@@ -4361,9 +4377,11 @@ class LearningStore {
         .filter((record) => sameScope(record?.scope, context.scope))
         .map((record) => record.id),
     )
+    // Read before deleting, since the deletion can take the migration records with it.
+    const owners = await this.#screenshotOwners(context)
     const removed = await this.#provider.deleteRecords(context.scope, { records, memories })
     for (const sha256 of unique(shots.map((record) => record.sha256)))
-      if (DIGEST.test(sha256 ?? "")) await this.#screenshots?.remove(sha256)
+      if (DIGEST.test(sha256 ?? "")) await this.#screenshots?.remove(sha256, owners)
     return removed
   }
 
@@ -4378,12 +4396,21 @@ class LearningStore {
       )
   }
 
+  /**
+   * The scopes whose image markers belong to this repository: its own and the
+   * ones it used before a migration, which hold copies of the same records.
+   */
+  async #screenshotOwners(context) {
+    return [context.scope, ...(await this.#migrationContext(context.scope)).legacyScopes]
+  }
+
   /** Remove the images of removed screenshot records that no remaining record names. */
   async #removeUnreferencedScreenshots(context, removed) {
     if (!this.#screenshots || !removed.length) return
     const left = new Set((await this.#read("screenshots", context)).map((record) => record.sha256))
+    const owners = await this.#screenshotOwners(context)
     for (const sha256 of unique(removed.map((record) => record.sha256)))
-      if (!left.has(sha256)) await this.#screenshots.remove(sha256)
+      if (!left.has(sha256)) await this.#screenshots.remove(sha256, owners)
   }
 
   /**

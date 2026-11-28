@@ -1836,6 +1836,10 @@ async function screenshotFile(directory, { file, ...rest }, remaining) {
   if (typeof file !== "string" || !file)
     throw new LearningError("invalid_input", "A screenshot names its PNG file.")
   // An agent writes the report, so a screenshot path must not reach other files on disk.
+  // Node cannot open a file relative to a held folder, so a process that renames
+  // folders under the report while this runs could still redirect the read. That
+  // process already has the same access, so the checks stop wrong or crafted
+  // paths, not such a process.
   if (path.isAbsolute(file))
     throw new LearningError(
       "invalid_input",

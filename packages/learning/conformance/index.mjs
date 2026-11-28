@@ -1626,6 +1626,34 @@ export function memoryProviderConformance({ name, createProvider }) {
       assert.equal((await store.verify(designer())).ok, true)
     })
 
+    it("usage: a retried score stops returning its text once review is withdrawn", async () => {
+      const { store, provider, grantId, proposal } = await proposed()
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+      const recalled = await store.recall(agent())
+      await store.reportUsage(agent(), {
+        reportId: "change-1",
+        guidanceIds: [recalled.guidanceId],
+        commitSha: "a".repeat(40),
+        used: [{ deliveryId: recalled.memories[0].deliveryId }],
+      })
+      const [used] = await provider.readRecords("usedLearnings", { scope: SCOPE })
+      const score = {
+        usedLearningId: used.id,
+        operationId: "33333333-3333-4333-8333-333333333333",
+        efficiency: 3,
+        followed: "followed",
+        reasoning: "The label sat above the field, as the review comment asked.",
+        route: { kind: "fusion", fusionTier: "max" },
+      }
+      await store.recordScore(agent(), score)
+
+      await store.withdrawGrant(designer(), grantId, { purposes: ["review"], reason: "Stop." })
+
+      const attempt = { usedLearningId: used.id, operationId: score.operationId }
+      await assert.rejects(store.scoreFor(agent(), attempt), { code: "unavailable" })
+      await assert.rejects(store.recordScore(agent(), score), { code: "unavailable" })
+    })
+
     it("updates: a suggestion is kept once, replaced, dismissed, or applied as a new version", async (t) => {
       const { store, provider, proposal } = await proposed()
       if (!supportsIndexedDecisions(provider)) {
