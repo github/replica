@@ -26,10 +26,14 @@ Only a person can accept, reject, edit, or delete a learning. get_learning tells
 }
 
 // Added only when the host can ask the person itself, so other hosts' agents are not
-// told about a tool they do not have.
+// told about a tool they do not have. Tool descriptions repeat it, because a client may
+// not pass server instructions on to the agent.
+const REVIEW_OFFER =
+  "at the next natural pause tell the person how many suggestions are waiting and ask whether they want to review them. Offer to call review_learnings, but call it only if they agree. Offer at most once in a session unless the waiting count increases."
+
 const REVIEW_INSTRUCTIONS = `
 
-When submit_session or get_guidance returns waitingForReview above 0, at the next natural pause tell the person how many suggestions are waiting and ask whether they want to review them. Offer to call review_learnings, but call it only if they agree. Offer at most once in a session unless the waiting count increases. It shows each suggestion to them in a form; you see only how many they decided.`
+When submit_session or get_guidance returns waitingForReview above 0, ${REVIEW_OFFER} It shows each suggestion to them in a form; you see only how many they decided.`
 
 const session = z
   .object({
@@ -56,6 +60,9 @@ const screenshot = z
       .describe(
         "When it was captured, in UTC with six fractional digits, such as 2026-10-09T12:00:00.000000Z.",
       ),
+  })
+  .refine(({ file, data }) => (file === undefined) !== (data === undefined), {
+    message: "Provide exactly one screenshot source: file or data.",
   })
   .optional()
 
@@ -119,9 +126,10 @@ export function createLearningMcpServer(
   backend,
   { name = "replica-learning", version = "0.0.0", submitEachRequest = false, onError } = {},
 ) {
+  const canReview = typeof backend.reviewLearnings === "function"
   const base = instructionsFor(submitEachRequest)
-  const instructions =
-    typeof backend.reviewLearnings === "function" ? base + REVIEW_INSTRUCTIONS : base
+  const instructions = canReview ? base + REVIEW_INSTRUCTIONS : base
+  const reviewOffer = canReview ? ` When waitingForReview is above 0, ${REVIEW_OFFER}` : ""
   const server = new McpServer({ name, version }, { instructions })
   function tool(id, config, call) {
     server.registerTool(id, config, async (input) => {
@@ -144,8 +152,7 @@ export function createLearningMcpServer(
     "get_guidance",
     {
       title: "Get guidance",
-      description:
-        "Returns the accepted learnings that fit a task, as text to follow plus each learning's id and deliveryId, and whether report_usage accepts screenshots. Records that this guidance was given. Call it before starting work.",
+      description: `Returns the accepted learnings that fit a task, as text to follow plus each learning's id and deliveryId, and whether report_usage accepts screenshots. Records that this guidance was given. Call it before starting work, and after you commit, call report_usage with only the learnings you applied.${reviewOffer}`,
       inputSchema: {
         task: z.string().optional().describe("A short description of the task."),
         limit: z.number().int().positive().optional().describe("The most learnings to return."),
@@ -159,7 +166,7 @@ export function createLearningMcpServer(
     {
       title: "Report usage",
       description:
-        "Records which delivered learnings you applied in a commit. When get_guidance said screenshotsAllowed, capture a before screenshot ahead of the edit and an after screenshot once the change is in place. Sending the same reportId again changes nothing.",
+        "Records which delivered learnings you applied in a commit. Call it after each commit that applied any. When get_guidance said screenshotsAllowed, capture a before screenshot ahead of the edit and an after screenshot once the change is in place. Sending the same reportId again changes nothing.",
       inputSchema: {
         reportId: z.string().describe("An ID you choose, so a retry is not counted twice."),
         guidanceIds: z
@@ -185,7 +192,7 @@ export function createLearningMcpServer(
     "submit_session",
     {
       title: "Submit session",
-      description: `Stores this session's user and agent messages and its outcome, so feedback in it can become learnings. ${submitEachRequest ? "Call it after you finish each request, not only when the session ends. " : ""}When available, waitingForReview says how many suggestions are waiting for a person's decision. Messages are matched by position, so always send the whole conversation in order, with each tool call or output as an empty tool message, and keep each earlier message's user and time unchanged. Sending the same sessionId again adds the new messages.`,
+      description: `Stores this session's user and agent messages and its outcome, so feedback in it can become learnings. ${submitEachRequest ? "Call it after you finish each request, not only when the session ends. " : ""}When available, waitingForReview says how many suggestions are waiting for a person's decision. Messages are matched by position, so always send the whole conversation in order, with each tool call or output as an empty tool message, and keep each earlier message's user and time unchanged. Sending the same sessionId again adds the new messages.${reviewOffer}`,
       inputSchema: {
         sessionId: z.string(),
         task: z.string().optional(),

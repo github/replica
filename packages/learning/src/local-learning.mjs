@@ -1,8 +1,10 @@
 import { execFile, spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { closeSync, constants, fstatSync, mkdirSync, openSync, writeSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+import { LearningError } from "./errors.mjs"
 import { NO_FOLLOW } from "./providers/files.mjs"
 
 const SCRIPT = fileURLToPath(new URL("../bin/replica-learning.mjs", import.meta.url))
@@ -105,19 +107,37 @@ export async function signedInLogin(env) {
 /**
  * Asks the person, not the agent, whether this repository may learn from their chats.
  * The client shows the form to the person and sends their answer straight back, so an
- * agent can neither see nor fill it in. Returns null unless the person agreed.
+ * agent can neither see nor fill it in. Returns null unless the person agreed. A login
+ * that isn't valid is asked for again rather than taken as a no, because the server
+ * remembers a no for the rest of the session.
  *
  * @param {(params: object) => Promise<{ action: string, content?: object }>} elicit
- * @param {{ repository: string, login?: string }} details
+ * @param {{ repository: string, login?: string, grantManagement?: string[] }} details
  */
-export async function askConsent(elicit, { repository, login }) {
-  const answer = await elicit({
+export async function askConsent(elicit, { repository, login, grantManagement = [] }) {
+  let problem = ""
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const answer = await elicit(consentForm(repository, login, problem, grantManagement))
+    if (answer.action !== "accept" || answer.content?.allow !== true) return null
+    const person = loginOf(answer.content.login)
+    if (person) return { login: person, screenshots: answer.content.screenshots === true }
+    problem = `"${String(answer.content.login ?? "").slice(0, 100)}" isn't a GitHub login. Enter it as it appears on github.com, such as ana-designer.\n\n`
+  }
+  throw new LearningError(
+    "invalid_input",
+    "The person didn't enter a valid GitHub login. Call the tool again to show the form again.",
+  )
+}
+
+function consentForm(repository, login, problem, grantManagement) {
+  return {
     message: [
-      `Learn from your feedback in Copilot chats for ${repository}?`,
+      `${problem}Learn from your feedback in Copilot chats for ${repository}?`,
       "",
       "Each chat's messages are kept on this machine in .replica/learning. So are the Pick & Polish notes you ask Copilot to fix, with their follow-ups and Copilot's replies. In the background, Copilot looks for feedback that repeats across chats and suggests it as a learning. When the agent reports which learnings a commit used, Copilot also reads that commit's changes to score them. That uses your Copilot sign-in and counts toward your Copilot usage.",
       "",
-      "Nothing reaches an agent until you accept it. Run replica-learning grants withdraw to stop at any time.",
+      "Only learnings you accept reach an agent.",
+      ...grantManagement,
     ].join("\n"),
     requestedSchema: {
       type: "object",
@@ -137,11 +157,7 @@ export async function askConsent(elicit, { repository, login }) {
       },
       required: ["allow", "login"],
     },
-  })
-  if (answer.action !== "accept" || answer.content?.allow !== true) return null
-  const person = loginOf(answer.content.login)
-  if (!person) return null
-  return { login: person, screenshots: answer.content.screenshots === true }
+  }
 }
 
 /**
@@ -155,7 +171,25 @@ export async function askConsent(elicit, { repository, login }) {
  *   login?: string,
  *   proposals: Array<{
  *     id: string, title?: string, content: string, themeKey?: string,
- *     proposal?: { lifecycle?: { action: string, targets?: string[] } },
+ *     proposal?: {
+ *       lifecycle?: { action: string, targets?: string[] },
+ *       rationale?: {
+ *         recurrence?: string, contradictions?: string,
+ *         expectedBenefit?: string, falsification?: string,
+ *       },
+ *     },
+ *     support?: {
+ *       distinctEpisodes: number, distinctPrototypes: number,
+ *       distinctReviewers: number, distinctBuilds: number,
+ *     },
+ *     evidence?: Array<{
+ *       eventIds: string[], episodeId: string,
+ *       source?: {
+ *         sessionId?: string, prototypeId?: string,
+ *         buildNumber?: number, commentId?: string,
+ *       },
+ *     }>,
+ *     evidenceCommand?: string,
  *   }>,
  *   updates: Array<{
  *     id: string, issue: string, title?: string, content: string,
@@ -168,13 +202,40 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
   const items = [
     ...proposals.map((proposal) => {
       const lifecycle = proposal.proposal?.lifecycle
+      const rationale = proposal.proposal?.rationale
+      const support = proposal.support
+      const evidence = (proposal.evidence ?? []).map((reference) => {
+        const source = reference.source ?? {}
+        const where =
+          source.sessionId === undefined
+            ? `prototype ${source.prototypeId ?? "?"} Build ${source.buildNumber ?? "?"} comment ${source.commentId ?? "?"}`
+            : `session ${source.sessionId}`
+        return `${reference.eventIds.join(", ")} in ${reference.episodeId}: ${where}`
+      })
       return {
         id: proposal.id,
         heading: "Suggested learning",
         body: [
+          `Learning ID: ${proposal.id}`,
           ...(proposal.title ? [proposal.title, ""] : []),
           proposal.content,
           ...(proposal.themeKey ? ["", `Theme: ${proposal.themeKey}`] : []),
+          ...(support
+            ? [
+                "",
+                `Support: ${support.distinctEpisodes} feedback sources, ${support.distinctPrototypes} prototypes, ${support.distinctReviewers} reviewers, ${support.distinctBuilds} Builds`,
+              ]
+            : []),
+          ...(rationale?.recurrence ? ["", `Why: ${rationale.recurrence}`] : []),
+          ...(rationale?.contradictions ? [`Disagreement: ${rationale.contradictions}`] : []),
+          ...(rationale?.expectedBenefit ? [`Expected benefit: ${rationale.expectedBenefit}`] : []),
+          ...(rationale?.falsification
+            ? [`How we would know it is wrong: ${rationale.falsification}`]
+            : []),
+          ...(evidence.length ? ["", "Evidence:", ...evidence] : []),
+          ...(proposal.evidenceCommand
+            ? ["", "Look up the full evidence before deciding:", proposal.evidenceCommand]
+            : []),
           // Accepting can retire other learnings, so the person sees which ones.
           ...(lifecycle?.targets?.length
             ? ["", `Accepting it replaces: ${lifecycle.targets.join(", ")} (${lifecycle.action})`]
@@ -270,7 +331,12 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
             ...(reviewer ? { default: reviewer } : {}),
           },
         },
-        required: kind === "reject" ? ["reason", "login"] : ["login"],
+        required:
+          kind === "reject"
+            ? ["reason", "login"]
+            : kind === "accept"
+              ? ["content", "login"]
+              : ["login"],
       },
     })
     if (details.action !== "accept") return { ...counts, stopped: true }
@@ -282,7 +348,12 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
       continue
     }
     reviewer = confirmed
+    const suppliedContent = typeof choice.content === "string"
     const content = typeof choice.content === "string" ? choice.content.trim() : ""
+    if (kind === "accept" && (!suppliedContent || !content)) {
+      counts.skipped++
+      continue
+    }
     const reason = typeof choice.reason === "string" ? choice.reason.trim().slice(0, 2000) : ""
     if (kind === "reject" && !reason) {
       counts.skipped++
@@ -307,6 +378,50 @@ export async function reviewWithPerson(elicit, { repository, login, proposals, u
 }
 
 function loginOf(value) {
-  const login = typeof value === "string" ? value.trim().replace(/^github:/, "") : ""
+  const login = typeof value === "string" ? value.trim().replace(/^(?:github:|@)/, "") : ""
   return LOGIN.test(login) ? login : undefined
+}
+
+/**
+ * The same operation ID every time a person applies an update here, so an apply that
+ * saved the new wording but stopped before recording the decision can finish later.
+ */
+export function applyOperationId(proposalId) {
+  const hex = createHash("sha256").update(`replica-learning mcp apply ${proposalId}`).digest("hex")
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `8${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join("-")
+}
+
+/**
+ * Finishes applies that stopped halfway. Their new wording is already in use, so the
+ * update no longer looks open and would otherwise never be shown or recorded again.
+ * The store requires the same person and reason as the first try, so both come from
+ * the version that apply saved.
+ *
+ * @param {object} store
+ * @param {{ system: object, as: (principal: object) => object }} contexts
+ */
+export async function finishStoppedApplies(store, { system, as }) {
+  const accepted = await store.queryMemory(system, { states: ["accepted"], purpose: "review" })
+  for (const { record } of accepted) {
+    const stopped = (await store.updatesFor(system, { memoryId: record.id })).filter(
+      (update) => update.state === "stale" && !update.decision,
+    )
+    if (!stopped.length) continue
+    const { versions } = await store.getMemory(system, record.id, { history: true })
+    for (const update of stopped) {
+      const operationId = applyOperationId(update.id)
+      const saved = versions.find((version) => version.accepted?.operationId === operationId)
+      if (!saved || saved.withheld) continue
+      await store.applyUpdate(as(saved.accepted.by), update.id, {
+        reason: saved.accepted.note,
+        operationId,
+      })
+    }
+  }
 }

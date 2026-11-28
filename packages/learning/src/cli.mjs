@@ -1683,10 +1683,21 @@ async function analyze(session) {
     path: path.join(directory, "analysis.lock"),
     timeoutMs: 60 * 60 * 1000,
   })
-  // One run may wait behind the running one for each commit, or for chats alone. A
-  // later request finds that run waiting and leaves the new data to it.
+  // One run may wait behind the running one for each repository's commit, or its chats
+  // alone. A later request finds that run waiting and leaves the new data to it.
+  // Repositories can share a directory, so each waits on its own key.
+  const key = createHash("sha256")
+    .update(
+      JSON.stringify([
+        session.environment.scope.host,
+        session.environment.scope.repository,
+        commitSha ?? null,
+      ]),
+    )
+    .digest("hex")
+    .slice(0, 24)
   const waiting = createFileLock({
-    path: path.join(directory, `analysis-waiting-${commitSha ?? "chats"}.lock`),
+    path: path.join(directory, `analysis-waiting-${key}.lock`),
     timeoutMs: 1000,
   })
   let running
@@ -2030,9 +2041,11 @@ async function serveMcp(session) {
   /** Asks the person to agree to learning from chats, and records their consent. */
   async function askToLearn() {
     if (!canAskPerson()) return []
+    const login = await localLearning.signedInLogin(session.env)
     const answer = await localLearning.askConsent(askPerson, {
       repository: repositoryName,
-      login: await localLearning.signedInLogin(session.env),
+      login,
+      grantManagement: consentGrantCommands(session),
     })
     if (!answer) return []
     return withStore(async (store) => {
@@ -2061,6 +2074,17 @@ async function serveMcp(session) {
     })
     return consent
   }
+  /** Why chats can't be kept, and what the person can do about it. */
+  function noConsentMessage() {
+    const command = decisionCommandPrefix(session)
+    const list = `${command} grants list`
+    if (session.values.grant?.length)
+      return `None of the grants named with --grant lets this server keep chats. Run ${list} to find an active chat grant, add --grant CHAT_GRANT_ID to this server's replica-learning mcp command, then restart Copilot. Or remove --grant so the person can be asked.`
+    const add = `${command} grants add --purpose review --purpose instruction --purpose evaluation --source agent_session --basis 'Agreed to learn from chats in this repository.' --by github:YOUR_LOGIN`
+    if (!canAskPerson())
+      return `This client can't show the person a consent form. If they agree to learning from chats here, run ${add}`
+    return `The person didn't agree to learn from chats in this session. They can start a new session to be asked again, or run ${add}`
+  }
   /** What a person has yet to decide: suggested learnings and suggested new wording. */
   async function waitingForReview(store) {
     const ctx = context(session, { kind: "system", id: "system:replica-learning-mcp" })
@@ -2076,12 +2100,15 @@ async function serveMcp(session) {
     return {
       proposals: usable
         .filter(({ record }) => record.state === "proposed")
-        .map(({ record }) => record),
+        .map(({ record }) => ({
+          ...record,
+          evidenceCommand: `${decisionCommandPrefix(session)} show ${shellQuote(record.id)}`,
+        })),
       updates,
     }
   }
   // Commits whose analysis this server started. A retried report for one of them
-  // needs no second run, but a report this server never analyzed does.
+  // needs no second run, but a new report or one this server never analyzed does.
   const analyzedCommits = new Set()
   /** Starts the labeling, consolidating, and scoring a person would otherwise run. */
   function analyzeLater(commitSha) {
@@ -2137,6 +2164,8 @@ async function serveMcp(session) {
             ...(screenshotGrant ? { consentGrantId: screenshotGrant } : {}),
           }),
         )
+        // The running analysis may have read this commit's reports already.
+        if (result.stored) analyzedCommits.delete(report.commitSha)
         analyzeLater(report.commitSha)
         return result
       },
@@ -2147,13 +2176,7 @@ async function serveMcp(session) {
           ({ grant }) => grant.id,
         )
         if (!grantIds.length && !session.values.grant?.length) grantIds = await agreeToLearn()
-        if (!grantIds.length)
-          throw new LearningError(
-            "grant_inactive",
-            consent && canAskPerson()
-              ? "The person didn't agree to learn from chats in this session. They can run replica-learning grants add, or start a new session to be asked again."
-              : "No one has agreed to learn from sessions here. Ask the person to agree in the form this tool shows, or to start the server with --grant.",
-          )
+        if (!grantIds.length) throw new LearningError("grant_inactive", noConsentMessage())
         const result = await withStore((store, ctx) =>
           store.importAgentSession(ctx, input, { grantIds }),
         )
@@ -2205,6 +2228,12 @@ async function serveMcp(session) {
             "unsupported",
             "This client cannot show the person a form. get_learning gives the commands they can run instead.",
           )
+        await withStore((store) =>
+          localLearning.finishStoppedApplies(store, {
+            system: context(session, { kind: "system", id: "system:replica-learning-mcp" }),
+            as: (principal) => context(session, principal),
+          }),
+        )
         const waiting = await withStore((store) => waitingForReview(store))
         const digests = new Map(waiting.proposals.map((record) => [record.id, record.reviewDigest]))
         const counts = await localLearning.reviewWithPerson(askPerson, {
@@ -2219,7 +2248,10 @@ async function serveMcp(session) {
               if (kind === "accept") await store.acceptMemory(ctx, id, { expectedDigest, content })
               if (kind === "reject") await store.rejectMemory(ctx, id, { expectedDigest, reason })
               if (kind === "apply")
-                await store.applyUpdate(ctx, id, { reason, operationId: randomUUID() })
+                await store.applyUpdate(ctx, id, {
+                  reason,
+                  operationId: localLearning.applyOperationId(id),
+                })
               if (kind === "dismiss")
                 await store.dismissUpdate(ctx, id, { reason, operationId: randomUUID() })
             }),
@@ -2255,6 +2287,20 @@ function decisionCommandPrefix(session) {
     if (session.values[name] !== undefined)
       parts.push(`--${name}`, shellQuote(session.values[name]))
   return parts.join(" ")
+}
+
+function consentGrantCommands(session) {
+  const command = decisionCommandPrefix(session)
+  const by = "github:YOUR_LOGIN"
+  return [
+    "To see the grant IDs for this checkout:",
+    `${command} grants list`,
+    "Replace YOUR_LOGIN below with the login you entered above.",
+    "To stop learning from chats, run:",
+    `${command} grants withdraw CHAT_GRANT_ID --purpose review --purpose instruction --purpose evaluation --by ${by}`,
+    "If you agreed to screenshot analysis, stop it separately:",
+    `${command} grants withdraw SCREENSHOT_GRANT_ID --purpose evaluation --by ${by}`,
+  ]
 }
 
 function shellQuote(value) {

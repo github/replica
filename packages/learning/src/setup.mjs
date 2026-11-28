@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process"
 import { constants, lstatSync } from "node:fs"
-import { mkdir, open } from "node:fs/promises"
+import { lstat, mkdir, open } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
-import { isIgnoredByGit, prepareLocalLearningStore } from "./config.mjs"
+import { isIgnoredByGit, prepareLocalLearningStore, tracksFilesIn } from "./config.mjs"
 import { LearningError } from "./errors.mjs"
 import { NO_FOLLOW } from "./providers/files.mjs"
 
@@ -48,14 +48,10 @@ export async function setupLocalLearning({
 
   const steps = []
   // Ignoring a path doesn't stop Git committing files it already tracks there.
-  const { stdout: tracked } = await promisify(execFile)("git", [
-    "-C",
-    root,
-    "ls-files",
-    "--",
-    ".replica",
-  ])
-  if (tracked.trim())
+  const tracked = await tracksFilesIn(root, ".replica")
+  if (tracked === null)
+    throw new LearningError("invalid_input", "Git could not say whether it tracks .replica/.")
+  if (tracked)
     throw new LearningError(
       "invalid_input",
       "Git already tracks files in .replica/. Run git rm -r --cached .replica, commit that, then run setup again.",
@@ -94,13 +90,12 @@ export async function setupLocalLearning({
       },
     },
   }
-  const handle = await open(
-    file,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | NO_FOLLOW,
-    0o600,
-  )
+  // Emptied only once it is known to be our own private file, not a link to another.
+  const handle = await openPlainFile(file, constants.O_WRONLY, 0o600)
   try {
-    await handle.writeFile(`${JSON.stringify(config, null, 2)}\n`)
+    await handle.chmod(0o600)
+    await handle.truncate(0)
+    await handle.write(`${JSON.stringify(config, null, 2)}\n`, 0)
   } finally {
     await handle.close()
   }
@@ -114,28 +109,55 @@ export async function setupLocalLearning({
 
 /**
  * Adds .replica/ to the checkout's own .gitignore. A cloned repository could commit
- * .gitignore as a link, so setup refuses anything but a plain file and never follows
- * a link while writing.
+ * .gitignore as a link, so setup refuses anything but a plain file.
  */
 async function appendToGitignore(root) {
-  const gitignore = path.join(root, ".gitignore")
-  const handle = await open(
-    gitignore,
-    constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | NO_FOLLOW,
+  const handle = await openPlainFile(
+    path.join(root, ".gitignore"),
+    constants.O_RDWR | constants.O_APPEND,
     0o644,
-  ).catch((error) => {
-    if (error.code === "ELOOP" || error.code === "EISDIR")
-      throw new LearningError("invalid_input", `${gitignore} is not a plain file.`)
-    throw error
-  })
+  )
   try {
-    const stats = await handle.stat()
-    if (!stats.isFile() || stats.nlink !== 1)
-      throw new LearningError("invalid_input", `${gitignore} is not a plain file.`)
     const current = await handle.readFile("utf8")
     await handle.write(`${current && !current.endsWith("\n") ? "\n" : ""}.replica/\n`)
   } finally {
     await handle.close()
+  }
+}
+
+/**
+ * Opens or creates a plain file without writing through a link to somewhere else. The
+ * name is checked before and after opening as well as the open file, because Windows
+ * follows links even when asked not to.
+ */
+async function openPlainFile(file, flags, mode) {
+  const notPlain = () => new LearningError("invalid_input", `${file} is not a plain file.`)
+  const entry = () =>
+    lstat(file).catch((error) => {
+      if (error.code === "ENOENT") return null
+      throw error
+    })
+  const before = await entry()
+  if (before && (!before.isFile() || before.nlink !== 1)) throw notPlain()
+  const handle = await open(file, flags | constants.O_CREAT | NO_FOLLOW, mode).catch((error) => {
+    if (error.code === "ELOOP" || error.code === "EISDIR") throw notPlain()
+    throw error
+  })
+  try {
+    const [opened, after] = await Promise.all([handle.stat(), entry()])
+    const same = (other) => other && other.ino === opened.ino && other.dev === opened.dev
+    if (
+      !opened.isFile() ||
+      opened.nlink !== 1 ||
+      !after?.isFile() ||
+      !same(after) ||
+      (before && !same(before))
+    )
+      throw notPlain()
+    return handle
+  } catch (error) {
+    await handle.close()
+    throw error
   }
 }
 
