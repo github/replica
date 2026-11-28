@@ -133,9 +133,22 @@
 
 .thread-sample__selection-actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--hub-space-8);
+  gap: var(--hub-space-4);
+}
+
+.thread-sample__selection-actions > button {
+  min-width: 0;
+  padding-inline: var(--hub-space-8);
+}
+
+.thread-sample__selection-actions .thread-sample__fix-label {
+  white-space: nowrap;
+}
+
+.thread-sample__selection-menu {
+  flex-shrink: 0;
+  margin-inline-start: auto;
 }
 
 @keyframes thread-sample-selection-slide-in {

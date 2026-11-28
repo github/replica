@@ -17,6 +17,59 @@ function pointerDown(
 }
 
 describe("ImprovementThreads()", () => {
+  it.each(["unchanged", "revision", "branch", "away-and-back", "busy"] as const)(
+    "fixes only the open note from its menu after %s",
+    async (change) => {
+      const thread: ImprovementThread = {
+        id: 1,
+        revision: 1,
+        author: "You",
+        body: "Keep the save action visible",
+        target: "Save",
+        path: "/projects",
+        status: "open",
+        originalPending: true,
+        messages: [],
+      }
+      const props = {
+        threads: [thread, { ...thread, id: 2, body: "Align the project cards" }],
+        identity: "branch",
+        open: true,
+        onOpen: vi.fn(),
+        onClose: vi.fn(),
+        onFollowUp: vi.fn().mockResolvedValue(true),
+        onResolve: vi.fn().mockResolvedValue(true),
+        onDelete: vi.fn().mockResolvedValue(true),
+        onFix: vi.fn().mockResolvedValue(true),
+        onFixSelected: vi.fn().mockResolvedValue(true),
+      }
+      const view = render(<ImprovementThreads {...props} />)
+      fireEvent.click(screen.getByRole("button", { name: `${copy.actions}: 1` }))
+      const fix = screen.getByRole("menuitem", { name: copy.fixNow })
+      expect(screen.getByRole("menuitem", { name: copy.delete })).toBeEnabled()
+      if (change === "revision")
+        view.rerender(
+          <ImprovementThreads
+            {...props}
+            threads={[{ ...thread, revision: 2 }, props.threads[1]!]}
+          />,
+        )
+      if (change === "branch" || change === "away-and-back")
+        view.rerender(<ImprovementThreads {...props} identity="another branch" />)
+      if (change === "away-and-back") view.rerender(<ImprovementThreads {...props} />)
+      if (change === "busy") view.rerender(<ImprovementThreads {...props} busy />)
+      await act(async () => {
+        fireEvent.click(fix)
+        await Promise.resolve()
+      })
+      if (change === "unchanged")
+        expect(props.onFixSelected).toHaveBeenCalledExactlyOnceWith([thread])
+      else expect(props.onFixSelected).not.toHaveBeenCalled()
+      expect(props.onFix).not.toHaveBeenCalled()
+      expect(props.onDelete).not.toHaveBeenCalled()
+    },
+  )
+
   it.each([true, false])(
     "resolves only ready notes in order and stops on failure: %s",
     async (success) => {
@@ -158,6 +211,390 @@ describe("ImprovementThreads()", () => {
           ]),
         )
         expect(onFixSelected).not.toHaveBeenCalled()
+      }
+    },
+  )
+
+  it.each(["success", "failure", "branch", "away-and-back"] as const)(
+    "deletes only the confirmed mixed selection and stops safely on %s",
+    async (outcome) => {
+      const first: ImprovementThread = {
+        id: 1,
+        revision: 1,
+        author: "You",
+        body: "First selected request",
+        target: "Save",
+        path: "/projects",
+        status: "open",
+        originalPending: true,
+        messages: [],
+      }
+      const second: ImprovementThread = {
+        ...first,
+        id: 2,
+        body: "Second selected request",
+        status: "ready",
+        originalPending: false,
+      }
+      const third: ImprovementThread = {
+        ...first,
+        id: 3,
+        body: "Third selected request",
+        status: "blocked",
+        retryStatus: "blocked",
+      }
+      const unselected = { ...first, id: 4, body: "Unselected request" }
+      let finish: (value: boolean) => void
+      const onDelete = vi
+        .fn<(item: ImprovementThread) => Promise<boolean>>()
+        .mockResolvedValueOnce(true)
+        .mockImplementationOnce(
+          () =>
+            new Promise<boolean>((resolve) => {
+              finish = resolve
+            }),
+        )
+        .mockResolvedValue(true)
+      const props = {
+        threads: [first, second, third, unselected],
+        identity: "first branch",
+        open: true,
+        onOpen: vi.fn(),
+        onClose: vi.fn(),
+        onFollowUp: vi.fn().mockResolvedValue(true),
+        onResolve: vi.fn().mockResolvedValue(true),
+        onDelete,
+        onRetry: vi.fn().mockResolvedValue(true),
+        onFixSelected: vi.fn().mockResolvedValue(true),
+        onFix: vi.fn().mockResolvedValue(true),
+      }
+      const view = render(<ImprovementThreads {...props} />)
+      for (const item of [first, second, third]) {
+        fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${item.body}` }))
+      }
+      fireEvent.click(screen.getByRole("button", { name: "Selected note actions" }))
+      const menu = screen.getByRole("menu", { name: "Selected note actions" })
+      fireEvent.click(within(menu).getByRole("menuitem", { name: copy.delete }))
+
+      const confirmation = screen.getByRole("dialog", { name: "Delete these notes?" })
+      for (const item of [first, second, third]) {
+        expect(confirmation).toHaveTextContent(item.body)
+      }
+      expect(confirmation).not.toHaveTextContent(unselected.body)
+      expect(onDelete).not.toHaveBeenCalled()
+      fireEvent.click(within(confirmation).getByRole("button", { name: copy.delete }))
+      await waitFor(() => expect(onDelete.mock.calls.map(([item]) => item.id)).toEqual([1, 2]))
+      expect(screen.getByRole("checkbox", { name: `Select note: ${first.body}` })).not.toBeChecked()
+      expect(screen.getByRole("checkbox", { name: `Select note: ${second.body}` })).toBeChecked()
+      expect(screen.getByRole("checkbox", { name: `Select note: ${third.body}` })).toBeChecked()
+      expect(within(confirmation).getByRole("button", { name: copy.delete })).toBeDisabled()
+
+      if (outcome === "branch" || outcome === "away-and-back") {
+        view.rerender(<ImprovementThreads {...props} identity="second branch" />)
+        if (outcome === "away-and-back") view.rerender(<ImprovementThreads {...props} />)
+      }
+      await act(async () => {
+        finish(outcome !== "failure")
+        await Promise.resolve()
+      })
+
+      expect(onDelete.mock.calls.map(([item]) => item.id)).toEqual(
+        outcome === "success" ? [1, 2, 3] : [1, 2],
+      )
+      expect(onDelete.mock.calls[0]?.[0]).toEqual(first)
+      expect(onDelete.mock.calls[1]?.[0]).toEqual(second)
+      expect(
+        screen.getByRole("checkbox", { name: `Select note: ${unselected.body}` }),
+      ).not.toBeChecked()
+      if (outcome === "failure") {
+        expect(screen.getByRole("checkbox", { name: `Select note: ${second.body}` })).toBeChecked()
+        expect(screen.getByRole("checkbox", { name: `Select note: ${third.body}` })).toBeChecked()
+      } else {
+        expect(screen.queryByRole("region", { name: copy.selection })).not.toBeInTheDocument()
+      }
+      expect(props.onRetry).not.toHaveBeenCalled()
+      expect(props.onFix).not.toHaveBeenCalled()
+      expect(props.onFixSelected).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    ["blocked", "blocked", copy.retry],
+    ["sent", "sent", copy.returnToActive],
+    ["blocked", "sent", null],
+    ["blocked", undefined, null],
+    ["sent", undefined, null],
+    [undefined, undefined, null],
+  ] as const)(
+    "offers recovery only for a homogeneous retry status: %s and %s",
+    async (firstStatus, secondStatus, action) => {
+      const first: ImprovementThread = {
+        id: 1,
+        revision: 1,
+        author: "You",
+        body: "First recovery request",
+        target: "Save",
+        path: "/projects",
+        status: "open",
+        retryStatus: firstStatus,
+        originalPending: true,
+        messages: [],
+      }
+      const second: ImprovementThread = {
+        ...first,
+        id: 2,
+        body: "Second recovery request",
+        status: "ready",
+        retryStatus: secondStatus,
+        originalPending: false,
+      }
+      const unselected = { ...first, id: 3, body: "Unselected recovery request" }
+      const props = {
+        threads: [first, second, unselected],
+        identity: "branch",
+        open: true,
+        onOpen: vi.fn(),
+        onClose: vi.fn(),
+        onFollowUp: vi.fn().mockResolvedValue(true),
+        onResolve: vi.fn().mockResolvedValue(true),
+        onDelete: vi.fn().mockResolvedValue(true),
+        onRetry: vi.fn().mockResolvedValue(true),
+        onFixSelected: vi.fn().mockResolvedValue(true),
+        onFix: vi.fn().mockResolvedValue(true),
+      }
+      const view = render(<ImprovementThreads {...props} />)
+      for (const item of [first, second]) {
+        fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${item.body}` }))
+      }
+      fireEvent.click(screen.getByRole("button", { name: "Selected note actions" }))
+      const menu = screen.getByRole("menu", { name: "Selected note actions" })
+      expect(within(menu).getByRole("menuitem", { name: copy.delete })).toBeEnabled()
+      for (const label of [copy.retry, copy.returnToActive]) {
+        if (label === action) {
+          expect(within(menu).getByRole("menuitem", { name: label })).toBeEnabled()
+        } else {
+          expect(within(menu).queryByRole("menuitem", { name: label })).not.toBeInTheDocument()
+        }
+      }
+      if (action) {
+        view.rerender(
+          <ImprovementThreads {...props} threads={props.threads.map((item) => ({ ...item }))} />,
+        )
+        fireEvent.click(screen.getByRole("menuitem", { name: action }))
+        await waitFor(() => expect(props.onRetry.mock.calls).toEqual([[first], [second]]))
+        expect(screen.queryByRole("region", { name: copy.selection })).not.toBeInTheDocument()
+      } else {
+        expect(props.onRetry).not.toHaveBeenCalled()
+      }
+      expect(props.onDelete).not.toHaveBeenCalled()
+      expect(props.onResolve).not.toHaveBeenCalled()
+      expect(props.onFixSelected).not.toHaveBeenCalled()
+      expect(props.onFix).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    ["blocked", copy.retry, "failure"],
+    ["sent", copy.returnToActive, "failure"],
+    ["blocked", copy.retry, "branch"],
+    ["sent", copy.returnToActive, "branch"],
+    ["blocked", copy.retry, "away-and-back"],
+    ["sent", copy.returnToActive, "away-and-back"],
+  ] as const)("stops selected %s recovery using %s on %s", async (status, action, outcome) => {
+    const first: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "First recovery request",
+      target: "Save",
+      path: "/projects",
+      status,
+      retryStatus: status,
+      originalPending: false,
+      messages: [],
+    }
+    const second = { ...first, id: 2, body: "Failed recovery request" }
+    const third = { ...first, id: 3, body: "Remaining recovery request" }
+    let finish: (value: boolean) => void
+    const onRetry = vi
+      .fn<(item: ImprovementThread) => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finish = resolve
+          }),
+      )
+      .mockResolvedValue(true)
+    const props = {
+      threads: [first, second, third],
+      identity: "first branch",
+      open: true,
+      onOpen: vi.fn(),
+      onClose: vi.fn(),
+      onFollowUp: vi.fn().mockResolvedValue(true),
+      onResolve: vi.fn().mockResolvedValue(true),
+      onDelete: vi.fn().mockResolvedValue(true),
+      onRetry,
+      onFix: vi.fn().mockResolvedValue(true),
+    }
+    const view = render(<ImprovementThreads {...props} />)
+    for (const item of [first, second, third]) {
+      fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${item.body}` }))
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Selected note actions" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: action }))
+    await waitFor(() => expect(onRetry.mock.calls).toEqual([[first], [second]]))
+    expect(screen.getByRole("checkbox", { name: `Select note: ${first.body}` })).not.toBeChecked()
+    if (outcome === "branch" || outcome === "away-and-back") {
+      view.rerender(<ImprovementThreads {...props} identity="second branch" />)
+      if (outcome === "away-and-back") view.rerender(<ImprovementThreads {...props} />)
+    }
+    await act(async () => {
+      finish(outcome !== "failure")
+      await Promise.resolve()
+    })
+    expect(onRetry.mock.calls).toEqual([[first], [second]])
+    if (outcome === "failure") {
+      for (const item of [second, third]) {
+        expect(screen.getByRole("checkbox", { name: `Select note: ${item.body}` })).toBeChecked()
+      }
+      expect(screen.getByRole("button", { name: "Selected note actions" })).toBeEnabled()
+    } else {
+      expect(screen.queryByRole("region", { name: copy.selection })).not.toBeInTheDocument()
+    }
+    expect(props.onFix).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["menu", copy.delete, "selection"],
+    ["menu", copy.retry, "revision"],
+    ["menu", copy.returnToActive, "identity"],
+    ["menu", copy.retry, "away-and-back"],
+    ["confirmation", copy.delete, "selection"],
+    ["confirmation", copy.delete, "revision"],
+    ["confirmation", copy.delete, "identity"],
+    ["confirmation", copy.delete, "away-and-back"],
+  ] as const)(
+    "rejects a stale selected-note %s for %s after %s changes",
+    async (stage, action, change) => {
+      const first: ImprovementThread = {
+        id: 1,
+        revision: 1,
+        author: "You",
+        body: "First selected request",
+        target: "Save",
+        path: "/projects",
+        status: "blocked",
+        retryStatus: action === copy.returnToActive ? "sent" : "blocked",
+        originalPending: false,
+        messages: [],
+      }
+      const second = { ...first, id: 2, body: "Second selected request" }
+      const props = {
+        threads: [first, second],
+        identity: "first branch",
+        open: true,
+        onOpen: vi.fn(),
+        onClose: vi.fn(),
+        onFollowUp: vi.fn().mockResolvedValue(true),
+        onResolve: vi.fn().mockResolvedValue(true),
+        onDelete: vi.fn().mockResolvedValue(true),
+        onRetry: vi.fn().mockResolvedValue(true),
+        onFix: vi.fn().mockResolvedValue(true),
+      }
+      const view = render(<ImprovementThreads {...props} />)
+      for (const item of [first, second]) {
+        fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${item.body}` }))
+      }
+      fireEvent.click(screen.getByRole("button", { name: "Selected note actions" }))
+      if (stage === "confirmation") {
+        fireEvent.click(screen.getByRole("menuitem", { name: copy.delete }))
+        expect(screen.getByRole("dialog", { name: "Delete these notes?" })).toBeInTheDocument()
+      }
+      if (change === "selection") {
+        fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${second.body}` }))
+      } else if (change === "revision") {
+        view.rerender(
+          <ImprovementThreads {...props} threads={[first, { ...second, revision: 2 }]} />,
+        )
+      } else {
+        view.rerender(<ImprovementThreads {...props} identity="second branch" />)
+        if (change === "away-and-back") view.rerender(<ImprovementThreads {...props} />)
+      }
+      const staleAction = screen.queryByRole(stage === "menu" ? "menuitem" : "button", {
+        name: action,
+      })
+      if (staleAction) {
+        await act(async () => {
+          fireEvent.click(staleAction)
+          await Promise.resolve()
+        })
+      }
+      expect(props.onDelete).not.toHaveBeenCalled()
+      expect(props.onRetry).not.toHaveBeenCalled()
+      if (stage === "menu") {
+        expect(
+          screen.queryByRole("dialog", { name: "Delete these notes?" }),
+        ).not.toBeInTheDocument()
+      }
+    },
+  )
+
+  it.each(["busy", "draft"] as const)(
+    "protects selected notes from deletion and recovery during %s",
+    (blockedBy) => {
+      const thread: ImprovementThread = {
+        id: 1,
+        revision: 1,
+        author: "You",
+        body: "Selected recovery request",
+        target: "Save",
+        path: "/projects",
+        status: "blocked",
+        retryStatus: "blocked",
+        originalPending: false,
+        messages: [],
+      }
+      const props = {
+        threads: [thread],
+        identity: "branch",
+        open: true,
+        onOpen: vi.fn(),
+        onClose: vi.fn(),
+        onFollowUp: vi.fn().mockResolvedValue(true),
+        onResolve: vi.fn().mockResolvedValue(true),
+        onDelete: vi.fn().mockResolvedValue(true),
+        onRetry: vi.fn().mockResolvedValue(true),
+        onFix: vi.fn().mockResolvedValue(true),
+      }
+      const view = render(<ImprovementThreads {...props} />)
+      fireEvent.click(screen.getByRole("checkbox", { name: `Select note: ${thread.body}` }))
+      fireEvent.click(screen.getByRole("button", { name: "Selected note actions" }))
+      if (blockedBy === "busy") {
+        view.rerender(<ImprovementThreads {...props} busy />)
+      } else {
+        fireEvent.click(screen.getByRole("button", { name: `Open note: ${thread.body}` }))
+        fireEvent.change(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
+          target: { value: "Unsaved recovery follow-up" },
+        })
+      }
+      const button = screen.getByRole("button", { name: "Selected note actions" })
+      expect(button).toBeDisabled()
+      fireEvent.click(button)
+      for (const label of [copy.delete, copy.retry]) {
+        const item = screen.queryByRole("menuitem", { name: label })
+        if (item) {
+          fireEvent.click(item)
+        }
+      }
+      expect(props.onDelete).not.toHaveBeenCalled()
+      expect(props.onRetry).not.toHaveBeenCalled()
+      expect(screen.queryByRole("dialog", { name: "Delete these notes?" })).not.toBeInTheDocument()
+      if (blockedBy === "draft") {
+        expect(screen.getByRole("textbox", { name: copy.comments.replyLabel })).toHaveValue(
+          "Unsaved recovery follow-up",
+        )
       }
     },
   )
@@ -603,7 +1040,8 @@ describe("ImprovementThreads()", () => {
       }
       render(<Harness />)
       fireEvent.click(screen.getByRole("button", { name: "Open note: Original request" }))
-      fireEvent.click(screen.getByRole("button", { name: `${copy.delete}: 1` }))
+      fireEvent.click(screen.getByRole("button", { name: `${copy.actions}: 1` }))
+      fireEvent.click(screen.getByRole("menuitem", { name: copy.delete }))
       const confirmation = screen.getByRole("dialog", { name: copy.deleteTitle })
       expect(confirmation.querySelector("blockquote")).toHaveTextContent(thread.body)
       expect(confirmation).not.toHaveTextContent(
@@ -634,7 +1072,7 @@ describe("ImprovementThreads()", () => {
     },
   )
 
-  it("keeps the direct Delete action disabled during mutations and over an unsaved draft", () => {
+  it("keeps open note actions disabled during mutations and over an unsaved draft", () => {
     const thread: ImprovementThread = {
       id: 1,
       revision: 1,
@@ -659,7 +1097,7 @@ describe("ImprovementThreads()", () => {
     }
     const view = render(<ImprovementThreads {...props} />)
     view.rerender(<ImprovementThreads {...props} busy />)
-    const deleteAction = screen.getByRole("button", { name: `${copy.delete}: 1` })
+    const deleteAction = screen.getByRole("button", { name: `${copy.actions}: 1` })
     expect(deleteAction).toBeDisabled()
     fireEvent.click(deleteAction)
     expect(screen.queryByRole("dialog", { name: copy.deleteTitle })).not.toBeInTheDocument()
@@ -668,7 +1106,7 @@ describe("ImprovementThreads()", () => {
     fireEvent.change(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
       target: { value: "Unsaved follow-up" },
     })
-    expect(screen.getByRole("button", { name: `${copy.delete}: 1` })).toBeDisabled()
+    expect(screen.getByRole("button", { name: `${copy.actions}: 1` })).toBeDisabled()
     expect(screen.getByRole("textbox", { name: copy.comments.replyLabel })).toHaveValue(
       "Unsaved follow-up",
     )
@@ -755,7 +1193,7 @@ describe("ImprovementThreads()", () => {
         fireEvent.click(screen.getByRole("button", { name: /^Filter notes:/ }))
         fireEvent.click(screen.getByRole("menuitemradio", { name: copy.resolved }))
       }
-      if (status !== "ready") {
+      if (status !== "ready" && status !== "open") {
         expect(screen.queryByRole("button", { name: "Note actions: 1" })).not.toBeInTheDocument()
         expect(screen.getByRole("button", { name: `${copy.delete}: 1` })).toHaveClass(
           "thread-sample__single-delete",
@@ -765,6 +1203,12 @@ describe("ImprovementThreads()", () => {
       }
       fireEvent.click(screen.getByRole("button", { name: "Note actions: 1" }))
       expect(screen.queryByRole("menuitem", { name: "Add follow-up" })).not.toBeInTheDocument()
+      if (status === "open") {
+        expect(screen.queryByRole("menuitem", { name: copy.markResolved })).not.toBeInTheDocument()
+        expect(screen.getByRole("menuitem", { name: copy.delete })).toBeEnabled()
+        expect(onResolve).not.toHaveBeenCalled()
+        return
+      }
       const resolve = screen.queryByRole("menuitem", { name: copy.markResolved })
       if (!resolve) throw new Error("Expected the ready-work resolution action.")
       expect(resolve).toBeEnabled()
@@ -967,7 +1411,8 @@ describe("ImprovementThreads()", () => {
       onFix: vi.fn().mockResolvedValue(true),
     }
     const view = render(<ImprovementThreads {...props} />)
-    fireEvent.click(screen.getByRole("button", { name: `${copy.delete}: 1` }))
+    fireEvent.click(screen.getByRole("button", { name: `${copy.actions}: 1` }))
+    fireEvent.click(screen.getByRole("menuitem", { name: copy.delete }))
     view.rerender(<ImprovementThreads {...props} identity="second" />)
     expect(screen.getByRole("alert")).toHaveTextContent(copy.changedIdentity)
     const confirm = screen.getByRole("button", { name: copy.delete })

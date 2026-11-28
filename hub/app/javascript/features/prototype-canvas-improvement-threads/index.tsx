@@ -94,7 +94,9 @@ export function ImprovementThreads({
     setNoteSelection({ identity, open, filter, ids: [] })
   }
   const selectedNotes = noteSelection.ids
-  const [selectedAction, setSelectedAction] = useState<"fix" | "resolve" | null>(null)
+  const [selectedAction, setSelectedAction] = useState<
+    "fix" | "resolve" | "retry" | "delete" | null
+  >(null)
   const resolving = useRef(false)
   const resolutionToken = useRef({})
   const busy = saving || resolvingAll || selectedAction !== null
@@ -105,26 +107,47 @@ export function ImprovementThreads({
     }
   }, [identity])
   const [discarding, setDiscarding] = useState(false)
-  const [deleting, setDeleting] = useState<ImprovementThread | null>(null)
+  const [deleting, setDeleting] = useState<{
+    items: ImprovementThread[]
+    token: object
+    bulk: boolean
+    identityChanged?: boolean
+  } | null>(null)
   useLayoutEffect(() => {
     onInteractionChange?.(selected !== null || deleting !== null)
   }, [selected, deleting, onInteractionChange])
   const [openedIdentity, setOpenedIdentity] = useState(identity)
+  if (deleting && identity !== openedIdentity && !deleting.identityChanged)
+    setDeleting({ ...deleting, identityChanged: true })
   const [message, setMessage] = useState("")
   const [surface, setSurface] = useState<HTMLDivElement | null>(null)
   const [slot] = useState(() => document.querySelector("#canvas-improvement-controls"))
   const trigger = useRef<HTMLButtonElement>(null)
   const fallbackFocus = returnFocusRef ?? trigger
   const opener = useRef<HTMLElement | null>(null)
-  const menuThread = useRef<{ identity: string; id: number; revision: number } | null>(null)
+  const menuThread = useRef<{
+    identity: string
+    id: number
+    revision: number
+    token: object
+  } | null>(null)
+  const menuSelection = useRef<{
+    identity: string
+    token: object
+    items: ImprovementThread[]
+  } | null>(null)
   const cardButtons = useRef(new Map<number, HTMLButtonElement>())
   const returnTo = useRef<number | null>(null)
   const closingSidebar = useRef(false)
   const currentThread = threads.find((item) => item.id === selected)
-  const changedIdentity = (selected !== null || deleting !== null) && identity !== openedIdentity
+  const changedIdentity =
+    ((selected !== null || deleting !== null) && identity !== openedIdentity) ||
+    Boolean(deleting?.identityChanged)
   const thread = identity !== openedIdentity ? openedThread : (currentThread ?? openedThread)
   const removed = selected !== null && !currentThread
-  const deletionRemoved = deleting !== null && !threads.some((item) => item.id === deleting.id)
+  const deletionRemoved =
+    deleting !== null &&
+    deleting.items.some((deleted) => !threads.some((item) => item.id === deleted.id))
   const showError = useReviewError(error)
   const showIdentityError = useReviewError(changedIdentity && copy.changedIdentity)
   const showRemovedError = useReviewError((removed || deletionRemoved) && copy.removed)
@@ -155,6 +178,22 @@ export function ImprovementThreads({
   const selectedReady = visible.filter(
     (item) => item.status === "ready" && selectedNotes.includes(item.id),
   )
+  const selectedItems = visible.filter((item) => selectedNotes.includes(item.id))
+  const deletionChanged =
+    deleting !== null &&
+    deleting.bulk &&
+    (deleting.items.some(
+      (deleted) =>
+        !threads.some((item) => item.id === deleted.id && item.revision === deleted.revision),
+    ) ||
+      deleting.items.length !== selectedNotes.length ||
+      deleting.items.some((item) => !selectedNotes.includes(item.id)))
+  const selectedRetryStatus =
+    selectedItems.length > 0 &&
+    selectedItems.length === selectedNotes.length &&
+    selectedItems.every((item) => item.retryStatus === selectedItems[0]!.retryStatus)
+      ? selectedItems[0]!.retryStatus
+      : undefined
 
   useLayoutEffect(() => {
     if (selected !== null) {
@@ -259,7 +298,7 @@ export function ImprovementThreads({
         !(event.target instanceof Element) ||
         conversation.current?.contains(event.target) ||
         event.target.closest(
-          '.thread-sample__card-button, .thread-sample__marker, .thread-sample__menu, .thread-sample__filters, .hub-sidebar__close, [role="menu"], dialog',
+          '.thread-sample__card-button, .thread-sample__marker, .thread-sample__menu, .thread-sample__selection, .thread-sample__filters, .hub-sidebar__close, [role="menu"], dialog',
         )
       )
         return
@@ -387,11 +426,106 @@ export function ImprovementThreads({
     await onRetry(item)
   }
 
+  async function fixFromMenu(item: ImprovementThread) {
+    if (
+      !onFixSelected ||
+      item.status !== "open" ||
+      menuThread.current?.identity !== identity ||
+      menuThread.current.id !== item.id ||
+      menuThread.current.revision !== item.revision ||
+      menuThread.current.token !== resolutionToken.current ||
+      busy ||
+      draft.trim() ||
+      discarding ||
+      changedIdentity
+    )
+      return
+    const token = resolutionToken.current
+    setSelectedAction("fix")
+    try {
+      if ((await onFixSelected([item])) && token === resolutionToken.current)
+        setNoteSelection((selection) => ({
+          ...selection,
+          ids: selection.ids.filter((id) => id !== item.id),
+        }))
+    } finally {
+      setSelectedAction(null)
+    }
+  }
+
   function requestDelete(item: ImprovementThread, element?: HTMLElement) {
     if (busy || draft.trim() || discarding) return
     if (element) opener.current = element
     setOpenedIdentity(identity)
-    setDeleting(item)
+    setDeleting({ items: [item], token: resolutionToken.current, bulk: false })
+  }
+
+  function selectedFromMenu() {
+    const captured = menuSelection.current
+    if (
+      !captured ||
+      captured.identity !== identity ||
+      captured.token !== resolutionToken.current ||
+      captured.items.length !== selectedNotes.length ||
+      captured.items.length !== selectedItems.length ||
+      captured.items.some(
+        (item) =>
+          !selectedItems.some(
+            (current) => current.id === item.id && current.revision === item.revision,
+          ),
+      ) ||
+      busy ||
+      draft.trim() ||
+      discarding ||
+      changedIdentity
+    )
+      return null
+    return captured
+  }
+
+  async function retrySelected() {
+    const captured = selectedFromMenu()
+    if (!captured || !onRetry || !selectedRetryStatus) return
+    setSelectedAction("retry")
+    try {
+      for (const item of captured.items) {
+        if (captured.token !== resolutionToken.current || !(await onRetry(item))) break
+        if (captured.token !== resolutionToken.current) break
+        setNoteSelection((selection) => ({
+          ...selection,
+          ids: selection.ids.filter((id) => id !== item.id),
+        }))
+      }
+    } finally {
+      setSelectedAction(null)
+      if (!opener.current?.isConnected) fallbackFocus.current?.focus()
+    }
+  }
+
+  async function deleteNotes() {
+    if (!deleting || busy || changedIdentity || deletionRemoved || deletionChanged) return
+    const captured = deleting
+    setSelectedAction("delete")
+    try {
+      for (const item of captured.items) {
+        if (captured.token !== resolutionToken.current || !(await onDelete(item))) break
+        if (captured.token !== resolutionToken.current) break
+        const next = visible.find((remaining) => !captured.items.includes(remaining))
+        opener.current = (next ? cardButtons.current.get(next.id) : null) ?? fallbackFocus.current
+        if (selected === item.id) leave()
+        setNoteSelection((selection) => ({
+          ...selection,
+          ids: selection.ids.filter((id) => id !== item.id),
+        }))
+        setDeleting((current) => {
+          if (current?.token !== captured.token) return current
+          const items = current.items.filter((remaining) => remaining.id !== item.id)
+          return items.length ? { ...current, items } : null
+        })
+      }
+    } finally {
+      setSelectedAction(null)
+    }
   }
 
   const toolbarControl = (
@@ -650,7 +784,7 @@ export function ImprovementThreads({
             const count = item.messages.filter((entry) => entry.role === "author").length
             const isSelected = selectedNotes.includes(item.id)
             const hasOtherActions = Boolean(
-              (onRetry && item.retryStatus) || item.status === "ready",
+              (onRetry && item.retryStatus) || item.status === "ready" || item.status === "open",
             )
             return (
               <article
@@ -730,7 +864,9 @@ export function ImprovementThreads({
                       selectionVariant="none"
                       size="small"
                       menuAlignment="end"
-                      disabled={Boolean(draft.trim()) || discarding}
+                      disabled={
+                        Boolean(draft.trim()) || discarding || (item.status === "open" && busy)
+                      }
                     >
                       <ActionMenu.IconButton
                         icon={KebabHorizontalIcon}
@@ -738,10 +874,28 @@ export function ImprovementThreads({
                         variant="invisible"
                         onClick={(event) => {
                           opener.current = event.currentTarget
-                          menuThread.current = { identity, id: item.id, revision: item.revision }
+                          menuThread.current = {
+                            identity,
+                            id: item.id,
+                            revision: item.revision,
+                            token: resolutionToken.current,
+                          }
                         }}
                       />
                       <ActionMenu.Overlay aria-label={`${copy.actions}: ${item.id}`}>
+                        {item.status === "open" && onFixSelected ? (
+                          <ActionMenu.Item
+                            value="fix"
+                            disabled={busy}
+                            className="thread-sample__menu-item"
+                            leadingVisual={<SparkleIcon size={16} />}
+                            onClick={() => {
+                              void fixFromMenu(item)
+                            }}
+                          >
+                            {copy.fixNow}
+                          </ActionMenu.Item>
+                        ) : null}
                         {onRetry && item.retryStatus ? (
                           <ActionMenu.Item
                             value="retry"
@@ -805,6 +959,7 @@ export function ImprovementThreads({
                 <button
                   type="button"
                   className="thread-sample__clear-selection"
+                  disabled={busy || deleting !== null}
                   onClick={() => setNoteSelection((selection) => ({ ...selection, ids: [] }))}
                 >
                   {copy.clearSelection}
@@ -835,16 +990,73 @@ export function ImprovementThreads({
                   variant="secondary"
                   disabled={busy || Boolean(draft.trim()) || discarding || changedIdentity}
                   aria-busy={selectedAction === "resolve"}
+                  aria-label={`${copy.markResolved} ${selectedReady.length}`}
                   onClick={() => {
                     void resolveSelected()
                   }}
                 >
                   <span className="thread-sample__fix-label">
-                    {copy.markResolved}
+                    {copy.resolveSelected}
                     <HubCounter>{selectedReady.length}</HubCounter>
                   </span>
                 </Button>
               ) : null}
+              <div className="thread-sample__selection-menu">
+                <ActionMenu
+                  selectionVariant="none"
+                  size="small"
+                  menuAlignment="end"
+                  disabled={
+                    busy ||
+                    Boolean(draft.trim()) ||
+                    discarding ||
+                    changedIdentity ||
+                    !selectedItems.length
+                  }
+                  menuSide="outside-top"
+                >
+                  <ActionMenu.IconButton
+                    icon={KebabHorizontalIcon}
+                    aria-label={copy.selectedActions}
+                    variant="secondary"
+                    onClick={(event) => {
+                      opener.current = event.currentTarget
+                      menuSelection.current = {
+                        identity,
+                        token: resolutionToken.current,
+                        items: selectedItems,
+                      }
+                    }}
+                  />
+                  <ActionMenu.Overlay aria-label={copy.selectedActions}>
+                    {onRetry && selectedRetryStatus ? (
+                      <ActionMenu.Item
+                        value="retry"
+                        className="thread-sample__menu-item"
+                        leadingVisual={<SyncIcon size={16} />}
+                        onClick={() => {
+                          void retrySelected()
+                        }}
+                      >
+                        {selectedRetryStatus === "sent" ? copy.returnToActive : copy.retry}
+                      </ActionMenu.Item>
+                    ) : null}
+                    <ActionMenu.Item
+                      value="delete"
+                      className="thread-sample__menu-item thread-sample__delete"
+                      leadingVisual={<TrashIcon size={16} />}
+                      onClick={() => {
+                        const captured = selectedFromMenu()
+                        if (!captured) return
+                        setOpenedIdentity(identity)
+                        setDeleting({ items: captured.items, token: captured.token, bulk: true })
+                      }}
+                    >
+                      {copy.delete}
+                    </ActionMenu.Item>
+                  </ActionMenu.Overlay>
+                </ActionMenu>
+              </div>
             </div>
           </section>
         ) : null}
@@ -887,7 +1099,7 @@ export function ImprovementThreads({
       </p>
       {deleting ? (
         <CanvasDialog
-          title={copy.deleteTitle}
+          title={deleting.bulk ? copy.deleteSelectedTitle : copy.deleteTitle}
           closeLabel={copy.comments.cancelEditLabel}
           onClose={() => setDeleting(null)}
           returnFocusRef={opener}
@@ -907,7 +1119,11 @@ export function ImprovementThreads({
               {error}
             </p>
           ) : null}
-          <blockquote className="thread-sample__quote">{deleting.body}</blockquote>
+          {deleting.items.map((item) => (
+            <blockquote key={item.id} className="thread-sample__quote">
+              {item.body}
+            </blockquote>
+          ))}
           <div className="thread-sample__delete-actions">
             <Button size="small" variant="secondary" onClick={() => setDeleting(null)}>
               {copy.comments.cancelEditLabel}
@@ -916,16 +1132,10 @@ export function ImprovementThreads({
               size="small"
               variant="primary"
               className="thread-sample__delete-confirm"
-              disabled={busy || changedIdentity || deletionRemoved}
-              onClick={async () => {
-                if (busy || changedIdentity || deletionRemoved) return
-                if (await onDelete(deleting)) {
-                  const next = visible.find((item) => item.id !== deleting.id)
-                  opener.current =
-                    (next ? cardButtons.current.get(next.id) : null) ?? fallbackFocus.current
-                  if (selected === deleting.id) leave()
-                  setDeleting(null)
-                }
+              disabled={busy || changedIdentity || deletionRemoved || deletionChanged}
+              aria-busy={selectedAction === "delete"}
+              onClick={() => {
+                void deleteNotes()
               }}
             >
               {copy.delete}
